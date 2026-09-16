@@ -30,3 +30,18 @@
   `get_by_telegram_id`.
 
 Используется в [`packages/auth`](../auth/AGENTS.md).
+
+## Сервис
+
+- **`service.py`** — `UserService(transaction_manager: AsyncTransactionManager)`: профильные
+  операции над пользователем — `get_by_id`, `get_by_email`, `retrieve_all`, `update`, `delete`.
+  Работает с БД только через
+  [`core.transaction_manager.AsyncTransactionManager`](../../core/transaction_manager.py)
+  (`transaction_manager(use_user_repository=True)` открывает `AsyncSession` и поднимает
+  `UserRepository`), не держит `AsyncSession` напрямую.
+
+  Регистрация/аутентификация (хэширование пароля, JWT) в этот сервис не входят — это отдельная
+  доменная область [`packages/auth`](../auth/AGENTS.md). `AuthService` не инжектит `UserService` и не
+  зовёт его методы: он сам владеет `AsyncTransactionManager` и работает с `UserRepository` напрямую —
+  так весь сценарий регистрации/логина выполняется в одной БД-транзакции, а не в отдельной транзакции
+  на каждый вызов `UserService`.

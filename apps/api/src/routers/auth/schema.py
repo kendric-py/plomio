@@ -15,3 +15,7 @@ class LoginRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str = Field(description='JWT access-токен')
     token_type: str = Field(default='bearer', description='Тип токена')
+
+
+class StatusResponse(BaseModel):
+    has_users: bool = Field(description='Есть ли хотя бы один зарегистрированный пользователь')

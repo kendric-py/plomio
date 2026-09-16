@@ -38,6 +38,10 @@ class BaseRepositoryInterface(abc.ABC, Generic[EntityObject]):
     async def retrieve_all_by_filter(self, entity: EntityObject) -> list[EntityObject]:
         ...
 
+    @abc.abstractmethod
+    async def exists(self) -> bool:
+        ...
+
 
 class BaseRepository(
     BaseRepositoryInterface[EntityObject],
@@ -99,6 +103,10 @@ class BaseRepository(
         statement = select(self.model).filter_by(**entity.model_dump(exclude_none=True)).order_by(self.model.id)
         database_objects = await self.session.scalars(statement)
         return self._to_entities(database_objects=database_objects)
+
+    async def exists(self) -> bool:
+        statement = select(self.model.id).limit(1)
+        return await self.session.scalar(statement) is not None
 
     def _to_entity(self, database_object: DataBaseObject) -> EntityObject:
         return self.entity_object.model_validate(obj=database_object, from_attributes=True)

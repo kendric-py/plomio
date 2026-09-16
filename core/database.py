@@ -2,15 +2,14 @@ from typing import Tuple
 
 from pydantic_settings import BaseSettings
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 
 class BaseSQLModel(DeclarativeBase):
     pass
 
 
-def _get_database_connection(config: BaseSettings) -> Tuple[AsyncEngine, sessionmaker]:
+def get_database_connection(config: BaseSettings) -> Tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
     async_engine = create_async_engine(
         str(config.POSTGRES.DSN),
         echo=False,
@@ -18,9 +17,8 @@ def _get_database_connection(config: BaseSettings) -> Tuple[AsyncEngine, session
         pool_pre_ping=True,
         pool_recycle=1800,
     )
-    async_session = sessionmaker(
+    async_session_maker = async_sessionmaker(
         async_engine,
         expire_on_commit=False,
-        class_=AsyncSession,
     )
-    return (async_engine, async_session,)
+    return (async_engine, async_session_maker,)
