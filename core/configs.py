@@ -35,3 +35,16 @@ class PostgresConfig(BaseSettings):
             f'{fields.data.get("PORT")}/'
             f'{fields.data.get("DB")}',
         )
+
+
+class AuthConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file='.env',
+        env_file_encoding='utf-8',
+        env_prefix='AUTH_',
+        extra='ignore',
+    )
+
+    SECRET_KEY: str = Field(default=None)
+    ALGORITHM: str = Field(default='HS256')
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60)

@@ -5,13 +5,13 @@ from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
-from core.database import Base
+from core.database import BaseSQLModel
 from packages.api_keys.src.models import ApiKey
 from packages.membership.src.models import Membership
 from packages.user.src.enums import UserRole
 
 
-class User(Base):
+class User(BaseSQLModel):
     __tablename__ = 'users'
 
     id: Mapped[int] = mapped_column(primary_key=True)

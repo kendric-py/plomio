@@ -19,3 +19,14 @@
 
 > TODO: описать правила смены роли, условия признания подписки активной, жизненный цикл API-ключей —
 > по мере проработки доменных областей `membership` и `api_keys`.
+
+## Репозиторий
+
+- **`entities.py`** — `UserEntity`, pydantic-DTO модели `User` (все поля опциональны — используется и
+  для чтения, и как патч для частичного обновления через `BaseRepository.update`).
+- **`repository.py`** — `UserRepository(BaseRepository[User, UserEntity])`, наследует CRUD
+  (`create`/`get_by_id`/`retrieve_all`/`update`/`delete`/`retrieve_all_by_filter`) от
+  [`core.repository.BaseRepository`](../../core/repository.py) и добавляет `get_by_email`,
+  `get_by_telegram_id`.
+
+Используется в [`packages/auth`](../auth/AGENTS.md).
