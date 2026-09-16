@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "worker-sessions"
+version = "0.1.0"
+description = "Sessions worker service"
+authors = ["Your Name <you@example.com>"]
+package-mode = true
+packages = [{ include = "worker_sessions", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+shared = { path = "../..", develop = true }
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

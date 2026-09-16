@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "api"
+version = "0.1.0"
+description = "API service"
+authors = ["Your Name <you@example.com>"]
+package-mode = true
+packages = [{ include = "api", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+shared = { path = "../..", develop = true }
+fastapi = "^0.141.1"
+pydantic = "^2.13.5"
+pydantic-settings = "^2.15.0"
+uvicorn = "^0.53.0"
+sqlalchemy = "^2.0.54"
+alembic = "^1.20.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
