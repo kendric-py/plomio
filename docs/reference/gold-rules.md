@@ -16,8 +16,11 @@ packages/<domain>/
 - **При любом изменении доменной области** (новая сущность, изменение поведения, новые правила) —
   `AGENTS.md` этой области обязан быть обновлён под новые изменения в том же изменении/PR, а не
   задним числом.
+- **Енамы (`enum`) доменной области выносятся в отдельный файл `enums.py`**, рядом с `models.py`, а
+  не объявляются внутри `models.py`.
 
-Пример: [`packages/user/AGENTS.md`](../../packages/user/AGENTS.md).
+Пример: [`packages/user/AGENTS.md`](../../packages/user/AGENTS.md), енамы —
+[`packages/user/src/enums.py`](../../packages/user/src/enums.py).
 
 ## Pydantic-модели
 
