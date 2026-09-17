@@ -29,6 +29,11 @@
     `InvalidCredentialsError` при неверных данных.
   - `has_users` — есть ли хотя бы один пользователь (`user_repository.exists()`). Нужен фронту, чтобы
     решить, показывать форму логина или «зарегистрируйте администратора» (см. `GET /api/auth/status`).
+  - `register_user`/`authenticate_user` принимают `ip_address` и после завершения (успех или
+    ожидаемая доменная ошибка) пишут событие в audit log через `_record_audit_event` —
+    см. [`packages/audit_log`](../audit_log/AGENTS.md). Audit-запись пишется в отдельной транзакции,
+    не в той же, что бизнес-логика — иначе запись о неудачной попытке (`UserAlreadyExistsError`,
+    `InvalidCredentialsError`) откатывалась бы вместе с остальным.
 - **`exceptions.py`** — доменные исключения: `UserAlreadyExistsError`, `InvalidCredentialsError`,
   `InvalidTokenError`.
 

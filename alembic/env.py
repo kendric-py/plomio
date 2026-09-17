@@ -11,6 +11,7 @@ from apps.api.src.config import config as app_config
 from core.database import BaseSQLModel
 
 from packages.api_keys.src.models import ApiKey  # noqa: F401
+from packages.audit_log.src.models import AuditLog  # noqa: F401
 from packages.membership.src.models import Membership  # noqa: F401
 from packages.user.src.models import User  # noqa: F401
 

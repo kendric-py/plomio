@@ -1,5 +1,5 @@
 from dependency_injector.wiring import Provide, inject
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from apps.api.src.container import DependencyContainer
@@ -10,6 +10,10 @@ from packages.user.src.entities import UserEntity
 from packages.user.src.service import UserService
 
 bearer_scheme = HTTPBearer()
+
+
+def get_client_ip(request: Request) -> str | None:
+    return request.client.host if request.client else None
 
 
 @inject

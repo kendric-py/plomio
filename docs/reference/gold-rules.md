@@ -40,4 +40,18 @@ packages/<domain>/
   [`apps/api/src/routers/auth/schema.py`](../../apps/api/src/routers/auth/schema.py), а не в
   `packages/auth/`. Тот же принцип — для схем любого другого роута (`apps/api/src/routers/<domain>/schema.py`).
 
+## Вспомогательные функции роутера
+
+- **Вспомогательные функции, которые эндпоинт использует для получения/вычисления значения из
+  запроса (в том числе как FastAPI `Depends(...)`), не объявляются в `endpoints.py` рядом с роутами.**
+  Их место — `apps/<app>/src/routers/<domain>/dependencies.py`, вместе с остальными зависимостями
+  этого роута. `endpoints.py` содержит только сами обработчики маршрутов.
+- Это касается любых point-хелперов уровня роутера (парсинг заголовков, извлечение IP, разбор токена
+  и т.п.), а не только зависимостей, которые проверяют/поднимают доменную сущность.
+
+  Пример: `get_client_ip` (извлечение IP-адреса клиента из `Request`, используется для audit-логов
+  регистрации/логина) лежит в
+  [`apps/api/src/routers/auth/dependencies.py`](../../apps/api/src/routers/auth/dependencies.py), а не
+  в `apps/api/src/routers/auth/endpoints.py`, и подключается в роуте через `Depends(get_client_ip)`.
+
 > TODO: дополнять этот файл другими обязательными практиками по мере их появления.

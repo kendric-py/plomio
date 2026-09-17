@@ -4,23 +4,32 @@ from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from packages.audit_log.src.repository import AuditLogRepository
 from packages.user.src.repository import UserRepository
 
 REPOSITORIES = {
     'use_user_repository': ('user_repository', UserRepository),
+    'use_audit_log_repository': ('audit_log_repository', AuditLogRepository),
 }
 
 
 class AsyncTransactionManager:
     user_repository: UserRepository
+    audit_log_repository: AuditLogRepository
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]):
         self.session_factory = session_factory
         self.session: Optional[AsyncSession] = None
         self.use_user_repository = False
+        self.use_audit_log_repository = False
 
-    def __call__(self, use_user_repository: bool = False) -> 'AsyncTransactionManager':
+    def __call__(
+        self,
+        use_user_repository: bool = False,
+        use_audit_log_repository: bool = False,
+    ) -> 'AsyncTransactionManager':
         self.use_user_repository = use_user_repository
+        self.use_audit_log_repository = use_audit_log_repository
         return self
 
     def _init_repositories(self, session: AsyncSession) -> None:
