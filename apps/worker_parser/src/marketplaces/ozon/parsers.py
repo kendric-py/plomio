@@ -134,7 +134,9 @@ def _extract_characteristics(widget: dict[str, Any]) -> list[CharacteristicPaylo
     for group in widget.get('characteristics') or []:
         for item in group.get('short') or []:
             name = item.get('name', '')
-            values = [value.get('text', '') for value in item.get('values') or [] if value.get('text')]
+            values = [
+                value.get('text', '') for value in item.get('values') or [] if value.get('text')
+            ]
             if name and values:
                 result.append(CharacteristicPayload(name=name, value=', '.join(values)))
     return result
@@ -262,7 +264,9 @@ def extract_ozon_review_list(
                     positive_text=content.get('positive', ''),
                     negative_text=content.get('negative', ''),
                     photo_urls=[
-                        photo.get('url', '') for photo in (content.get('photos') or []) if photo.get('url')
+                        photo.get('url', '')
+                        for photo in (content.get('photos') or [])
+                        if photo.get('url')
                     ],
                 ),
             )
@@ -290,7 +294,10 @@ def _find_prefixed_widget(widget_states: dict[str, Any], prefix: str) -> dict[st
 
 
 def _find_all_prefixed_widgets(widget_states: dict[str, Any], prefix: str) -> list[dict[str, Any]]:
-    return [value for key, value in widget_states.items() if key.startswith(prefix + '-') and isinstance(value, dict)]
+    return [
+        value for key, value in widget_states.items()
+        if key.startswith(prefix + '-') and isinstance(value, dict)
+    ]
 
 
 def _extract_seller_id(transparency: dict[str, Any]) -> int | None:

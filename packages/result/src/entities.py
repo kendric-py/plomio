@@ -59,7 +59,9 @@ class ProductPagePayload(BaseModel):
     category_root: str = Field(default='', description='Корневая категория')
     seller_name: str = Field(default='', description='Название продавца')
     price_kopecks: int | None = Field(default=None, description='Цена в копейках')
-    original_price_kopecks: int | None = Field(default=None, description='Цена без скидки в копейках')
+    original_price_kopecks: int | None = Field(
+        default=None, description='Цена без скидки в копейках',
+    )
     rating: float | None = Field(default=None, description='Рейтинг товара')
     review_count: int | None = Field(default=None, description='Количество отзывов')
     in_stock: bool = Field(default=True, description='Наличие товара')

@@ -6,8 +6,12 @@ WB_CARD_API = 'https://www.wildberries.ru/__internal/u-card/cards/v4/detail'
 WB_SELLER_API = 'https://www.wildberries.ru/__internal/u-catalog/sellers/v4/catalog'
 WB_FEEDBACK_HOST_API = 'https://feedback-bt.wildberries.ru/feedback/api/v2/host'
 WB_MAIN_MENU_URL = 'https://static-basket-01.wbbasket.ru/vol0/data/main-menu-ru-ru-v3.json'
-WB_SUPPLIER_CDN_URL = 'https://static-basket-01.wbbasket.ru/vol0/data/supplier-by-id/{supplier_id}.json'
-WB_SUPPLIER_METRICS_API = 'https://suppliers-shipment-2.wildberries.ru/api/v1/suppliers/{supplier_id}'
+WB_SUPPLIER_CDN_URL = (
+    'https://static-basket-01.wbbasket.ru/vol0/data/supplier-by-id/{supplier_id}.json'
+)
+WB_SUPPLIER_METRICS_API = (
+    'https://suppliers-shipment-2.wildberries.ru/api/v1/suppliers/{supplier_id}'
+)
 WB_SELLER_FILTERS_API = 'https://www.wildberries.ru/__internal/u-catalog/sellers/v8/filters'
 
 WB_RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({408, 425, 429, 500, 502, 503, 504})

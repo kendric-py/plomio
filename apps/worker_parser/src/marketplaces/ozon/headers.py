@@ -6,7 +6,10 @@ from apps.worker_parser.src.marketplaces.ozon.constants import OZON_FALLBACK_MAN
 
 def build_ozon_navigation_headers(session_message: SessionMessage) -> dict[str, str]:
     return {
-        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'accept': (
+            'text/html,application/xhtml+xml,application/xml;'
+            'q=0.9,image/avif,image/webp,*/*;q=0.8'
+        ),
         'accept-language': 'ru-RU,ru;q=0.9,en;q=0.8',
         'sec-ch-ua': session_message.sec_ch_ua,
         'sec-ch-ua-mobile': '?0',

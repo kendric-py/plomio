@@ -91,7 +91,9 @@ async def handle_product_page_item(
 
     while payload is None:
         if session_message is None:
-            session_message = await acquire_session_or_wait(task.marketplace, session_client, liveness_reporter)
+            session_message = await acquire_session_or_wait(
+                task.marketplace, session_client, liveness_reporter,
+            )
         liveness_reporter.set_status(WorkerParserStatus.WORKING)
         http_session = create_http_session(session_message)
         try:
@@ -140,7 +142,9 @@ async def handle_listing_item(
 
     while True:
         if session_message is None:
-            session_message = await acquire_session_or_wait(task.marketplace, session_client, liveness_reporter)
+            session_message = await acquire_session_or_wait(
+                task.marketplace, session_client, liveness_reporter,
+            )
         liveness_reporter.set_status(WorkerParserStatus.WORKING)
         http_session = create_http_session(session_message)
         remaining_limit = None if task.result_limit is None else task.result_limit - result_count
@@ -192,7 +196,9 @@ async def handle_listing_item(
                 return
 
     if task.parse_type == ParseType.SELLER:
-        await _record_seller_profile(task, item, session_message, result_service, session_client, liveness_reporter)
+        await _record_seller_profile(
+            task, item, session_message, result_service, session_client, liveness_reporter,
+        )
 
     await task_service.complete_item(item_id=item.id, status=TaskItemStatus.SUCCEEDED)
 
@@ -208,12 +214,16 @@ async def _record_seller_profile(
     fetch_seller_profile = _SELLER_PROFILE_FETCHERS[task.marketplace]
     create_http_session = _HTTP_SESSION_FACTORY_BY_MARKETPLACE[task.marketplace]
     if session_message is None:
-        session_message = await acquire_session_or_wait(task.marketplace, session_client, liveness_reporter)
+        session_message = await acquire_session_or_wait(
+            task.marketplace, session_client, liveness_reporter,
+        )
     http_session = create_http_session(session_message)
     try:
         profile = await fetch_seller_profile(item.input_value, http_session, session_message)
     except ParserError as error:
-        logger.warning('[seller_profile] failed to fetch profile for %s: %s', item.input_value, error)
+        logger.warning(
+            '[seller_profile] failed to fetch profile for %s: %s', item.input_value, error,
+        )
         return
     await result_service.record_results(
         task_item_id=item.id,
@@ -232,9 +242,13 @@ async def handle_reviews_item(
     liveness_reporter: LivenessReporter,
 ) -> None:
     if task.marketplace == Marketplace.OZON:
-        await _handle_ozon_reviews(task, item, task_service, result_service, session_client, liveness_reporter)
+        await _handle_ozon_reviews(
+            task, item, task_service, result_service, session_client, liveness_reporter,
+        )
     else:
-        await _handle_wb_reviews(task, item, task_service, result_service, session_client, liveness_reporter)
+        await _handle_wb_reviews(
+            task, item, task_service, result_service, session_client, liveness_reporter,
+        )
 
 
 async def _handle_ozon_reviews(
@@ -253,7 +267,9 @@ async def _handle_ozon_reviews(
 
     while True:
         if session_message is None:
-            session_message = await acquire_session_or_wait(task.marketplace, session_client, liveness_reporter)
+            session_message = await acquire_session_or_wait(
+                task.marketplace, session_client, liveness_reporter,
+            )
         liveness_reporter.set_status(WorkerParserStatus.WORKING)
         http_session = create_ozon_http_session(session_message)
 
@@ -310,11 +326,15 @@ async def _handle_wb_reviews(
 
     while reviews is None:
         if session_message is None:
-            session_message = await acquire_session_or_wait(task.marketplace, session_client, liveness_reporter)
+            session_message = await acquire_session_or_wait(
+                task.marketplace, session_client, liveness_reporter,
+            )
         liveness_reporter.set_status(WorkerParserStatus.WORKING)
         http_session = create_wb_http_session(session_message)
         try:
-            reviews = await wb_fetchers.fetch_wb_review_page(item.input_value, http_session, session_message)
+            reviews = await wb_fetchers.fetch_wb_review_page(
+                item.input_value, http_session, session_message,
+            )
         except ParserError as error:
             policy = resolve_retry_policy(error)
             attempt_count += 1
@@ -335,7 +355,9 @@ async def _handle_wb_reviews(
             parse_type=task.parse_type,
             payloads=list(reviews),
         )
-    await task_service.record_item_progress(item_id=item.id, cursor=None, result_count=len(reviews))
+    await task_service.record_item_progress(
+        item_id=item.id, cursor=None, result_count=len(reviews),
+    )
     await task_service.complete_item(item_id=item.id, status=TaskItemStatus.SUCCEEDED)
 
 
@@ -348,11 +370,17 @@ async def process_task_item(
     liveness_reporter: LivenessReporter,
 ) -> None:
     if task.parse_type == ParseType.PRODUCT_PAGE:
-        await handle_product_page_item(task, item, task_service, result_service, session_client, liveness_reporter)
+        await handle_product_page_item(
+            task, item, task_service, result_service, session_client, liveness_reporter,
+        )
     elif task.parse_type == ParseType.REVIEWS:
-        await handle_reviews_item(task, item, task_service, result_service, session_client, liveness_reporter)
+        await handle_reviews_item(
+            task, item, task_service, result_service, session_client, liveness_reporter,
+        )
     else:
-        await handle_listing_item(task, item, task_service, result_service, session_client, liveness_reporter)
+        await handle_listing_item(
+            task, item, task_service, result_service, session_client, liveness_reporter,
+        )
 
 
 async def process_claimed_task(
@@ -369,7 +397,9 @@ async def process_claimed_task(
         refreshed_task = await task_service.get_task_by_id(task_id=task.id)
         if refreshed_task.status != TaskStatus.RUNNING:
             return
-        await process_task_item(task, item, task_service, result_service, session_client, liveness_reporter)
+        await process_task_item(
+            task, item, task_service, result_service, session_client, liveness_reporter,
+        )
 
 
 async def run_lease_heartbeat_loop(
@@ -384,7 +414,9 @@ async def run_lease_heartbeat_loop(
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
         except asyncio.TimeoutError:
-            await task_service.heartbeat(task_id=task_id, worker_id=worker_id, lease_duration=lease_duration)
+            await task_service.heartbeat(
+                task_id=task_id, worker_id=worker_id, lease_duration=lease_duration,
+            )
 
 
 async def run_poll_loop(
@@ -397,7 +429,9 @@ async def run_poll_loop(
 
     while True:
         liveness_reporter.set_status(WorkerParserStatus.READY)
-        task = await task_service.claim_next(worker_id=config.POLL.WORKER_ID, lease_duration=lease_duration)
+        task = await task_service.claim_next(
+            worker_id=config.POLL.WORKER_ID, lease_duration=lease_duration,
+        )
         if task is None:
             await asyncio.sleep(config.POLL.INTERVAL_SECONDS)
             continue
@@ -415,7 +449,9 @@ async def run_poll_loop(
             ),
         )
         try:
-            await process_claimed_task(task, task_service, result_service, session_client, liveness_reporter)
+            await process_claimed_task(
+                task, task_service, result_service, session_client, liveness_reporter,
+            )
         except Exception:
             logger.exception('[task_processing_failed] task_id=%s', task.id)
         finally:

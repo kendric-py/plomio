@@ -50,7 +50,11 @@ async def execute_request(
                 )
             if response.status_code in retryable_status_codes:
                 if attempt == retries:
-                    raise RequestError(f'HTTP {response.status_code} after retries', status_code=response.status_code, url=url)
+                    raise RequestError(
+                        f'HTTP {response.status_code} after retries',
+                        status_code=response.status_code,
+                        url=url,
+                    )
                 await asyncio.sleep(base_delay * (2**attempt) + random.uniform(0, 0.5))
                 continue
             if response.status_code >= 400:

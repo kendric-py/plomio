@@ -11,7 +11,10 @@ from apps.worker_parser.src.marketplaces.ozon.constants import (
     OZON_SEARCH_API,
     OzonReviewSortOrder,
 )
-from apps.worker_parser.src.marketplaces.ozon.headers import build_ozon_api_headers, build_ozon_navigation_headers
+from apps.worker_parser.src.marketplaces.ozon.headers import (
+    build_ozon_api_headers,
+    build_ozon_navigation_headers,
+)
 from apps.worker_parser.src.marketplaces.ozon.pagination import extract_ozon_next_page
 from apps.worker_parser.src.marketplaces.ozon.parsers import (
     extract_ozon_product_list,
@@ -194,7 +197,9 @@ async def fetch_ozon_product_page(
     )
     page2_payload = page2_response.json()
 
-    return extract_ozon_product_page(page1_payload, page2_payload, OZON_BASE_URL + product_path, product_id)
+    return extract_ozon_product_page(
+        page1_payload, page2_payload, OZON_BASE_URL + product_path, product_id,
+    )
 
 
 async def fetch_ozon_seller_profile(
@@ -230,7 +235,9 @@ async def fetch_ozon_seller_profile(
     )
     modal_payload = modal_response.json()
 
-    return extract_ozon_seller_profile(main_payload.get('widgetStates', {}), modal_payload.get('widgetStates', {}), seller_url)
+    return extract_ozon_seller_profile(
+        main_payload.get('widgetStates', {}), modal_payload.get('widgetStates', {}), seller_url,
+    )
 
 
 async def fetch_ozon_review_page(
@@ -246,7 +253,9 @@ async def fetch_ozon_review_page(
             http_session,
             'GET',
             OZON_BASE_URL + '/',
-            extra_headers={**build_ozon_navigation_headers(session_message), 'sec-fetch-site': 'none'},
+            extra_headers={
+                **build_ozon_navigation_headers(session_message), 'sec-fetch-site': 'none',
+            },
             retryable_status_codes=OZON_RETRYABLE_STATUS_CODES,
             is_blocked=is_ozon_blocked_response,
         )
@@ -320,7 +329,8 @@ async def fetch_ozon_review_page(
         sort_order=next_sort_order.value,
         next_url=(
             f'{cursor.product_path}?layout_container=reviewshelfpaginator'
-            f'&layout_page_index=1&sort={next_sort_order.value}&start_page_id={cursor.start_page_id}'
+            f'&layout_page_index=1&sort={next_sort_order.value}'
+            f'&start_page_id={cursor.start_page_id}'
         ),
         referer=OZON_BASE_URL + cursor.product_path,
         prev_request_id=cursor.start_page_id,

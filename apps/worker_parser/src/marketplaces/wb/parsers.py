@@ -116,7 +116,8 @@ def extract_wb_product_page(
     rating: float | None = float(rating_raw) if rating_raw else None
     review_count: int | None = card_api_product.get('feedbacks') or None
 
-    photo_count: int = (card_data.get('media') or {}).get('photo_count') or card_api_product.get('pics') or 0
+    media_photo_count = (card_data.get('media') or {}).get('photo_count')
+    photo_count: int = media_photo_count or card_api_product.get('pics') or 0
     photo_urls = _wb_photo_urls(nm_id, photo_count)
 
     characteristics: list[CharacteristicPayload] = []

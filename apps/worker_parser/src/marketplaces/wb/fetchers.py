@@ -23,9 +23,17 @@ from apps.worker_parser.src.marketplaces.wb.constants import (
     WB_SUPPLIER_CDN_URL,
     WB_SUPPLIER_METRICS_API,
 )
-from apps.worker_parser.src.marketplaces.wb.headers import build_wb_api_headers, build_wb_cdn_headers, build_wb_navigation_headers
+from apps.worker_parser.src.marketplaces.wb.headers import (
+    build_wb_api_headers,
+    build_wb_cdn_headers,
+    build_wb_navigation_headers,
+)
 from apps.worker_parser.src.marketplaces.wb.menu import load_wb_menu_search_queries
-from apps.worker_parser.src.marketplaces.wb.parsers import extract_wb_product_list, extract_wb_product_page, extract_wb_review_list
+from apps.worker_parser.src.marketplaces.wb.parsers import (
+    extract_wb_product_list,
+    extract_wb_product_page,
+    extract_wb_review_list,
+)
 from apps.worker_parser.src.marketplaces.wb.utils import (
     extract_wb_nm_id_from_url,
     extract_wb_size_option_id_from_url,
@@ -99,7 +107,9 @@ async def fetch_wb_search_page(
         return products, None
     if limit is not None and len(products) >= limit:
         return products, None
-    return products, WildberriesPaginationCursor(marketplace=Marketplace.WILDBERRIES, page_num=page_num)
+    return products, WildberriesPaginationCursor(
+        marketplace=Marketplace.WILDBERRIES, page_num=page_num,
+    )
 
 
 async def fetch_wb_category_page(
@@ -173,7 +183,9 @@ async def fetch_wb_category_page(
         return products, None
     if limit is not None and len(products) >= limit:
         return products, None
-    return products, WildberriesPaginationCursor(marketplace=Marketplace.WILDBERRIES, page_num=page_num)
+    return products, WildberriesPaginationCursor(
+        marketplace=Marketplace.WILDBERRIES, page_num=page_num,
+    )
 
 
 async def fetch_wb_seller_page(
@@ -313,7 +325,9 @@ async def fetch_wb_seller_profile(
         'GET',
         metrics_url,
         params={'curr': 'RUB'},
-        extra_headers={**build_wb_cdn_headers(session_message, seller_page_url), 'x-client-name': 'site'},
+        extra_headers={
+            **build_wb_cdn_headers(session_message, seller_page_url), 'x-client-name': 'site',
+        },
         retryable_status_codes=WB_RETRYABLE_STATUS_CODES,
     )
     metrics_data = metrics_response.json()

@@ -5,7 +5,11 @@ from curl_cffi.requests import AsyncSession
 
 from apps.worker_parser.src.entities import SessionMessage
 from apps.worker_parser.src.http_client import execute_request
-from apps.worker_parser.src.marketplaces.wb.constants import WB_BASE_URL, WB_MAIN_MENU_URL, WB_RETRYABLE_STATUS_CODES
+from apps.worker_parser.src.marketplaces.wb.constants import (
+    WB_BASE_URL,
+    WB_MAIN_MENU_URL,
+    WB_RETRYABLE_STATUS_CODES,
+)
 from apps.worker_parser.src.marketplaces.wb.utils import is_wb_blocked_response
 
 _menu_cache: dict[str, str] | None = None

@@ -2,8 +2,12 @@ import logging
 from typing import Callable
 
 from apps.worker_sessions.src.entities import ProxyConfig, SessionMessage
-from apps.worker_sessions.src.generation.marketplaces.ozon.session import build_session_message as build_ozon
-from apps.worker_sessions.src.generation.marketplaces.wb.session import build_session_message as build_wb
+from apps.worker_sessions.src.generation.marketplaces.ozon.session import (
+    build_session_message as build_ozon,
+)
+from apps.worker_sessions.src.generation.marketplaces.wb.session import (
+    build_session_message as build_wb,
+)
 from core.enums import Marketplace
 
 logger = logging.getLogger(__name__)

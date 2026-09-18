@@ -37,7 +37,10 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column('payload', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.Column(
+            'created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'),
+            nullable=False,
+        ),
         sa.ForeignKeyConstraint(['task_item_id'], ['task_items.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id'),
     )
