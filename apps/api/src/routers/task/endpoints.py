@@ -8,6 +8,7 @@ from apps.api.src.container import DependencyContainer
 from apps.api.src.routers.auth.dependencies import get_current_user
 from apps.api.src.routers.task.schema import (
     CreateTaskRequest,
+    PaginationMeta,
     ResultItemResponse,
     TaskResponse,
     TaskResultsResponse,
@@ -89,10 +90,8 @@ async def get_task_results(
         task_id=task_id, limit=limit, offset=offset,
     )
     return TaskResultsResponse(
-        total=total,
-        limit=limit,
-        offset=offset,
         items=[
             ResultItemResponse.model_validate(obj=item, from_attributes=True) for item in items
         ],
+        meta=PaginationMeta(total=total, limit=limit, offset=offset),
     )

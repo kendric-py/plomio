@@ -35,10 +35,11 @@ REST API. Точка входа для клиентов (фронтенд, вн�
     `task_id` — оба дают `404` (`ObjectNotFoundError` → `HTTPException(404)`), без различия между
     «не найдено» и «чужое», чтобы не давать возможность перебором `task_id` узнавать о чужих задачах.
   - `GET /{task_id}/results` — требует авторизации, постранично отдаёт результаты задачи
-    (`TaskResultsResponse`: `total`/`limit`/`offset`/`items`), `limit` 1..500 (по умолчанию 100),
-    `offset` ≥ 0. Владение проверяется через `TaskService.ensure_task_owner` (тот же 404-паттерн, что
-    и у `GET /{task_id}`, без различия между «не найдено» и «чужое»), сами результаты — через
-    `ResultService.get_results_for_task` (см.
+    (`TaskResultsResponse`: `items` + `meta` — см. [конвенцию пагинации в
+    gold-rules.md](../../docs/reference/gold-rules.md#пагинация-в-rest-ответах), `meta` всегда
+    последним полем), `limit` 1..500 (по умолчанию 100), `offset` ≥ 0. Владение проверяется через
+    `TaskService.ensure_task_owner` (тот же 404-паттерн, что и у `GET /{task_id}`, без различия между
+    «не найдено» и «чужое»), сами результаты — через `ResultService.get_results_for_task` (см.
     [`packages/result/AGENTS.md`](../../packages/result/AGENTS.md)) — join `result_items`↔`task_items`
     по `task_id`, сортировка по `created_at`.
     Остальные операции (пауза/отмена/исключение входа) пока не имеют REST-ручек.

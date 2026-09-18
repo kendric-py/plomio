@@ -45,11 +45,15 @@ class ResultItemResponse(BaseModel):
     created_at: datetime = Field(description='Время сохранения сущности')
 
 
-class TaskResultsResponse(BaseModel):
-    total: int = Field(description='Общее количество результатов задачи')
+class PaginationMeta(BaseModel):
+    total: int = Field(description='Общее количество элементов')
     limit: int = Field(description='Размер страницы')
     offset: int = Field(description='Смещение страницы')
+
+
+class TaskResultsResponse(BaseModel):
     items: list[ResultItemResponse] = Field(description='Результаты задачи на текущей странице')
+    meta: PaginationMeta = Field(description='Метаданные пагинации')
 
 
 class TaskStatusResponse(BaseModel):

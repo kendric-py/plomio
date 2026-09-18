@@ -40,6 +40,17 @@ packages/<domain>/
   [`apps/api/src/routers/auth/schema.py`](../../apps/api/src/routers/auth/schema.py), а не в
   `packages/auth/`. Тот же принцип — для схем любого другого роута (`apps/api/src/routers/<domain>/schema.py`).
 
+## Пагинация в REST-ответах
+
+- **Любой постраничный REST-ответ обязан иметь поле `meta` с метаданными пагинации
+  (`total`/`limit`/`offset`), и это поле всегда идёт последним в схеме ответа**, после `items`
+  (или другого поля с самими данными страницы). Метаданные не подмешиваются в тело ответа на одном
+  уровне с данными — они выделены в отдельный вложенный объект.
+
+  Пример: `TaskResultsResponse` (`apps/api/src/routers/task/schema.py`) — `items:
+  list[ResultItemResponse]`, затем `meta: PaginationMeta` (`total`/`limit`/`offset`). Используется
+  в `GET /api/tasks/{task_id}/results`.
+
 ## Вспомогательные функции роутера
 
 - **Вспомогательные функции, которые эндпоинт использует для получения/вычисления значения из
