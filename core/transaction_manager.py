@@ -5,9 +5,11 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from packages.audit_log.src.repository import AuditLogRepository
+from packages.cron.src.repository import CronJobRunRepository
 from packages.result.src.repository import ResultItemRepository
 from packages.task.src.repository import TaskItemRepository, TaskRepository
 from packages.user.src.repository import UserRepository
+from packages.worker_health.src.repository import WorkerHeartbeatLogRepository
 
 REPOSITORIES = {
     'use_user_repository': ('user_repository', UserRepository),
@@ -15,6 +17,10 @@ REPOSITORIES = {
     'use_task_repository': ('task_repository', TaskRepository),
     'use_task_item_repository': ('task_item_repository', TaskItemRepository),
     'use_result_repository': ('result_repository', ResultItemRepository),
+    'use_worker_heartbeat_log_repository': (
+        'worker_heartbeat_log_repository', WorkerHeartbeatLogRepository,
+    ),
+    'use_cron_job_run_repository': ('cron_job_run_repository', CronJobRunRepository),
 }
 
 
@@ -24,6 +30,8 @@ class AsyncTransactionManager:
     task_repository: TaskRepository
     task_item_repository: TaskItemRepository
     result_repository: ResultItemRepository
+    worker_heartbeat_log_repository: WorkerHeartbeatLogRepository
+    cron_job_run_repository: CronJobRunRepository
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]):
         self.session_factory = session_factory
@@ -33,6 +41,8 @@ class AsyncTransactionManager:
         self.use_task_repository = False
         self.use_task_item_repository = False
         self.use_result_repository = False
+        self.use_worker_heartbeat_log_repository = False
+        self.use_cron_job_run_repository = False
 
     def __call__(
         self,
@@ -41,12 +51,16 @@ class AsyncTransactionManager:
         use_task_repository: bool = False,
         use_task_item_repository: bool = False,
         use_result_repository: bool = False,
+        use_worker_heartbeat_log_repository: bool = False,
+        use_cron_job_run_repository: bool = False,
     ) -> 'AsyncTransactionManager':
         self.use_user_repository = use_user_repository
         self.use_audit_log_repository = use_audit_log_repository
         self.use_task_repository = use_task_repository
         self.use_task_item_repository = use_task_item_repository
         self.use_result_repository = use_result_repository
+        self.use_worker_heartbeat_log_repository = use_worker_heartbeat_log_repository
+        self.use_cron_job_run_repository = use_cron_job_run_repository
         return self
 
     def _init_repositories(self, session: AsyncSession) -> None:

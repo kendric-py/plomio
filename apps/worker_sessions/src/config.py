@@ -120,8 +120,8 @@ class LivenessConfig(BaseSettings):
     )
 
     WORKER_NAME: str = Field(default='')
-    ENDPOINT_URL: str = Field(default='')
-    INTERVAL_SECONDS: float = Field(default=15.0)
+    ENDPOINT_URL: str = Field(default='http://localhost:8000/api/worker-health/sessions/heartbeat')
+    INTERVAL_SECONDS: float = Field(default=30.0)
     REQUEST_TIMEOUT_SECONDS: float = Field(default=5.0)
 
 
