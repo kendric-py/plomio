@@ -1,4 +1,4 @@
-APPS := api worker-parser worker-sessions
+APPS := api worker_parser worker_sessions
 
 .PHONY: install-shared install-all $(addprefix install-,$(APPS)) $(addprefix run-,$(APPS)) lock-shared lock-all $(addprefix lock-,$(APPS))
 
@@ -21,8 +21,8 @@ lock-%:
 run-api:
 	poetry -C apps/api run python -m apps.api.src
 
-run-worker-parser:
-	poetry -C apps/worker-parser run python -m worker_parser
+run-worker_parser:
+	poetry -C apps/worker_parser run python -m apps.worker_parser.src
 
-run-worker-sessions:
-	poetry -C apps/worker-sessions run python -m worker_sessions
+run-worker_sessions:
+	poetry -C apps/worker_sessions run python -m apps.worker_sessions.src

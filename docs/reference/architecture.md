@@ -4,9 +4,9 @@
 
 - **`apps/api`** — REST API. Точка входа для клиентов (фронтенд, внешние интеграции) и администраторов.
   Создаёт задачи (единоразовые и периодические) и отдаёт результаты.
-- **`apps/worker-parser`** — исполняет задачи парсинга OZON и Wildberries. Забирает задачи из очереди,
-  запрашивает сессию у `worker-sessions`, шлёт heartbeat.
-- **`apps/worker-sessions`** — генерирует сессии (куки, заголовки, прокси) для работы `worker-parser`
+- **`apps/worker_parser`** — исполняет задачи парсинга OZON и Wildberries. Забирает задачи из очереди,
+  запрашивает сессию у `worker_sessions`, шлёт heartbeat.
+- **`apps/worker_sessions`** — генерирует сессии (куки, заголовки, прокси) для работы `worker_parser`
   с маркетплейсами.
 - **Scheduler** — периодически ставит в очередь очередной запуск для периодических задач (мониторинг
   цены и т.д.).
@@ -24,9 +24,9 @@
                      scheduler повторно ставит периодические задачи
                                             │
                                             ▼
-                                  apps/worker-parser забирает задачу
+                                  apps/worker_parser забирает задачу
                                             │
-                              запрашивает сессию ──> apps/worker-sessions
+                              запрашивает сессию ──> apps/worker_sessions
                                             │
                                    выполняет парсинг OZON / Wildberries
                                             │
@@ -45,7 +45,7 @@
 
 ## Heartbeat
 
-`worker-parser` отправляет периодические HTTP-запросы с heartbeat, в которых сообщает:
+`worker_parser` отправляет периодические HTTP-запросы с heartbeat, в которых сообщает:
 
 - текущий статус;
 - над какими задачами сейчас работает;
@@ -54,25 +54,25 @@
 > TODO: определить получателя heartbeat (`apps/api` напрямую или отдельный компонент), формат запроса,
 > периодичность, и что происходит при пропуске heartbeat (таймаут → воркер считается недоступным?).
 
-`worker-sessions` отправляет свой собственный, независимый процесс-уровневый heartbeat (имя воркера
+`worker_sessions` отправляет свой собственный, независимый процесс-уровневый heartbeat (имя воркера
 из `.env`, статус готов/генерирует/ждёт прокси) — см.
-[`apps/worker-sessions/AGENTS.md`](../../apps/worker-sessions/AGENTS.md). Получатель и формат — тот
-же нерешённый вопрос, что и для `worker-parser` выше.
+[`apps/worker_sessions/AGENTS.md`](../../apps/worker_sessions/AGENTS.md). Получатель и формат — тот
+же нерешённый вопрос, что и для `worker_parser` выше.
 
-## Взаимодействие worker-parser ↔ worker-sessions
+## Взаимодействие worker_parser ↔ worker_sessions
 
-Хранение решено: `worker-sessions` пишет сгенерированные сессии в Redis (`session:{marketplace}:{id}`
+Хранение решено: `worker_sessions` пишет сгенерированные сессии в Redis (`session:{marketplace}:{id}`
 с TTL на ключе, `sessions:pool:{marketplace}` — `ZSET` для учёта глубины пула). Подробности —
-[`apps/worker-sessions/AGENTS.md`](../../apps/worker-sessions/AGENTS.md).
+[`apps/worker_sessions/AGENTS.md`](../../apps/worker_sessions/AGENTS.md).
 
-> TODO: не решено, как именно `worker-parser` эту сессию получает — прямое чтение Redis, HTTP-ручка
-> на `worker-sessions`, или что-то ещё.
+> TODO: не решено, как именно `worker_parser` эту сессию получает — прямое чтение Redis, HTTP-ручка
+> на `worker_sessions`, или что-то ещё.
 
 ## Хранение данных
 
 - PostgreSQL — основное хранилище задач и результатов.
-- Redis — эфемерный пул сессий `worker-sessions` (TTL, не постоянное хранилище — см.
-  [`apps/worker-sessions/AGENTS.md`](../../apps/worker-sessions/AGENTS.md)).
+- Redis — эфемерный пул сессий `worker_sessions` (TTL, не постоянное хранилище — см.
+  [`apps/worker_sessions/AGENTS.md`](../../apps/worker_sessions/AGENTS.md)).
 - Срок хранения результата единоразовой задачи — **7 дней**.
 - Срок хранения результата периодической задачи — задаёт администратор.
 - Миграции — **Alembic**.

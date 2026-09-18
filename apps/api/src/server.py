@@ -12,6 +12,7 @@ def configure_rest_server() -> FastAPI:
         modules=[
             'apps.api.src.routers.auth.dependencies',
             'apps.api.src.routers.auth.endpoints',
+            'apps.api.src.routers.task.endpoints',
         ],
     )
     app.include_router(router=api_router)

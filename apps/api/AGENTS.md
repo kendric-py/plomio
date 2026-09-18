@@ -22,6 +22,19 @@ REST API. Точка входа для клиентов (фронтенд, вн�
   - `GET /` — заглушка `{"message": "Hello World"}`.
   - `GET /me` — требует авторизации (`Depends(get_current_user)`), возвращает `UserResponse` текущего
     пользователя.
+- `routers/task/endpoints.py` + `routers/task/schema.py` (`/api/tasks`):
+  - `POST /` — требует авторизации (`Depends(get_current_user)`), создаёт задачу парсинга через
+    `Depends(Provide[DependencyContainer.task_service])`
+    (`TaskService.create_task` — см. [`packages/task/AGENTS.md`](../../packages/task/AGENTS.md)).
+    `user_id` берётся из текущего пользователя, не из тела запроса. `CreateTaskRequest.ttl_seconds`
+    конвертируется в `timedelta` в роутере — домен принимает `timedelta`, а не секунды, REST-контракт
+    этого не знает.
+  - `GET /{task_id}` — требует авторизации, возвращает `TaskStatusResponse` (статус, `error_reason`,
+    агрегированный прогресс `total_items`/`processed_items`/`result_count` из
+    `TaskService.get_task_status`). Задача, принадлежащая другому пользователю, или несуществующий
+    `task_id` — оба дают `404` (`ObjectNotFoundError` → `HTTPException(404)`), без различия между
+    «не найдено» и «чужое», чтобы не давать возможность перебором `task_id` узнавать о чужих задачах.
+    Остальные операции (пауза/отмена/исключение входа) пока не имеют REST-ручек.
 
 Новый роутер домена: создать `routers/<domain>/endpoints.py` с `router = APIRouter(prefix='/<domain>',
 tags=[...])`, подключить в `routers/router.py` через `api_router.include_router(router=...)`. Если
@@ -56,10 +69,12 @@ Swagger UI (`/docs`) появляется кнопка **Authorize**, куда �
 - `transaction_manager` — [`core.transaction_manager.AsyncTransactionManager`](../../core/transaction_manager.py).
 - `user_service` — [`packages.user.src.service.UserService`](../../packages/user/AGENTS.md#сервис).
 - `auth_service` — [`packages.auth.src.service.AuthService`](../../packages/auth/AGENTS.md).
+- `task_service` — [`packages.task.src.service.TaskService`](../../packages/task/AGENTS.md).
 
 Контейнер создаётся в `src/server.py::configure_rest_server` и кладётся в `app.container`.
-`container.wire(modules=['apps.api.src.routers.auth.endpoints'])` — `routers/auth/endpoints.py`
-использует `@inject`/`Provide[...]`, `routers/user/endpoints.py` пока нет (заглушка без DI).
+`container.wire(modules=[...])` перечисляет каждый модуль роутера, который использует
+`@inject`/`Provide[...]`: сейчас `routers/auth/dependencies.py`, `routers/auth/endpoints.py`,
+`routers/task/endpoints.py`. `routers/user/endpoints.py` пока нет (заглушка без DI).
 
 > TODO: `user_service` пока не используется ни одним роутером (`routers/user/endpoints.py` —
 > заглушка) — когда появятся реальные эндпоинты профиля, подключить через

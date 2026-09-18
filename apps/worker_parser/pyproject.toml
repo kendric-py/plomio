@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "worker-parser"
+version = "0.1.0"
+description = "Parser worker service"
+authors = ["Your Name <you@example.com>"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.12"
+pydantic = "^2.13.5"
+pydantic-settings = "^2.15.0"
+python-dotenv = "^1.0.1"
+redis = "^5.2.0"
+aiohttp = "^3.14.1"
+curl-cffi = ">=0.7"
+sqlalchemy = "^2.0.54"
+asyncpg = "^0.31.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

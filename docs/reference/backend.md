@@ -16,8 +16,8 @@
 
 - **`apps/api`** — REST API. Создание задач, отдача результатов, управление пользователями/тарифами
   (роль администратора).
-- **`apps/worker-parser`** — исполнение задач парсинга OZON и Wildberries.
-- **`apps/worker-sessions`** — генерация сессий (куки, заголовки, прокси) для `worker-parser`.
+- **`apps/worker_parser`** — исполнение задач парсинга OZON и Wildberries.
+- **`apps/worker_sessions`** — генерация сессий (куки, заголовки, прокси) для `worker_parser`.
 
 ## `core`
 

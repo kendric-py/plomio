@@ -18,8 +18,8 @@ services:
       timeout: 5s
       retries: 10
 
-  # Пул сессий worker-sessions (TTL на ключах) — см. apps/worker-sessions/AGENTS.md и
-  # RedisConfig в core/configs.py. Без пароля по умолчанию, как в apps/worker-sessions/.env.example.
+  # Пул сессий worker_sessions (TTL на ключах) — см. apps/worker_sessions/AGENTS.md и
+  # RedisConfig в core/configs.py. Без пароля по умолчанию, как в apps/worker_sessions/.env.example.
   redis:
     image: redis:7-alpine
     container_name: smpcrawl_redis_dev

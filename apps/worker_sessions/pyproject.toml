@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "worker-sessions"
+version = "0.1.0"
+description = "Sessions worker service"
+authors = ["Your Name <you@example.com>"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.12"
+pydantic = "^2.13.5"
+pydantic-settings = "^2.15.0"
+python-dotenv = "^1.0.1"
+redis = "^5.2.0"
+aiohttp = "^3.14.1"
+curl-cffi = ">=0.7"
+playwright = "^1.60.0"
+camoufox = { extras = ["geoip"], version = "^0.5.4" }
+psutil = "^6.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

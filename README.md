@@ -10,8 +10,8 @@ SMPCrawl — проект для парсинга данных с маркетп
 
 Клиент ставит задачу (единоразовую или периодическую, например мониторинг цены) через фронтенд или API.
 `apps/api` создаёт задачу и кладёт её в очередь, реализованную поверх таблиц PostgreSQL. Для периодических
-задач планировщик (scheduler) регулярно ставит их в очередь заново. `apps/worker-parser` забирает задачу
-из очереди, запрашивает у `apps/worker-sessions` сессию (куки, заголовки, прокси) и выполняет парсинг
+задач планировщик (scheduler) регулярно ставит их в очередь заново. `apps/worker_parser` забирает задачу
+из очереди, запрашивает у `apps/worker_sessions` сессию (куки, заголовки, прокси) и выполняет парсинг
 OZON/Wildberries, периодически отправляя HTTP heartbeat со своим статусом. Результат сохраняется в
 PostgreSQL: для единоразовых задач — на 7 дней, для периодических — на срок, заданный администратором.
 
@@ -25,8 +25,8 @@ PostgreSQL: для единоразовых задач — на 7 дней, дл
 | Приложение | Назначение |
 | --- | --- |
 | [`apps/api`](./apps/api) | REST API на FastAPI. Постановка задач, отдача результатов, доступ для клиентов, администраторов и внешних интеграций. |
-| [`apps/worker-parser`](./apps/worker-parser) | Забирает задачи из очереди и парсит OZON и Wildberries, используя сессии от `worker-sessions`. Отправляет HTTP heartbeat со своим статусом. |
-| [`apps/worker-sessions`](./apps/worker-sessions) | Генерирует сессии (куки, заголовки, данные о прокси), которые использует `worker-parser` для работы с маркетплейсами. |
+| [`apps/worker_parser`](./apps/worker_parser) | Забирает задачи из очереди и парсит OZON и Wildberries, используя сессии от `worker_sessions`. Отправляет HTTP heartbeat со своим статусом. |
+| [`apps/worker_sessions`](./apps/worker_sessions) | Генерирует сессии (куки, заголовки, данные о прокси), которые использует `worker_parser` для работы с маркетплейсами. |
 
 Подробное описание каждого приложения — в его собственном `AGENTS.md` (`apps/<app>/AGENTS.md`), которые пока не заполнены.
 
@@ -83,15 +83,15 @@ make install-<app>     # конкретное приложение, наприм
 
 ```sh
 make run-api               # apps/api
-make run-worker-parser     # apps/worker-parser
-make run-worker-sessions   # apps/worker-sessions
+make run-worker_parser     # apps/worker_parser
+make run-worker_sessions   # apps/worker_sessions
 ```
 
 Перед запуском каждого приложения нужно скопировать его `.env.example` в `.env` и заполнить значения:
 
 - [`apps/api/.env.example`](./apps/api/.env.example) → `apps/api/.env`
-- [`apps/worker-parser/.env.example`](./apps/worker-parser/.env.example) → `apps/worker-parser/.env`
-- [`apps/worker-sessions/.env.example`](./apps/worker-sessions/.env.example) → `apps/worker-sessions/.env`
+- [`apps/worker_parser/.env.example`](./apps/worker_parser/.env.example) → `apps/worker_parser/.env`
+- [`apps/worker_sessions/.env.example`](./apps/worker_sessions/.env.example) → `apps/worker_sessions/.env`
 
 > TODO: добавить инструкции по запуску через Docker (есть `Dockerfile` в каждом `apps/*`), по накатке миграций БД,
 > по локальному запуску тестов и по тому, как приложения взаимодействуют друг с другом в рантайме, когда эти процессы появятся/будут описаны.
