@@ -248,3 +248,10 @@ class TaskService:
             return await transaction.task_item_repository.retrieve_all_by_filter(
                 entity=TaskItemEntity(task_id=task_id),
             )
+
+    async def ensure_task_owner(self, task_id: UUID, user_id: int) -> TaskEntity:
+        async with self.transaction_manager(use_task_repository=True) as transaction:
+            task = await transaction.task_repository.get_by_id(entity_id=task_id)
+            if task.user_id != user_id:
+                raise ObjectNotFoundError
+            return task

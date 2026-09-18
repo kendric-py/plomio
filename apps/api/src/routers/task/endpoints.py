@@ -2,12 +2,19 @@ from datetime import timedelta
 from uuid import UUID
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from apps.api.src.container import DependencyContainer
 from apps.api.src.routers.auth.dependencies import get_current_user
-from apps.api.src.routers.task.schema import CreateTaskRequest, TaskResponse, TaskStatusResponse
+from apps.api.src.routers.task.schema import (
+    CreateTaskRequest,
+    ResultItemResponse,
+    TaskResponse,
+    TaskResultsResponse,
+    TaskStatusResponse,
+)
 from core.exceptions import ObjectNotFoundError
+from packages.result.src.service import ResultService
 from packages.task.src.service import TaskService
 from packages.user.src.entities import UserEntity
 
@@ -53,4 +60,39 @@ async def get_task_status(
         ) from error
     return TaskStatusResponse.model_validate(
         obj={**task_status['task'].model_dump(), **task_status['progress']},
+    )
+
+
+@router.get('/{task_id}/results')
+@inject
+async def get_task_results(
+    task_id: UUID,
+    limit: int = Query(default=100, ge=1, le=500, description='Размер страницы'),
+    offset: int = Query(default=0, ge=0, description='Смещение страницы'),
+    current_user: UserEntity = Depends(get_current_user),
+    task_service: TaskService = Depends(
+        Provide[DependencyContainer.task_service],
+    ),
+    result_service: ResultService = Depends(
+        Provide[DependencyContainer.result_service],
+    ),
+) -> TaskResultsResponse:
+    try:
+        await task_service.ensure_task_owner(task_id=task_id, user_id=current_user.id)
+    except ObjectNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Task not found',
+        ) from error
+
+    items, total = await result_service.get_results_for_task(
+        task_id=task_id, limit=limit, offset=offset,
+    )
+    return TaskResultsResponse(
+        total=total,
+        limit=limit,
+        offset=offset,
+        items=[
+            ResultItemResponse.model_validate(obj=item, from_attributes=True) for item in items
+        ],
     )

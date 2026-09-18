@@ -34,6 +34,13 @@ REST API. Точка входа для клиентов (фронтенд, вн�
     `TaskService.get_task_status`). Задача, принадлежащая другому пользователю, или несуществующий
     `task_id` — оба дают `404` (`ObjectNotFoundError` → `HTTPException(404)`), без различия между
     «не найдено» и «чужое», чтобы не давать возможность перебором `task_id` узнавать о чужих задачах.
+  - `GET /{task_id}/results` — требует авторизации, постранично отдаёт результаты задачи
+    (`TaskResultsResponse`: `total`/`limit`/`offset`/`items`), `limit` 1..500 (по умолчанию 100),
+    `offset` ≥ 0. Владение проверяется через `TaskService.ensure_task_owner` (тот же 404-паттерн, что
+    и у `GET /{task_id}`, без различия между «не найдено» и «чужое»), сами результаты — через
+    `ResultService.get_results_for_task` (см.
+    [`packages/result/AGENTS.md`](../../packages/result/AGENTS.md)) — join `result_items`↔`task_items`
+    по `task_id`, сортировка по `created_at`.
     Остальные операции (пауза/отмена/исключение входа) пока не имеют REST-ручек.
 
 Новый роутер домена: создать `routers/<domain>/endpoints.py` с `router = APIRouter(prefix='/<domain>',
@@ -70,6 +77,7 @@ Swagger UI (`/docs`) появляется кнопка **Authorize**, куда �
 - `user_service` — [`packages.user.src.service.UserService`](../../packages/user/AGENTS.md#сервис).
 - `auth_service` — [`packages.auth.src.service.AuthService`](../../packages/auth/AGENTS.md).
 - `task_service` — [`packages.task.src.service.TaskService`](../../packages/task/AGENTS.md).
+- `result_service` — [`packages.result.src.service.ResultService`](../../packages/result/AGENTS.md).
 
 Контейнер создаётся в `src/server.py::configure_rest_server` и кладётся в `app.container`.
 `container.wire(modules=[...])` перечисляет каждый модуль роутера, который использует

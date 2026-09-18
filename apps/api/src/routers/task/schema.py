@@ -36,6 +36,22 @@ class TaskResponse(BaseModel):
     created_at: datetime = Field(description='Время создания задачи')
 
 
+class ResultItemResponse(BaseModel):
+    id: UUID = Field(description='Идентификатор строки результата')
+    task_item_id: UUID = Field(description='Идентификатор элемента задачи-источника')
+    marketplace: Marketplace = Field(description='Маркетплейс сущности')
+    parse_type: ParseType = Field(description='Тип парсинга, породивший эту сущность')
+    payload: dict = Field(description='Спарсенная сущность (товар/карточка/отзыв/профиль продавца)')
+    created_at: datetime = Field(description='Время сохранения сущности')
+
+
+class TaskResultsResponse(BaseModel):
+    total: int = Field(description='Общее количество результатов задачи')
+    limit: int = Field(description='Размер страницы')
+    offset: int = Field(description='Смещение страницы')
+    items: list[ResultItemResponse] = Field(description='Результаты задачи на текущей странице')
+
+
 class TaskStatusResponse(BaseModel):
     id: UUID = Field(description='Идентификатор задачи')
     parse_type: ParseType = Field(description='Тип парсинга')

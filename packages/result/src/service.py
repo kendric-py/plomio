@@ -30,3 +30,16 @@ class ResultService:
                     ),
                 )
             await self.transaction_manager.commit()
+
+    async def get_results_for_task(
+        self,
+        task_id: UUID,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[ResultItemEntity], int]:
+        async with self.transaction_manager(use_result_repository=True) as transaction:
+            items = await transaction.result_repository.get_by_task_id(
+                task_id=task_id, limit=limit, offset=offset,
+            )
+            total = await transaction.result_repository.count_by_task_id(task_id=task_id)
+        return items, total

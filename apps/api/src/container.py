@@ -5,6 +5,7 @@ from apps.api.src.config import config
 from core.database import get_database_connection
 from core.transaction_manager import AsyncTransactionManager
 from packages.auth.src.service import AuthService
+from packages.result.src.service import ResultService
 from packages.task.src.service import TaskService
 from packages.user.src.service import UserService
 
@@ -31,5 +32,10 @@ class DependencyContainer(DeclarativeContainer):
 
     task_service = providers.Factory(
         TaskService,
+        transaction_manager=transaction_manager,
+    )
+
+    result_service = providers.Factory(
+        ResultService,
         transaction_manager=transaction_manager,
     )

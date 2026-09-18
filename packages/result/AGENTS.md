@@ -56,7 +56,17 @@ payload.
 `ResultService.record_results(task_item_id, marketplace, parse_type, payloads)` — `payloads`
 список отдельных сущностей одной страницы; каждая сохраняется отдельной строкой `result_items`.
 
+`ResultService.get_results_for_task(task_id, limit, offset)` — постраничное чтение результатов
+задачи целиком (не одного `TaskItem`, а всех входов задачи разом). `result_items` не хранит
+`task_id` напрямую (только `task_item_id`), поэтому выборка идёт через `JOIN` с `task_items` в
+`ResultItemRepository.get_by_task_id`/`count_by_task_id` — по этой же причине `packages/result`
+зависит от модели `packages.task.src.models.TaskItem`, не только от enum'ов домена `task`.
+Используется REST-ручкой `GET /api/tasks/{task_id}/results` (см.
+[`apps/api/AGENTS.md`](../../apps/api/AGENTS.md)) — проверка владения задачей остаётся в
+`packages/task` (`TaskService.ensure_task_owner`), этот домен её не знает и не дублирует.
+
 ## Зависимости
 
-`packages/result` зависит от `packages/task` (`ParseType`) и `core` (`Marketplace`), не наоборот —
-`packages/task` не знает о существовании `packages/result`.
+`packages/result` зависит от `packages/task` (`ParseType`, модель `TaskItem` для join при чтении по
+`task_id`) и `core` (`Marketplace`), не наоборот — `packages/task` не знает о существовании
+`packages/result`.
