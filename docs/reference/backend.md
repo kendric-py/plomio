@@ -24,7 +24,8 @@
 Общая инфраструктура, переиспользуемая всеми `apps/*` и `packages/*`:
 
 - **`core/database.py`** — `BaseSQLModel` (декларативная база SQLAlchemy-моделей).
-- **`core/configs.py`** — конфиги через `pydantic-settings` (`PostgresConfig`, `AuthConfig`).
+- **`core/configs.py`** — конфиги через `pydantic-settings` (`PostgresConfig`, `AuthConfig`,
+  `RedisConfig`).
 - **`core/exceptions.py`** — общие исключения уровня БД: `DuplicatedObjectError`,
   `ObjectNotFoundError`.
 - **`core/repository.py`** — `BaseRepositoryInterface`/`BaseRepository[DataBaseObject, EntityObject]`:

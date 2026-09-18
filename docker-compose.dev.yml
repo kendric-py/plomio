@@ -18,5 +18,22 @@ services:
       timeout: 5s
       retries: 10
 
+  # Пул сессий worker-sessions (TTL на ключах) — см. apps/worker-sessions/AGENTS.md и
+  # RedisConfig в core/configs.py. Без пароля по умолчанию, как в apps/worker-sessions/.env.example.
+  redis:
+    image: redis:7-alpine
+    container_name: smpcrawl_redis_dev
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - smpcrawl_redis_dev_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   smpcrawl_postgres_dev_data:
+  smpcrawl_redis_dev_data:

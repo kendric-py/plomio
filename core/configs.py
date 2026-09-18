@@ -48,3 +48,17 @@ class AuthConfig(BaseSettings):
     SECRET_KEY: str = Field(default=None)
     ALGORITHM: str = Field(default='HS256')
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60)
+
+
+class RedisConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file='.env',
+        env_file_encoding='utf-8',
+        env_prefix='REDIS_',
+        extra='ignore',
+    )
+
+    HOST: str = Field(default='localhost')
+    PORT: int = Field(default=6379)
+    DB: int = Field(default=0)
+    PASSWORD: Optional[str] = Field(default=None)

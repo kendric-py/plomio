@@ -8,7 +8,6 @@ packages = [{ include = "worker_parser", from = "src" }]
 
 [tool.poetry.dependencies]
 python = "^3.12"
-shared = { path = "../..", develop = true }
 
 [build-system]
 requires = ["poetry-core"]
