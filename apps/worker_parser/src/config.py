@@ -38,7 +38,7 @@ class SessionPoolConfig(BaseSettings):
     )
 
     MAX_POP_ATTEMPTS: int = Field(default=5)
-    MIN_TTL_MARGIN_SECONDS: float = Field(default=300.0)
+    MIN_TTL_MARGIN_SECONDS: float = Field(default=30.0)
     EMPTY_POOL_BACKOFF_SECONDS: float = Field(default=5.0)
 
 
