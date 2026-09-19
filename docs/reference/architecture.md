@@ -30,7 +30,7 @@
                                             │
                                    выполняет парсинг OZON / Wildberries
                                             │
-                          HTTP heartbeat (статус, текущие задачи, готовность) ──> ?
+                          HTTP heartbeat (статус) ──> apps/api (POST /api/worker-health/*)
                                             │
                                             ▼
                                 результат сохраняется в PostgreSQL
@@ -45,28 +45,33 @@
 
 ## Heartbeat
 
-`worker_parser` отправляет периодические HTTP-запросы с heartbeat, в которых сообщает:
+Решено (см. [`packages/worker_health`](../../packages/worker_health/AGENTS.md) за полным
+контрактом): каждый воркер (`worker_parser`, `worker_sessions`) отправляет `POST` с телом
+`{"worker_name": ..., "status": ...}` на `apps/api` (`POST /api/worker-health/{parser,sessions}
+/heartbeat`) раз в `LIVENESS_INTERVAL_SECONDS`. `apps/api` не пишет каждый heartbeat в Postgres —
+последний heartbeat живёт в Redis, а периодическая проверка на event loop `apps/api`
+(`packages/cron`) детектирует пропуск (`WORKER_HEALTH_MISSED_THRESHOLD_SECONDS`) и пишет
+переход `MISSED`/`RECOVERED` в БД (`worker_heartbeat_logs`). Текущий статус всех воркеров —
+`GET /api/worker-health/workers`.
 
-- текущий статус;
-- над какими задачами сейчас работает;
-- готов ли принимать новые задания, и если нет — почему.
-
-> TODO: определить получателя heartbeat (`apps/api` напрямую или отдельный компонент), формат запроса,
-> периодичность, и что происходит при пропуске heartbeat (таймаут → воркер считается недоступным?).
+Тело запроса сейчас — только `worker_name`+`status`, без списка текущих задач (это было в
+изначальной идее, но не реализовано — при необходимости расширяется отдельно).
 
 `worker_sessions` отправляет свой собственный, независимый процесс-уровневый heartbeat (имя воркера
-из `.env`, статус готов/генерирует/ждёт прокси) — см.
-[`apps/worker_sessions/AGENTS.md`](../../apps/worker_sessions/AGENTS.md). Получатель и формат — тот
-же нерешённый вопрос, что и для `worker_parser` выше.
+из `.env`, статус готов/генерирует/ждёт прокси) на тот же `apps/api` (`POST /api/worker-health
+/sessions/heartbeat`) — тем же общим механизмом, что и `worker_parser` (оба используют один
+`LivenessReporter` из `packages/worker_health`). См.
+[`apps/worker_sessions/AGENTS.md`](../../apps/worker_sessions/AGENTS.md).
 
 ## Взаимодействие worker_parser ↔ worker_sessions
 
-Хранение решено: `worker_sessions` пишет сгенерированные сессии в Redis (`session:{marketplace}:{id}`
-с TTL на ключе, `sessions:pool:{marketplace}` — `ZSET` для учёта глубины пула). Подробности —
-[`apps/worker_sessions/AGENTS.md`](../../apps/worker_sessions/AGENTS.md).
-
-> TODO: не решено, как именно `worker_parser` эту сессию получает — прямое чтение Redis, HTTP-ручка
-> на `worker_sessions`, или что-то ещё.
+Решено полностью: `worker_sessions` пишет сгенерированные сессии в Redis (`session:{marketplace}:{id}`
+с TTL на ключе, `sessions:pool:{marketplace}` — `ZSET` для учёта глубины пула), `worker_parser`
+атомарно забирает их прямым чтением Redis (`ZPOPMIN`, не HTTP-ручка на `worker_sessions`) —
+`SessionPoolStore.acquire_session`, общий для обоих воркеров класс в
+[`packages/sessions`](../../packages/sessions/AGENTS.md). Подробности —
+[`apps/worker_sessions/AGENTS.md`](../../apps/worker_sessions/AGENTS.md) и
+[`apps/worker_parser/AGENTS.md`](../../apps/worker_parser/AGENTS.md).
 
 ## Хранение данных
 

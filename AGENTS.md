@@ -40,8 +40,9 @@
 невалидности — сессия не проходит валидацию реальным запросом к API маркетплейса перед сохранением
 (`worker_sessions` не сохраняет невалидные сессии вовсе).
 
-> TODO: то, как именно `worker_parser` получает сессию из Redis (прямое чтение, HTTP-ручка на
-> `worker_sessions`, что-то ещё) — протокол ещё не определён, см. раздел «Архитектура».
+Протокол получения сессии решён: прямое чтение Redis, не HTTP-ручка — `worker_parser` атомарно
+забирает сессию через `SessionPoolStore.acquire_session` (`ZPOPMIN` по `sessions:pool:{marketplace}`,
+общий с `worker_sessions` класс в [`packages/sessions`](./packages/sessions/AGENTS.md)).
 
 ## Домен: пользователи и тарифы
 
