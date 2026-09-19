@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from core.configs import PostgresConfig, RedisConfig
+from core.configs import LivenessConfig, PostgresConfig, RedisConfig
 
 # Load this app's .env into the real process environment, independent of cwd — mirrors
 # apps/worker_sessions/src/config.py, needed because this worker can be launched from outside its
@@ -64,23 +64,6 @@ class HttpConfig(BaseSettings):
     TIMEOUT_SECONDS: float = Field(default=20.0)
     RETRIES: int = Field(default=3)
     BASE_DELAY_SECONDS: float = Field(default=1.5)
-
-
-class LivenessConfig(BaseSettings):
-    """Process-level HTTP heartbeat, independent of task-lease progress — see
-    apps/worker_parser/AGENTS.md for the open questions around the receiving endpoint."""
-
-    model_config = SettingsConfigDict(
-        env_file=ENV_FILE,
-        env_file_encoding='utf-8',
-        env_prefix='LIVENESS_',
-        extra='ignore',
-    )
-
-    WORKER_NAME: str = Field(default='')
-    ENDPOINT_URL: str = Field(default='http://localhost:8000/api/worker-health/parser/heartbeat')
-    INTERVAL_SECONDS: float = Field(default=30.0)
-    REQUEST_TIMEOUT_SECONDS: float = Field(default=5.0)
 
 
 class Config(BaseSettings):

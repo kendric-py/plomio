@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
-from core.configs import RedisConfig
+from core.configs import LivenessConfig, RedisConfig
 
 # Load this app's .env into the real process environment, independent of cwd — mirrors
 # apps/api/src/config.py, needed because this worker can be launched from outside its own
@@ -56,9 +56,9 @@ class GenerationConfig(BaseSettings):
 
 class SessionsStreamConfig(BaseSettings):
     """Naming for the per-marketplace Redis Stream (`{PREFIX}:{marketplace}`, e.g.
-    `sessions:ozon`) that `RedisSessionStore` publishes to alongside the TTL'd HSET/ZSET pool
-    — a separate, explicitly-named channel so other future domains sharing the same Redis
-    instance don't collide with session data. See apps/worker_sessions/AGENTS.md."""
+    `sessions:ozon`) that `SessionPoolStore` (packages/sessions) publishes to alongside the TTL'd
+    HSET/ZSET pool — a separate, explicitly-named channel so other future domains sharing the same
+    Redis instance don't collide with session data. See apps/worker_sessions/AGENTS.md."""
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
@@ -106,23 +106,6 @@ class ProcessReaperConfig(BaseSettings):
     # A healthy session finishes in ~1-2 min; 5 min is a safe margin before it's orphaned garbage.
     MAX_AGE_S: float = Field(default=300.0)
     SIGTERM_GRACE_S: float = Field(default=5.0)
-
-
-class LivenessConfig(BaseSettings):
-    """Process-level HTTP heartbeat, independent of session generation progress — see
-    apps/worker_sessions/AGENTS.md for the open questions around the receiving endpoint."""
-
-    model_config = SettingsConfigDict(
-        env_file=ENV_FILE,
-        env_file_encoding='utf-8',
-        env_prefix='LIVENESS_',
-        extra='ignore',
-    )
-
-    WORKER_NAME: str = Field(default='')
-    ENDPOINT_URL: str = Field(default='http://localhost:8000/api/worker-health/sessions/heartbeat')
-    INTERVAL_SECONDS: float = Field(default=30.0)
-    REQUEST_TIMEOUT_SECONDS: float = Field(default=5.0)
 
 
 class Config(BaseSettings):

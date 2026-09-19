@@ -9,10 +9,10 @@ from apps.worker_sessions.src.exceptions import BrowserInitError
 from apps.worker_sessions.src.generation.marketplaces.registry import build_session
 from apps.worker_sessions.src.generation.process_reaper import run_process_reaper
 from apps.worker_sessions.src.generation.validation import validate_session
-from apps.worker_sessions.src.liveness import LivenessReporter
 from apps.worker_sessions.src.proxy.client import ProxyRotator
-from apps.worker_sessions.src.store.redis_store import RedisSessionStore
 from core.enums import Marketplace
+from packages.sessions.src.redis_store import SessionPoolStore
+from packages.worker_health.src.liveness_reporter import LivenessReporter
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ def _build_and_validate(
 async def _generator_worker(
     marketplace: Marketplace,
     executor: ThreadPoolExecutor,
-    store: RedisSessionStore,
+    store: SessionPoolStore,
     liveness: LivenessReporter,
     worker_tag: str,
 ) -> None:
@@ -45,7 +45,7 @@ async def _generator_worker(
 
             proxy: ProxyConfig | None = None
             if config.GENERATION.REQUIRE_PROXY:
-                liveness.set_status(status=WorkerSessionsStatus.WAITING_FOR_PROXY)
+                liveness.set_status(status=WorkerSessionsStatus.WAITING_FOR_PROXY.value)
                 proxy = await rotator.acquire()
                 if proxy is None:
                     logger.warning(
@@ -54,24 +54,29 @@ async def _generator_worker(
                     await asyncio.sleep(config.GENERATION.NO_PROXY_RETRY_DELAY_SECONDS)
                     continue
 
-            liveness.set_status(status=WorkerSessionsStatus.GENERATING)
+            liveness.set_status(status=WorkerSessionsStatus.GENERATING.value)
             valid, session_message = await loop.run_in_executor(
                 executor, _build_and_validate, marketplace, proxy,
             )
             if valid:
-                await store.save(session_message=session_message)
+                await store.save(
+                    session_message=session_message,
+                    ttl_ms=config.GENERATION.TTL_MS,
+                    stream_prefix=config.SESSIONS_STREAM.PREFIX,
+                    stream_maxlen=config.SESSIONS_STREAM.MAXLEN,
+                )
             else:
                 logger.warning(
                     '[session_dropped] %s marketplace=%s session_id=%s — failed validation',
                     worker_tag, marketplace, session_message.session_id,
                 )
-            liveness.set_status(status=WorkerSessionsStatus.READY)
+            liveness.set_status(status=WorkerSessionsStatus.READY.value)
         except BrowserInitError as exc:
             logger.error('[browser_init_failed] %s error=%s', worker_tag, exc)
-            liveness.set_status(status=WorkerSessionsStatus.READY)
+            liveness.set_status(status=WorkerSessionsStatus.READY.value)
         except Exception:
             logger.exception('[generator_worker_error] %s', worker_tag)
-            liveness.set_status(status=WorkerSessionsStatus.READY)
+            liveness.set_status(status=WorkerSessionsStatus.READY.value)
             await asyncio.sleep(5)
 
 
@@ -81,8 +86,8 @@ async def run_pool_manager() -> None:
             '[dev_mode] GENERATION_REQUIRE_PROXY=false — generating sessions over a direct '
             'connection, no proxy. Marketplaces will ban this IP quickly; never use in prod.',
         )
-    store = RedisSessionStore()
-    liveness = LivenessReporter()
+    store = SessionPoolStore(redis_config=config.REDIS)
+    liveness = LivenessReporter(config=config.LIVENESS)
     executor = ThreadPoolExecutor(
         max_workers=config.GENERATION.CONCURRENCY_PER_MARKETPLACE * len(Marketplace),
     )

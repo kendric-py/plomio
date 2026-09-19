@@ -1,41 +1,11 @@
-import time
-import uuid
-
 from pydantic import BaseModel, Field
 
 from core.enums import Marketplace
 
-
-class ProxyConfig(BaseModel):
-    """Intentional wire-contract duplicate of worker_sessions.entities.ProxyConfig — apps/* do
-    not import each other's src/, only core/packages, so the two copies must stay in sync by
-    hand if the wire format on RedisSessionStore.save changes. See apps/worker_parser/AGENTS.md."""
-
-    type: str = Field(...)  # "http" | "socks5"
-    host: str = Field(...)
-    port: int = Field(...)
-    username: str | None = Field(default=None)
-    password: str | None = Field(default=None)
-
-    def to_url(self) -> str:
-        scheme = 'socks5' if self.type == 'socks5' else 'http'
-        auth = f'{self.username}:{self.password}@' if self.username and self.password else ''
-        return f'{scheme}://{auth}{self.host}:{self.port}'
-
-
-class SessionMessage(BaseModel):
-    """Intentional wire-contract duplicate of worker_sessions.entities.SessionMessage — see
-    ProxyConfig above for why this isn't a cross-app import."""
-
-    session_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
-    marketplace: Marketplace = Field(...)
-    created_at: float = Field(default_factory=time.time)
-    proxy: ProxyConfig | None = Field(default=None)
-    cookies: dict[str, str] = Field(...)
-    user_agent: str = Field(...)
-    sec_ch_ua: str = Field(...)
-    sec_ch_ua_platform: str = Field(...)
-    extra: dict[str, str] = Field(default_factory=dict)
+# `ProxyConfig`/`SessionMessage` moved to packages/sessions (shared Redis wire contract with
+# apps/worker_sessions) — see packages/sessions/AGENTS.md. Re-exported here so existing imports of
+# `apps.worker_parser.src.entities` keep working unchanged.
+from packages.sessions.src.entities import ProxyConfig, SessionMessage  # noqa: F401
 
 
 class OzonPaginationCursor(BaseModel):

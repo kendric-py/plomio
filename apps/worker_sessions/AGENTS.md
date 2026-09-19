@@ -8,12 +8,14 @@
 ## Структура
 
 Плоская, по образцу `apps/api/src/`: точка входа — `src/__main__.py` напрямую в `src/`, остальные
-модули (`config.py`, `enums.py`, `entities.py`, `exceptions.py`, `liveness.py`, `pool_manager.py`,
-`generation/`, `proxy/`, `store/`) — тоже прямо в `src/`. Папка приложения называется
-`worker_sessions` (подчёркивание, не дефис) специально — так внутренние импорты пишутся полным
-путём от корня репозитория, `apps.worker_sessions.src.*`, тем же способом, что и `apps.api.src.*`
-у `apps/api` (дефис в имени папки сделал бы такой путь синтаксически невалидным Python-импортом).
-Запуск — `make run-worker_sessions` → `poetry -C apps/worker_sessions run python -m
+модули (`config.py`, `enums.py`, `entities.py`, `exceptions.py`, `pool_manager.py`, `generation/`,
+`proxy/`) — тоже прямо в `src/`. Пул сессий (запись в Redis) и liveness-heartbeat — не здесь, а в
+[`packages/sessions`](../../packages/sessions/AGENTS.md)/[`packages/worker_health`](../../packages/worker_health/AGENTS.md),
+общих с `apps/worker_parser`. Папка приложения называется `worker_sessions` (подчёркивание, не
+дефис) специально — так внутренние импорты пишутся полным путём от корня репозитория,
+`apps.worker_sessions.src.*`, тем же способом, что и `apps.api.src.*` у `apps/api` (дефис в имени
+папки сделал бы такой путь синтаксически невалидным Python-импортом). Запуск —
+`make run-worker_sessions` → `poetry -C apps/worker_sessions run python -m
 apps.worker_sessions.src`.
 
 ## Поток генерации
@@ -22,7 +24,8 @@ apps.worker_sessions.src`.
 на каждый `Marketplace` (`OZON`, `WILDBERRIES`) — enum живёт в `core/enums.py` (общий с
 `apps/worker_parser`), не переопределяется локально. Каждый воркер в цикле:
 
-1. Проверяет `RedisSessionStore.live_count(marketplace)` — если пул уже не меньше
+1. Проверяет `SessionPoolStore.live_count(marketplace)` (см.
+   [`packages/sessions`](../../packages/sessions/AGENTS.md)) — если пул уже не меньше
    `GENERATION_TARGET_POOL_DEPTH`, ждёт и проверяет снова.
 2. Получает прокси через `ProxyRotator.acquire()` (см. «Прокси» ниже). Если прокси нет — ждёт и
    пробует снова.
@@ -33,7 +36,7 @@ apps.worker_sessions.src`.
 4. Валидирует сессию реальным поисковым запросом к API маркетплейса
    (`generation/validation.py::validate_session`) — отсеивает сессии, заблокированные антиботом уже
    на уровне API, а не только главной страницы.
-5. Валидную сессию сохраняет в Redis (`store/redis_store.py::RedisSessionStore.save`).
+5. Валидную сессию сохраняет в Redis (`SessionPoolStore.save`, `packages/sessions`).
 
 `generation/process_reaper.py` параллельно подчищает осиротевшие процессы Camoufox/Playwright
 (крэш/зависание инициализации браузера оставляет процесс висеть).
@@ -43,9 +46,13 @@ apps.worker_sessions.src`.
 Подключение к Redis (`RedisConfig`: `HOST`/`PORT`/`DB`/`PASSWORD`) — глобальный конфиг
 [`core/configs.py`](../../core/configs.py), а не локальный для этого воркера: Redis — часть
 инфраструктуры приложения, по аналогии с `PostgresConfig`. `worker_sessions/config.py` импортирует
-его оттуда (`from core.configs import RedisConfig`) и подключает как `config.REDIS`.
+его оттуда (`from core.configs import RedisConfig`) и подключает как `config.REDIS`. Сам клиент
+собирается через [`core.redis.get_redis_client`](../../core/redis.py) — общая фабрика для всех
+Redis-потребителей проекта, не только этого воркера.
 
-Формат решён (закрывает соответствующую часть TODO в `docs/reference/architecture.md`):
+Ключи/запись/чтение пула — не здесь, а в [`packages/sessions`](../../packages/sessions/AGENTS.md)
+(`SessionPoolStore`), общем с `apps/worker_parser` и `apps/api`. Формат решён (закрывает
+соответствующую часть TODO в `docs/reference/architecture.md`):
 
 - `session:{marketplace}:{session_id}` — сериализованный `SessionMessage` (JSON), `PEXPIRE` на
   `GENERATION_TTL_MS` (по умолчанию 7 минут — с запасом от естественного времени жизни сессии на
@@ -55,19 +62,19 @@ apps.worker_sessions.src`.
   актуальной глубины пула (`ZCOUNT ... now +inf`), без отдельного wall-clock трекера.
 - `{SESSIONS_STREAM_PREFIX}:{marketplace}` (по умолчанию `sessions:ozon` / `sessions:wildberries`)
   — Redis Stream, отдельный канал на маркетплейс (`SessionsStreamConfig` в `config.py`). При каждом
-  `RedisSessionStore.save` в него добавляется запись (`session_id`, `expire_at`) через `XADD` с
+  `SessionPoolStore.save` в него добавляется запись (`session_id`, `expire_at`) через `XADD` с
   `MAXLEN ~ SESSIONS_STREAM_MAXLEN` (не даёт стриму расти неограниченно, если потребитель отстаёт
   или отсутствует). Канал — **дополнение** к TTL-хранилищу выше, а не замена: источник истины по
   тому, жива ли сессия, остаётся `session:{marketplace}:{id}` с `PEXPIRE` — у записей в Stream нет
   собственного TTL. Название явно вынесено в конфиг (не захардкожено), т.к. один и тот же Redis
   со временем будет обслуживать не только сессии, и разные домены не должны делить неймспейс молча.
-  Кто и как читает этот стрим (`XREAD`/`XREADGROUP` со стороны `worker_parser`) — пока не реализовано
-  здесь, это относится к тому же открытому вопросу протокола ниже.
+  Стрим остаётся не потребляемым никем сознательно (см. `apps/worker_parser/AGENTS.md`) —
+  зарезервирован под push-модель, если она когда-нибудь понадобится.
 
-**Не решено этим воркером:** как именно `worker_parser` получает сессию (прямое чтение Redis,
-HTTP-ручка на `worker_sessions`, что-то ещё) — см. открытый вопрос в `docs/reference/architecture.md`
-и `apps/worker_parser/DEVELOPMENT_PROMPT.md`. Эта часть протокола проектируется на стороне
-`worker_parser`.
+**Решено** (было открытым вопросом на момент написания этого раздела): `worker_parser` получает
+сессию прямым чтением Redis, не через HTTP-ручку — `SessionPoolStore.acquire_session` (`ZPOPMIN`
+по `sessions:pool:{marketplace}`, см. [`packages/sessions`](../../packages/sessions/AGENTS.md) и
+`apps/worker_parser/AGENTS.md`).
 
 ## Прокси — заглушка
 
@@ -91,12 +98,14 @@ Camoufox/Playwright не умеет SOCKS5 с логином/паролем. П�
 
 ## HTTP-heartbeat воркера (liveness)
 
-`liveness.py::LivenessReporter` — процесс-уровневый сигнал "воркер жив", независимый от того,
-генерирует ли воркер сейчас сессию. Раз в `LIVENESS_INTERVAL_SECONDS` шлёт `POST` на
+`LivenessReporter` ([`packages/worker_health`](../../packages/worker_health/AGENTS.md) — общий с
+`apps/worker_parser` класс, не локальный) — процесс-уровневый сигнал "воркер жив", независимый от
+того, генерирует ли воркер сейчас сессию. Раз в `LIVENESS_INTERVAL_SECONDS` шлёт `POST` на
 `LIVENESS_ENDPOINT_URL` с телом `{"worker_name": ..., "status": ...}`, где `worker_name` — значение
-`LIVENESS_WORKER_NAME` из `.env` (не генерируется рантаймом), `status` — `WorkerSessionsStatus`
-(`enums.py`): `READY` (простаивает), `GENERATING` (поднимает браузер/генерирует сессию),
-`WAITING_FOR_PROXY` (ждёт прокси от `ProxyRotator`).
+`LIVENESS_WORKER_NAME` из `.env` (не генерируется рантаймом), `status` — свободная строка, которую
+передаёт `pool_manager.py` из `WorkerSessionsStatus` (`enums.py`) через `.value`: `READY`
+(простаивает), `GENERATING` (поднимает браузер/генерирует сессию), `WAITING_FOR_PROXY` (ждёт
+прокси от `ProxyRotator`).
 
 Известное упрощение этой итерации: при нескольких параллельных generator-воркерах (по
 `GENERATION_CONCURRENCY_PER_MARKETPLACE` на маркетплейс) статус — один общий на процесс, отражает
@@ -104,10 +113,9 @@ Camoufox/Playwright не умеет SOCKS5 с логином/паролем. П�
 уровне отдельного generator-воркера — расширить `LivenessReporter` до отчёта по каждому воркеру
 отдельно.
 
-**Не решено (открытый вопрос, как и для `worker_parser`, см. `docs/reference/architecture.md`):**
-адрес/эндпоинт на бэкенде, принимающий этот запрос; остальной состав тела запроса, если
-понадобится больше, чем имя+статус; поведение бэкенда при пропуске нескольких heartbeat подряд.
-Пока `LIVENESS_ENDPOINT_URL` пуст по умолчанию — `LivenessReporter` не шлёт запросы и не падает.
+Принимающая ручка на бэкенде существует: `POST /api/worker-health/sessions/heartbeat`
+(`apps/api/src/routers/worker_health`, см. [`packages/worker_health`](../../packages/worker_health/AGENTS.md)
+за полным контрактом). Раньше это было открытым вопросом (как и для `worker_parser`) — закрыто.
 
 ## Что перенесено из `session-service`, а что нет
 
@@ -117,10 +125,13 @@ Camoufox/Playwright не умеет SOCKS5 с логином/паролем. П�
 (`generation/process_reaper.py`).
 
 Не перенесены (переосмыслены): публикация в RabbitMQ и отдельный `LiveSessionTracker`-костыль
-(TTL-реап Rabbit ненадёжен при простое) — заменены на `RedisSessionStore` с TTL на самих ключах.
+(TTL-реап Rabbit ненадёжен при простое) — заменены на `SessionPoolStore` с TTL на самих ключах.
 
 ## Не входит в эту итерацию
 
-Ручка выдачи прокси на бэкенде — не существует, `proxy/client.py` работает как заглушка. Получатель
-HTTP-heartbeat на бэкенде — не существует. Протокол получения сессии `worker_parser`'ом из Redis —
-не спроектирован здесь, это открытый вопрос на стороне `worker_parser`.
+Ручка выдачи прокси на бэкенде — не существует, `proxy/client.py` работает как заглушка.
+
+Закрыто с момента написания этого раздела (оставлено для истории): получатель HTTP-heartbeat на
+бэкенде теперь есть (`POST /api/worker-health/sessions/heartbeat`, см. выше); протокол получения
+сессии `worker_parser`'ом из Redis реализован — `SessionPoolStore.acquire_session` (`ZPOPMIN`), см.
+[`packages/sessions`](../../packages/sessions/AGENTS.md) и `apps/worker_parser/AGENTS.md`.

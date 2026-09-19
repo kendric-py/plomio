@@ -14,20 +14,20 @@ from apps.worker_parser.src.entities import (
 )
 from apps.worker_parser.src.enums import WorkerParserStatus
 from apps.worker_parser.src.exceptions import ParserError
-from apps.worker_parser.src.liveness import LivenessReporter
 from apps.worker_parser.src.marketplaces.ozon import fetchers as ozon_fetchers
 from apps.worker_parser.src.marketplaces.ozon.utils import create_ozon_http_session
 from apps.worker_parser.src.marketplaces.wb import fetchers as wb_fetchers
 from apps.worker_parser.src.marketplaces.wb.utils import create_wb_http_session
-from apps.worker_parser.src.redis_session_client import RedisSessionClient
 from apps.worker_parser.src.retry_policy import SessionAction, resolve_retry_policy
 from core.database import get_database_connection
 from core.enums import Marketplace
 from core.transaction_manager import AsyncTransactionManager
 from packages.result.src.service import ResultService
+from packages.sessions.src.redis_store import SessionPoolStore
 from packages.task.src.entities import TaskEntity, TaskItemEntity
 from packages.task.src.enums import ParseType, TaskItemStatus, TaskStatus
 from packages.task.src.service import TERMINAL_ITEM_STATUSES, TaskService
+from packages.worker_health.src.liveness_reporter import LivenessReporter
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +63,18 @@ _SELLER_PROFILE_FETCHERS = {
 
 async def acquire_session_or_wait(
     marketplace: Marketplace,
-    session_client: RedisSessionClient,
+    session_client: SessionPoolStore,
     liveness_reporter: LivenessReporter,
 ) -> SessionMessage:
     while True:
-        session_message = await session_client.acquire_session(marketplace=marketplace)
+        session_message = await session_client.acquire_session(
+            marketplace=marketplace,
+            max_pop_attempts=config.SESSION_POOL.MAX_POP_ATTEMPTS,
+            min_ttl_margin_seconds=config.SESSION_POOL.MIN_TTL_MARGIN_SECONDS,
+        )
         if session_message is not None:
             return session_message
-        liveness_reporter.set_status(WorkerParserStatus.WAITING_FOR_SESSION)
+        liveness_reporter.set_status(WorkerParserStatus.WAITING_FOR_SESSION.value)
         await asyncio.sleep(config.SESSION_POOL.EMPTY_POOL_BACKOFF_SECONDS)
 
 
@@ -79,7 +83,7 @@ async def handle_product_page_item(
     item: TaskItemEntity,
     task_service: TaskService,
     result_service: ResultService,
-    session_client: RedisSessionClient,
+    session_client: SessionPoolStore,
     liveness_reporter: LivenessReporter,
 ) -> None:
     fetch_product_page = _PRODUCT_PAGE_FETCHERS[task.marketplace]
@@ -94,7 +98,7 @@ async def handle_product_page_item(
             session_message = await acquire_session_or_wait(
                 task.marketplace, session_client, liveness_reporter,
             )
-        liveness_reporter.set_status(WorkerParserStatus.WORKING)
+        liveness_reporter.set_status(WorkerParserStatus.WORKING.value)
         http_session = create_http_session(session_message)
         try:
             payload = await fetch_product_page(item.input_value, http_session, session_message)
@@ -126,7 +130,7 @@ async def handle_listing_item(
     item: TaskItemEntity,
     task_service: TaskService,
     result_service: ResultService,
-    session_client: RedisSessionClient,
+    session_client: SessionPoolStore,
     liveness_reporter: LivenessReporter,
 ) -> None:
     fetch_page = _LISTING_FETCHERS[(task.marketplace, task.parse_type)]
@@ -145,7 +149,7 @@ async def handle_listing_item(
             session_message = await acquire_session_or_wait(
                 task.marketplace, session_client, liveness_reporter,
             )
-        liveness_reporter.set_status(WorkerParserStatus.WORKING)
+        liveness_reporter.set_status(WorkerParserStatus.WORKING.value)
         http_session = create_http_session(session_message)
         remaining_limit = None if task.result_limit is None else task.result_limit - result_count
 
@@ -208,7 +212,7 @@ async def _record_seller_profile(
     item: TaskItemEntity,
     session_message: SessionMessage | None,
     result_service: ResultService,
-    session_client: RedisSessionClient,
+    session_client: SessionPoolStore,
     liveness_reporter: LivenessReporter,
 ) -> None:
     fetch_seller_profile = _SELLER_PROFILE_FETCHERS[task.marketplace]
@@ -238,7 +242,7 @@ async def handle_reviews_item(
     item: TaskItemEntity,
     task_service: TaskService,
     result_service: ResultService,
-    session_client: RedisSessionClient,
+    session_client: SessionPoolStore,
     liveness_reporter: LivenessReporter,
 ) -> None:
     if task.marketplace == Marketplace.OZON:
@@ -256,7 +260,7 @@ async def _handle_ozon_reviews(
     item: TaskItemEntity,
     task_service: TaskService,
     result_service: ResultService,
-    session_client: RedisSessionClient,
+    session_client: SessionPoolStore,
     liveness_reporter: LivenessReporter,
 ) -> None:
     cursor = OzonReviewCursor.model_validate(item.cursor) if item.cursor else None
@@ -270,7 +274,7 @@ async def _handle_ozon_reviews(
             session_message = await acquire_session_or_wait(
                 task.marketplace, session_client, liveness_reporter,
             )
-        liveness_reporter.set_status(WorkerParserStatus.WORKING)
+        liveness_reporter.set_status(WorkerParserStatus.WORKING.value)
         http_session = create_ozon_http_session(session_message)
 
         try:
@@ -317,7 +321,7 @@ async def _handle_wb_reviews(
     item: TaskItemEntity,
     task_service: TaskService,
     result_service: ResultService,
-    session_client: RedisSessionClient,
+    session_client: SessionPoolStore,
     liveness_reporter: LivenessReporter,
 ) -> None:
     session_message: SessionMessage | None = None
@@ -329,7 +333,7 @@ async def _handle_wb_reviews(
             session_message = await acquire_session_or_wait(
                 task.marketplace, session_client, liveness_reporter,
             )
-        liveness_reporter.set_status(WorkerParserStatus.WORKING)
+        liveness_reporter.set_status(WorkerParserStatus.WORKING.value)
         http_session = create_wb_http_session(session_message)
         try:
             reviews = await wb_fetchers.fetch_wb_review_page(
@@ -366,7 +370,7 @@ async def process_task_item(
     item: TaskItemEntity,
     task_service: TaskService,
     result_service: ResultService,
-    session_client: RedisSessionClient,
+    session_client: SessionPoolStore,
     liveness_reporter: LivenessReporter,
 ) -> None:
     if task.parse_type == ParseType.PRODUCT_PAGE:
@@ -387,7 +391,7 @@ async def process_claimed_task(
     task: TaskEntity,
     task_service: TaskService,
     result_service: ResultService,
-    session_client: RedisSessionClient,
+    session_client: SessionPoolStore,
     liveness_reporter: LivenessReporter,
 ) -> None:
     items = await task_service.get_task_items(task_id=task.id)
@@ -422,13 +426,13 @@ async def run_lease_heartbeat_loop(
 async def run_poll_loop(
     task_service: TaskService,
     result_service: ResultService,
-    session_client: RedisSessionClient,
+    session_client: SessionPoolStore,
     liveness_reporter: LivenessReporter,
 ) -> None:
     lease_duration = timedelta(seconds=config.POLL.LEASE_DURATION_SECONDS)
 
     while True:
-        liveness_reporter.set_status(WorkerParserStatus.READY)
+        liveness_reporter.set_status(WorkerParserStatus.READY.value)
         task = await task_service.claim_next(
             worker_id=config.POLL.WORKER_ID, lease_duration=lease_duration,
         )
@@ -436,7 +440,7 @@ async def run_poll_loop(
             await asyncio.sleep(config.POLL.INTERVAL_SECONDS)
             continue
 
-        liveness_reporter.set_status(WorkerParserStatus.WORKING)
+        liveness_reporter.set_status(WorkerParserStatus.WORKING.value)
         stop_event = asyncio.Event()
         heartbeat_task = asyncio.create_task(
             run_lease_heartbeat_loop(
@@ -464,8 +468,8 @@ async def run_main() -> None:
     transaction_manager = AsyncTransactionManager(session_factory=session_factory)
     task_service = TaskService(transaction_manager=transaction_manager)
     result_service = ResultService(transaction_manager=transaction_manager)
-    session_client = RedisSessionClient()
-    liveness_reporter = LivenessReporter()
+    session_client = SessionPoolStore(redis_config=config.REDIS)
+    liveness_reporter = LivenessReporter(config=config.LIVENESS)
 
     try:
         await asyncio.gather(

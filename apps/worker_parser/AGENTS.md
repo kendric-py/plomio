@@ -9,8 +9,10 @@
 
 Плоская, по образцу `apps/api/src/` (и `apps/worker_sessions/src/`): точка входа — `src/__main__.py`
 напрямую в `src/`, остальные модули (`config.py`, `enums.py`, `exceptions.py`, `entities.py`,
-`redis_session_client.py`, `http_client.py`, `liveness.py`, `retry_policy.py`, `runner.py`) — тоже
-прямо в `src/`. Единственная дополнительная вложенность — `marketplaces/{ozon,wb}/`
+`http_client.py`, `retry_policy.py`, `runner.py`) — тоже прямо в `src/`. Пул сессий (потребление из
+Redis) и liveness-heartbeat — не здесь, а в
+[`packages/sessions`](../../packages/sessions/AGENTS.md)/[`packages/worker_health`](../../packages/worker_health/AGENTS.md),
+общих с `apps/worker_sessions`. Единственная дополнительная вложенность — `marketplaces/{ozon,wb}/`
 (constants/headers/utils/parsers/fetchers, Ozon дополнительно — `pagination.py`, Wildberries —
 `menu.py` для кэша категорий), оправданная реальным разделением по маркетплейсам.
 
@@ -58,11 +60,12 @@ payload) — курсор им не нужен, `record_item_progress(cursor=Non
 
 ## Потребление сессии из Redis — `ZPOPMIN`, не `XREADGROUP`
 
-`RedisSessionClient.acquire_session` атомарно забирает сессию с ближайшим `expire_at` через
-`ZPOPMIN sessions:pool:{marketplace}`, затем проверяет остаток TTL через `PTTL
-session:{marketplace}:{id}` (порог — `SESSION_POOL_MIN_TTL_MARGIN_SECONDS`) и читает тело через
-`GET`. При отсутствии ключа/тонком остатке TTL — отбрасывает и повторяет (до
-`SESSION_POOL_MAX_POP_ATTEMPTS`).
+`SessionPoolStore.acquire_session` (общий с `apps/worker_sessions` класс из
+[`packages/sessions`](../../packages/sessions/AGENTS.md)) атомарно забирает сессию с ближайшим
+`expire_at` через `ZPOPMIN sessions:pool:{marketplace}`, затем проверяет остаток TTL через `PTTL
+session:{marketplace}:{id}` (порог — `SESSION_POOL_MIN_TTL_MARGIN_SECONDS`, передаётся вызывающей
+стороной) и читает тело через `GET`. При отсутствии ключа/тонком остатке TTL — отбрасывает и
+повторяет (до `SESSION_POOL_MAX_POP_ATTEMPTS`).
 
 Альтернатива `XREADGROUP` по стриму `{SESSIONS_STREAM_PREFIX}:{marketplace}` сознательно не
 выбрана: `ZPOPMIN` даёт атомарную single-consumer семантику бесплатно (без bookkeeping consumer
@@ -90,22 +93,20 @@ push-модель, если она когда-нибудь понадобитс�
   `lease_expires_at` в Postgres каждые `POLL_HEARTBEAT_INTERVAL_SECONDS`. Если воркер падает,
   `reclaim_expired_leases()` (вызывается снаружи, например планировщиком) вернёт задачу в очередь —
   прогресс не теряется, так как курсор уже сохранён на уровне `TaskItem`.
-- **Liveness-heartbeat** (`LivenessReporter`) — работает постоянно, независимо от того, захвачена
-  ли задача, HTTP POST на `LIVENESS_ENDPOINT_URL` каждые `LIVENESS_INTERVAL_SECONDS`. Имя воркера —
-  `LIVENESS_WORKER_NAME` из `.env` (не hostname/PID), статус — `WorkerParserStatus`
-  (`READY`/`WORKING`/`WAITING_FOR_SESSION`).
+- **Liveness-heartbeat** (`LivenessReporter`, [`packages/worker_health`](../../packages/worker_health/AGENTS.md)
+  — общий с `apps/worker_sessions`, не локальный класс) — работает постоянно, независимо от того,
+  захвачена ли задача, HTTP POST на `LIVENESS_ENDPOINT_URL` каждые `LIVENESS_INTERVAL_SECONDS`. Имя
+  воркера — `LIVENESS_WORKER_NAME` из `.env` (не hostname/PID), статус — `WorkerParserStatus`
+  (`READY`/`WORKING`/`WAITING_FOR_SESSION`), передаётся в `set_status()` как `.value` (класс
+  общий для всех воркеров и не знает про `WorkerParserStatus`).
 
 `POLL_WORKER_ID` (владелец lease в БД) и `LIVENESS_WORKER_NAME` (идентификатор в HTTP-heartbeat) —
 сознательно разные ключи `.env`, хотя оператор обычно будет ставить их одинаковыми.
 
-### Открытые вопросы по liveness (не решены в этой итерации, зафиксированы явно)
-
-`LIVENESS_ENDPOINT_URL` пуст по умолчанию — heartbeat молча no-op (по образцу
-`apps/worker_sessions`). Реальный backend-эндпоинт не спроектирован и не реализован:
-
-- Адрес/эндпоинт на бекенде, принимающий этот HTTP-запрос (`apps/api` напрямую? отдельный роут?).
-- Состав тела запроса сверх `worker_name`+`status` (текущие задачи? их количество?).
-- Поведение бекенда при пропуске нескольких heartbeat подряд.
+Принимающая ручка на бэкенде существует: `POST /api/worker-health/parser/heartbeat`
+(`apps/api/src/routers/worker_health`, см. [`packages/worker_health`](../../packages/worker_health/AGENTS.md)
+за полным контрактом — тело запроса, поведение при пропуске heartbeat). Раньше это было открытым
+вопросом ("получателя нет") — закрыто.
 
 ## Модель конкурентности
 
