@@ -45,10 +45,7 @@ class DependencyContainer(DeclarativeContainer):
 
     worker_heartbeat_store = providers.Singleton(
         WorkerHeartbeatStore,
-        host=config.REDIS.HOST,
-        port=config.REDIS.PORT,
-        db=config.REDIS.DB,
-        password=config.REDIS.PASSWORD,
+        redis_config=config.REDIS,
     )
 
     worker_health_service = providers.Factory(

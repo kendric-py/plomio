@@ -62,3 +62,23 @@ class RedisConfig(BaseSettings):
     PORT: int = Field(default=6379)
     DB: int = Field(default=0)
     PASSWORD: Optional[str] = Field(default=None)
+
+
+class LivenessConfig(BaseSettings):
+    """Process-level HTTP heartbeat config, shared by every worker app (`apps/worker_parser`,
+    `apps/worker_sessions`) — was two independently hand-synced copies of the same class before.
+    `ENDPOINT_URL` defaults to empty (no hardcoded backend URL here — that's a deployment concern,
+    set per app's own `.env`): `LivenessReporter` (`packages/worker_health`) silently no-ops
+    while it's empty, matching the original documented behavior."""
+
+    model_config = SettingsConfigDict(
+        env_file='.env',
+        env_file_encoding='utf-8',
+        env_prefix='LIVENESS_',
+        extra='ignore',
+    )
+
+    WORKER_NAME: str = Field(default='')
+    ENDPOINT_URL: str = Field(default='')
+    INTERVAL_SECONDS: float = Field(default=30.0)
+    REQUEST_TIMEOUT_SECONDS: float = Field(default=5.0)

@@ -1,7 +1,7 @@
 import time
 
-import redis.asyncio as redis
-
+from core.configs import RedisConfig
+from core.redis import get_redis_client
 from packages.worker_health.src.enums import WorkerType
 
 _HEARTBEATS_KEY = 'worker_health:heartbeats'
@@ -31,8 +31,8 @@ class WorkerHeartbeatStore:
     to write the transition to Postgres — the others observe `False` and skip.
     """
 
-    def __init__(self, host: str, port: int, db: int, password: str | None = None) -> None:
-        self._client = redis.Redis(host=host, port=port, db=db, password=password)
+    def __init__(self, redis_config: RedisConfig) -> None:
+        self._client = get_redis_client(redis_config)
 
     async def touch(self, worker_type: WorkerType, worker_name: str, status: str) -> None:
         member = _member(worker_type, worker_name)

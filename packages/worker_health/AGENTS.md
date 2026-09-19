@@ -6,12 +6,31 @@
 
 ## Почему не пишем каждый heartbeat в Postgres
 
-`LivenessReporter` в воркерах шлёт heartbeat раз в `LIVENESS_INTERVAL_SECONDS` (по умолчанию 15с) —
-писать в Postgres на каждый такой сигнал не имеет смысла: это просто "воркер жив", не событие.
-Последний heartbeat каждого воркера живёт в Redis (`packages/worker_health/src/redis_store.py`,
-ZSET `worker_health:heartbeats`, `WorkerHeartbeatStore.touch()`), а в БД попадает только сам факт
-пропуска/восстановления сигнала — обнаруживает его периодическая проверка в `apps/api`
-(`apps/api/src/jobs/worker_heartbeat_sweep.py`, запускается через `packages/cron`).
+`LivenessReporter` (`src/liveness_reporter.py`) в воркерах шлёт heartbeat раз в
+`LIVENESS_INTERVAL_SECONDS` (по умолчанию 30с) — писать в Postgres на каждый такой сигнал не имеет
+смысла: это просто "воркер жив", не событие. Последний heartbeat каждого воркера живёт в Redis
+(`packages/worker_health/src/redis_store.py`, ZSET `worker_health:heartbeats`,
+`WorkerHeartbeatStore.touch()`), а в БД попадает только сам факт пропуска/восстановления сигнала —
+обнаруживает его периодическая проверка в `apps/api` (`apps/api/src/jobs/worker_heartbeat_sweep.py`,
+запускается через `packages/cron`).
+
+## `LivenessReporter` — общий отправитель, раньше был двумя независимыми копиями
+
+`apps/worker_parser` и `apps/worker_sessions` раньше держали каждый свою (почти побайтово
+идентичную) реализацию `LivenessReporter` и `LivenessConfig` — ничем не отмеченное дублирование,
+разъехавшееся само собой. Теперь отправитель — здесь (`src/liveness_reporter.py`), конфиг — в
+[`core.configs.LivenessConfig`](../../core/configs.py) (по аналогии с `RedisConfig`/`PostgresConfig`
+— общая инфраструктурная настройка, не бизнес-логика конкретного воркера).
+
+`LivenessReporter.set_status(status: str)` принимает обычную строку, а не `WorkerParserStatus`/
+`WorkerSessionsStatus` — этот класс не должен знать про enum'ы конкретных воркеров (см. пояснение
+про `status` в разделе про `GET /workers` ниже). Вызывающая сторона передаёt `SomeStatus.X.value`.
+
+`ENDPOINT_URL` в `core.configs.LivenessConfig` по умолчанию пуст (не захардкожен под конкретный
+воркер) — `LivenessReporter._send_once()` молча ничего не шлёт, пока он не задан явно в `.env`
+вызывающего приложения. Раньше "открытый вопрос" про отсутствие принимающей ручки был
+задокументирован в `apps/worker_parser/AGENTS.md`/`apps/worker_sessions/AGENTS.md` — теперь ручка
+существует (`POST /api/worker-health/{parser,sessions}/heartbeat`, этот же пакет), вопрос закрыт.
 
 ## Модель `WorkerHeartbeatLog`
 
