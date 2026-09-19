@@ -44,6 +44,7 @@ def configure_rest_server() -> FastAPI:
             'apps.api.src.routers.auth.endpoints',
             'apps.api.src.routers.task.endpoints',
             'apps.api.src.routers.worker_health.endpoints',
+            'apps.api.src.routers.sessions.endpoints',
         ],
     )
     app.include_router(router=api_router)

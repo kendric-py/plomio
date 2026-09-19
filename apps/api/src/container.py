@@ -7,6 +7,7 @@ from core.transaction_manager import AsyncTransactionManager
 from packages.auth.src.service import AuthService
 from packages.cron.src.service import CronJobService
 from packages.result.src.service import ResultService
+from packages.sessions.src.redis_store import SessionPoolStore
 from packages.task.src.service import TaskService
 from packages.user.src.service import UserService
 from packages.worker_health.src.redis_store import WorkerHeartbeatStore
@@ -56,4 +57,9 @@ class DependencyContainer(DeclarativeContainer):
     cron_job_service = providers.Factory(
         CronJobService,
         transaction_manager=transaction_manager,
+    )
+
+    session_pool_store = providers.Singleton(
+        SessionPoolStore,
+        redis_config=config.REDIS,
     )
