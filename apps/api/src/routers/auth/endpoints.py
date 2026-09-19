@@ -28,7 +28,7 @@ async def register(
 ) -> TokenResponse:
     try:
         user = await auth_service.register_user(
-            display_name=body.display_name,
+            display_name=body.email,
             email=body.email,
             password=body.password,
             ip_address=ip_address,

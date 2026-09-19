@@ -2,7 +2,6 @@ from pydantic import BaseModel, Field
 
 
 class RegisterRequest(BaseModel):
-    display_name: str = Field(description='Отображаемое имя пользователя')
     email: str = Field(description='Email пользователя')
     password: str = Field(description='Пароль в открытом виде', min_length=8)
 

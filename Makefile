@@ -19,10 +19,10 @@ lock-%:
 	poetry -C apps/$* lock
 
 run-api:
-	poetry -C apps/api run python -m apps.api.src
+	PYTHONPATH=$(shell pwd) poetry -C apps/api run python -m apps.api.src
 
 run-worker_parser:
-	poetry -C apps/worker_parser run python -m apps.worker_parser.src
+	PYTHONPATH=$(shell pwd) poetry -C apps/worker_parser run python -m apps.worker_parser.src
 
 run-worker_sessions:
-	poetry -C apps/worker_sessions run python -m apps.worker_sessions.src
+	PYTHONPATH=$(shell pwd) poetry -C apps/worker_sessions run python -m apps.worker_sessions.src
