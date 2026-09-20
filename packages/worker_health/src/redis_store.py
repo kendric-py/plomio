@@ -56,6 +56,23 @@ class WorkerHeartbeatStore:
             for member, status in raw.items()
         }
 
+    async def forget(self, worker_type: WorkerType, worker_name: str) -> bool:
+        """Drops a worker from all heartbeat tracking (last-seen, reported status, missed marker).
+        Meant for removing a decommissioned/renamed worker that would otherwise sit in the
+        `/workers` listing forever, stuck at whatever `gap_seconds` it had when it stopped
+        reporting — nothing else re-adds it short of a fresh heartbeat.
+
+        Returns whether the worker was actually tracked (`False` means there was nothing to
+        remove)."""
+
+        member = _member(worker_type, worker_name)
+        async with self._client.pipeline() as pipeline:
+            pipeline.zrem(_HEARTBEATS_KEY, member)
+            pipeline.hdel(_STATUS_KEY, member)
+            pipeline.srem(_MISSED_KEY, member)
+            zrem_count, _, _ = await pipeline.execute()
+        return zrem_count == 1
+
     async def try_claim_missed(self, member: str) -> bool:
         added = await self._client.sadd(_MISSED_KEY, member)
         return added == 1

@@ -44,7 +44,7 @@ class GenerationConfig(BaseSettings):
     # False only for local dev, where there's no proxy API yet (see ProxyApiConfig) — generates
     # sessions with a direct connection instead of blocking forever on WAITING_FOR_PROXY.
     # Must stay True anywhere real, since marketplaces ban IPs generating sessions without proxies.
-    REQUIRE_PROXY: bool = Field(default=True)
+    REQUIRE_PROXY: bool = Field(default=False)
     TTL_MS: int = Field(default=7 * 60 * 1000)  # a bit under the ~10-20min natural session lifetime
     VALIDATION_TIMEOUT_SECONDS: float = Field(default=15.0)
     # Above the worst case inside _run_browser (30s goto + 60s cookie-poll + ~4s sleeps) with

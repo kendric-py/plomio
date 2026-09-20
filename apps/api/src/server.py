@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api.src.config import config
 from apps.api.src.container import DependencyContainer
+from apps.api.src.jobs.task_expiry_sweep import build_task_expiry_sweep_job
 from apps.api.src.jobs.worker_heartbeat_sweep import build_sweep_job
 from apps.api.src.routers.router import api_router
 from packages.cron.src.enums import CronJobName
@@ -33,9 +34,20 @@ def configure_rest_server() -> FastAPI:
                 cron_job_service=container.cron_job_service(),
             ),
         )
+
+        task_expiry_job = build_task_expiry_sweep_job(task_service=container.task_service())
+        task_expiry_task = asyncio.create_task(
+            run_periodic(
+                job=CronJobName.TASK_EXPIRY_SWEEP,
+                interval_seconds=config.TASK.EXPIRY_SWEEP_INTERVAL_SECONDS,
+                func=task_expiry_job,
+                cron_job_service=container.cron_job_service(),
+            ),
+        )
         yield
         sweep_task.cancel()
-        await asyncio.gather(sweep_task, return_exceptions=True)
+        task_expiry_task.cancel()
+        await asyncio.gather(sweep_task, task_expiry_task, return_exceptions=True)
 
     app = FastAPI(title=config.REST.APP_TITLE, lifespan=lifespan)
     app.container = container

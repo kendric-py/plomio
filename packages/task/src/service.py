@@ -233,6 +233,12 @@ class TaskService:
             )
             await self.transaction_manager.commit()
 
+    async def expire_stale_queued(self) -> int:
+        async with self.transaction_manager(use_task_repository=True) as transaction:
+            expired_count = await transaction.task_repository.expire_stale_queued()
+            await self.transaction_manager.commit()
+        return expired_count
+
     async def reclaim_expired_leases(self) -> int:
         async with self.transaction_manager(use_task_repository=True) as transaction:
             reclaimed_count = await transaction.task_repository.reclaim_expired_leases()
@@ -248,6 +254,37 @@ class TaskService:
             return await transaction.task_item_repository.retrieve_all_by_filter(
                 entity=TaskItemEntity(task_id=task_id),
             )
+
+    async def list_tasks(
+        self,
+        user_id: int,
+        limit: int,
+        offset: int,
+        status: Optional[TaskStatus] = None,
+    ) -> tuple[list[dict], int]:
+        async with self.transaction_manager(
+            use_task_repository=True,
+            use_task_item_repository=True,
+        ) as transaction:
+            tasks = await transaction.task_repository.get_by_user_id(
+                user_id=user_id, limit=limit, offset=offset, status=status,
+            )
+            total = await transaction.task_repository.count_by_user_id(
+                user_id=user_id, status=status,
+            )
+            progress_by_task_id = await transaction.task_item_repository.get_progress_by_task_ids(
+                task_ids=[task.id for task in tasks],
+            )
+
+        empty_progress = {'total_items': 0, 'processed_items': 0, 'result_count': 0}
+        items = [
+            {
+                **task.model_dump(),
+                **progress_by_task_id.get(task.id, empty_progress),
+            }
+            for task in tasks
+        ]
+        return items, total
 
     async def ensure_task_owner(self, task_id: UUID, user_id: int) -> TaskEntity:
         async with self.transaction_manager(use_task_repository=True) as transaction:

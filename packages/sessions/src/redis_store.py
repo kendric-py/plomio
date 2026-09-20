@@ -25,7 +25,7 @@ class SessionPoolStore:
     """Single source of truth for the session pool's Redis wire contract — key formats,
     TTL/scoring, and the pipeline of writes that make up one saved session. Used by all three
     processes touching this pool: `apps/worker_sessions` (writer, `save`), `apps/worker_parser`
-    (consumer, `acquire_session`), `apps/api` (read-only stats, `get_live_sessions`).
+    (consumer, `acquire_session`), `apps/api` (read-only stats, `get_pool_stats`).
 
     Previously this logic was independently reimplemented in each of those three places
     (`RedisSessionStore`, `RedisSessionClient`, `SessionPoolReader`), including the key-format
@@ -118,15 +118,18 @@ class SessionPoolStore:
             _pool_key(marketplace=marketplace), min=time.time(), max='+inf',
         )
 
-    async def get_live_sessions(self, marketplace: Marketplace) -> list[tuple[str, float]]:
+    async def get_pool_stats(self, marketplace: Marketplace) -> tuple[int, float | None]:
+        """Aggregate pool info without exposing session ids: live count plus the nearest
+        `expires_at` among live sessions (`None` if the pool is empty)."""
+
+        pool_key = _pool_key(marketplace=marketplace)
         now = time.time()
-        raw = await self._client.zrangebyscore(
-            _pool_key(marketplace=marketplace), min=now, max='+inf', withscores=True,
+        live_count = await self._client.zcount(pool_key, min=now, max='+inf')
+        nearest = await self._client.zrangebyscore(
+            pool_key, min=now, max='+inf', start=0, num=1, withscores=True,
         )
-        return [
-            (session_id.decode() if isinstance(session_id, bytes) else session_id, expires_at)
-            for session_id, expires_at in raw
-        ]
+        nearest_expires_at = nearest[0][1] if nearest else None
+        return live_count, nearest_expires_at
 
     async def close(self) -> None:
         await self._client.aclose()

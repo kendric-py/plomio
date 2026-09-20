@@ -56,6 +56,20 @@ class TaskResultsResponse(BaseModel):
     meta: PaginationMeta = Field(description='Метаданные пагинации')
 
 
+class TaskListItemResponse(TaskResponse):
+    error_reason: str | None = Field(description='Причина общего провала задачи')
+    total_items: int = Field(description='Общее количество входов задачи')
+    processed_items: int = Field(
+        description='Количество входов, доведённых до терминального статуса',
+    )
+    result_count: int = Field(description='Суммарное количество спарсенных результатов')
+
+
+class TaskListResponse(BaseModel):
+    items: list[TaskListItemResponse] = Field(description='Задачи пользователя на текущей странице')
+    meta: PaginationMeta = Field(description='Метаданные пагинации')
+
+
 class TaskStatusResponse(BaseModel):
     id: UUID = Field(description='Идентификатор задачи')
     parse_type: ParseType = Field(description='Тип парсинга')

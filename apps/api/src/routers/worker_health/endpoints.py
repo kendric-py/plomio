@@ -2,15 +2,17 @@ import time
 from datetime import datetime, timezone
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from apps.api.src.container import DependencyContainer
+from apps.api.src.routers.auth.dependencies import get_current_user
 from apps.api.src.routers.worker_health.schema import (
     HeartbeatRequest,
     HeartbeatResponse,
     WorkerStatusItem,
     WorkerStatusResponse,
 )
+from packages.user.src.entities import UserEntity
 from packages.worker_health.src.enums import WorkerType
 from packages.worker_health.src.redis_store import WorkerHeartbeatStore, parse_member
 
@@ -62,3 +64,19 @@ async def list_worker_statuses(
         )
     workers.sort(key=lambda worker: (worker.worker_type.value, worker.worker_name))
     return WorkerStatusResponse(workers=workers)
+
+
+@router.delete('/workers/{worker_type}/{worker_name}', status_code=status.HTTP_204_NO_CONTENT)
+@inject
+async def delete_worker(
+    worker_type: WorkerType,
+    worker_name: str,
+    current_user: UserEntity = Depends(get_current_user),
+    store: WorkerHeartbeatStore = Depends(Provide[DependencyContainer.worker_heartbeat_store]),
+) -> None:
+    removed = await store.forget(worker_type, worker_name)
+    if not removed:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Worker not found',
+        )

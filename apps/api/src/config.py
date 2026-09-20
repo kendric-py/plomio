@@ -44,11 +44,24 @@ class WorkerHealthConfig(BaseSettings):
     MISSED_THRESHOLD_SECONDS: float = Field(default=60.0)
 
 
+class TaskConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=ENV_FILE,
+        env_file_encoding='utf-8',
+        env_prefix='TASK_',
+        extra='ignore',
+    )
+
+    # Как часто сканируем QUEUED-задачи с истёкшим queue_expires_at и переводим их в EXPIRED.
+    EXPIRY_SWEEP_INTERVAL_SECONDS: float = Field(default=30.0)
+
+
 class Config(BaseSettings):
     REST: RestConfig = Field(default_factory=RestConfig)
     POSTGRES: PostgresConfig = Field(default_factory=PostgresConfig)
     REDIS: RedisConfig = Field(default_factory=RedisConfig)
     WORKER_HEALTH: WorkerHealthConfig = Field(default_factory=WorkerHealthConfig)
+    TASK: TaskConfig = Field(default_factory=TaskConfig)
 
     class Config:
         env_file = ENV_FILE

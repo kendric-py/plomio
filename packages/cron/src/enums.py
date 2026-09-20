@@ -8,6 +8,7 @@ class CronJobName(str, Enum):
     как `AuditAction` в `packages/audit_log`."""
 
     WORKER_HEARTBEAT_SWEEP = 'WORKER_HEARTBEAT_SWEEP'
+    TASK_EXPIRY_SWEEP = 'TASK_EXPIRY_SWEEP'
 
 
 class CronJobStatus(str, Enum):

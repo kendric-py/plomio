@@ -10,12 +10,15 @@ from apps.api.src.routers.task.schema import (
     CreateTaskRequest,
     PaginationMeta,
     ResultItemResponse,
+    TaskListItemResponse,
+    TaskListResponse,
     TaskResponse,
     TaskResultsResponse,
     TaskStatusResponse,
 )
 from core.exceptions import ObjectNotFoundError
 from packages.result.src.service import ResultService
+from packages.task.src.enums import TaskStatus
 from packages.task.src.service import TaskService
 from packages.user.src.entities import UserEntity
 
@@ -41,6 +44,28 @@ async def create_task(
         result_limit=body.result_limit,
     )
     return TaskResponse.model_validate(obj=task, from_attributes=True)
+
+
+@router.get('/')
+@inject
+async def list_tasks(
+    limit: int = Query(default=100, ge=1, le=500, description='Размер страницы'),
+    offset: int = Query(default=0, ge=0, description='Смещение страницы'),
+    task_status: TaskStatus | None = Query(
+        default=None, alias='status', description='Фильтр по статусу задачи',
+    ),
+    current_user: UserEntity = Depends(get_current_user),
+    task_service: TaskService = Depends(
+        Provide[DependencyContainer.task_service],
+    ),
+) -> TaskListResponse:
+    items, total = await task_service.list_tasks(
+        user_id=current_user.id, limit=limit, offset=offset, status=task_status,
+    )
+    return TaskListResponse(
+        items=[TaskListItemResponse.model_validate(obj=item) for item in items],
+        meta=PaginationMeta(total=total, limit=limit, offset=offset),
+    )
 
 
 @router.get('/{task_id}')

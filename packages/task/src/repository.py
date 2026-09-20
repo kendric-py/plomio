@@ -2,18 +2,42 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.repository import BaseRepository
 from packages.task.src.entities import TaskEntity, TaskItemEntity
-from packages.task.src.enums import TaskStatus
+from packages.task.src.enums import TaskItemStatus, TaskStatus
 from packages.task.src.models import Task, TaskItem
+
+TERMINAL_ITEM_STATUSES = (TaskItemStatus.SUCCEEDED, TaskItemStatus.FAILED, TaskItemStatus.EXCLUDED)
 
 
 class TaskRepository(BaseRepository[Task, TaskEntity]):
     def __init__(self, session: AsyncSession):
         super().__init__(model=Task, entity_object=TaskEntity, session=session)
+
+    async def get_by_user_id(
+        self,
+        user_id: int,
+        limit: int,
+        offset: int,
+        status: Optional[TaskStatus] = None,
+    ) -> list[TaskEntity]:
+        statement = select(self.model).where(self.model.user_id == user_id)
+        if status is not None:
+            statement = statement.where(self.model.status == status)
+        statement = (
+            statement.order_by(self.model.created_at.desc()).limit(limit).offset(offset)
+        )
+        database_objects = await self.session.scalars(statement)
+        return self._to_entities(database_objects=database_objects)
+
+    async def count_by_user_id(self, user_id: int, status: Optional[TaskStatus] = None) -> int:
+        statement = select(func.count(self.model.id)).where(self.model.user_id == user_id)
+        if status is not None:
+            statement = statement.where(self.model.status == status)
+        return await self.session.scalar(statement)
 
     async def claim_next(
         self,
@@ -81,3 +105,30 @@ class TaskItemRepository(BaseRepository[TaskItem, TaskItemEntity]):
             entity_object=TaskItemEntity,
             session=session,
         )
+
+    async def get_progress_by_task_ids(self, task_ids: list[UUID]) -> dict[UUID, dict]:
+        if not task_ids:
+            return {}
+
+        is_terminal = self.model.status.in_(TERMINAL_ITEM_STATUSES)
+        statement = (
+            select(
+                self.model.task_id,
+                func.count(self.model.id).label('total_items'),
+                func.coalesce(func.sum(case((is_terminal, 1), else_=0)), 0).label(
+                    'processed_items',
+                ),
+                func.coalesce(func.sum(self.model.result_count), 0).label('result_count'),
+            )
+            .where(self.model.task_id.in_(task_ids))
+            .group_by(self.model.task_id)
+        )
+        rows = await self.session.execute(statement)
+        return {
+            row.task_id: {
+                'total_items': row.total_items,
+                'processed_items': row.processed_items,
+                'result_count': row.result_count,
+            }
+            for row in rows
+        }
