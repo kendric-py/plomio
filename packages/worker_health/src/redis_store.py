@@ -1,4 +1,4 @@
-import time
+from datetime import datetime, timezone
 
 from core.configs import RedisConfig
 from core.redis import get_redis_client
@@ -37,14 +37,15 @@ class WorkerHeartbeatStore:
     async def touch(self, worker_type: WorkerType, worker_name: str, status: str) -> None:
         member = _member(worker_type, worker_name)
         async with self._client.pipeline() as pipeline:
-            pipeline.zadd(_HEARTBEATS_KEY, {member: time.time()})
+            pipeline.zadd(_HEARTBEATS_KEY, {member: datetime.now(timezone.utc).timestamp()})
             pipeline.hset(_STATUS_KEY, member, status)
             await pipeline.execute()
 
-    async def get_last_seen_map(self) -> dict[str, float]:
+    async def get_last_seen_map(self) -> dict[str, datetime]:
         raw = await self._client.zrange(_HEARTBEATS_KEY, 0, -1, withscores=True)
         return {
-            (member.decode() if isinstance(member, bytes) else member): score
+            (member.decode() if isinstance(member, bytes) else member):
+                datetime.fromtimestamp(score, tz=timezone.utc)
             for member, score in raw
         }
 

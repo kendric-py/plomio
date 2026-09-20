@@ -1,5 +1,5 @@
-import time
 import uuid
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
@@ -22,7 +22,7 @@ class ProxyConfig(BaseModel):
 class SessionMessage(BaseModel):
     session_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
     marketplace: Marketplace = Field(...)
-    created_at: float = Field(default_factory=time.time)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     # None only when generated with GENERATION_REQUIRE_PROXY=false (local dev without a proxy
     # API yet) — a direct connection was used instead of an upstream proxy.
     proxy: ProxyConfig | None = Field(default=None)

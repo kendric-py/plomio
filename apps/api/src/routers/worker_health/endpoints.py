@@ -1,4 +1,3 @@
-import time
 from datetime import datetime, timezone
 
 from dependency_injector.wiring import Provide, inject
@@ -44,7 +43,7 @@ async def sessions_heartbeat(
 async def list_worker_statuses(
     store: WorkerHeartbeatStore = Depends(Provide[DependencyContainer.worker_heartbeat_store]),
 ) -> WorkerStatusResponse:
-    now = time.time()
+    now = datetime.now(timezone.utc)
     last_seen_map = await store.get_last_seen_map()
     missed_members = await store.get_missed_members()
     status_map = await store.get_status_map()
@@ -57,8 +56,8 @@ async def list_worker_statuses(
                 worker_type=worker_type,
                 worker_name=worker_name,
                 status=status_map.get(member),
-                last_seen_at=datetime.fromtimestamp(last_seen, tz=timezone.utc),
-                gap_seconds=now - last_seen,
+                last_seen_at=last_seen,
+                gap_seconds=(now - last_seen).total_seconds(),
                 is_missed=member in missed_members,
             ),
         )

@@ -1,4 +1,3 @@
-import time
 from datetime import datetime, timezone
 from functools import partial
 from typing import Awaitable, Callable
@@ -16,21 +15,21 @@ async def sweep_worker_heartbeats(
     write a MISSED/RECOVERED log entry only on an actual state transition (see
     `WorkerHeartbeatStore.try_claim_missed`/`try_claim_recovered`)."""
 
-    now = time.time()
+    now = datetime.now(timezone.utc)
     last_seen_map = await store.get_last_seen_map()
     missed = recovered = 0
 
-    for member, last_seen in last_seen_map.items():
+    for member, last_seen_at in last_seen_map.items():
         worker_type, worker_name = parse_member(member)
-        last_seen_at = datetime.fromtimestamp(last_seen, tz=timezone.utc)
-        is_stale = (now - last_seen) > config.WORKER_HEALTH.MISSED_THRESHOLD_SECONDS
+        gap_seconds = (now - last_seen_at).total_seconds()
+        is_stale = gap_seconds > config.WORKER_HEALTH.MISSED_THRESHOLD_SECONDS
 
         if is_stale and await store.try_claim_missed(member):
             await health_service.record_missed(
                 worker_type=worker_type,
                 worker_name=worker_name,
                 last_seen_at=last_seen_at,
-                details={'gap_seconds': now - last_seen},
+                details={'gap_seconds': gap_seconds},
             )
             missed += 1
         elif not is_stale and await store.try_claim_recovered(member):

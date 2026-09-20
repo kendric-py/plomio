@@ -1,5 +1,5 @@
 import logging
-import time
+from datetime import datetime, timedelta, timezone
 
 from core.configs import RedisConfig
 from core.enums import Marketplace
@@ -52,7 +52,7 @@ class SessionPoolStore:
         stream_prefix: str,
         stream_maxlen: int,
     ) -> None:
-        expire_at = session_message.created_at + ttl_ms / 1000
+        expire_at_dt = session_message.created_at + timedelta(milliseconds=ttl_ms)
         session_key = _session_key(
             marketplace=session_message.marketplace, session_id=session_message.session_id,
         )
@@ -62,10 +62,10 @@ class SessionPoolStore:
         )
         async with self._client.pipeline() as pipeline:
             pipeline.set(session_key, session_message.model_dump_json(), px=ttl_ms)
-            pipeline.zadd(pool_key, {session_message.session_id: expire_at})
+            pipeline.zadd(pool_key, {session_message.session_id: expire_at_dt.timestamp()})
             pipeline.xadd(
                 stream_key,
-                {'session_id': session_message.session_id, 'expire_at': expire_at},
+                {'session_id': session_message.session_id, 'expire_at': expire_at_dt.isoformat()},
                 maxlen=stream_maxlen,
                 approximate=True,
             )
@@ -115,20 +115,24 @@ class SessionPoolStore:
 
     async def live_count(self, marketplace: Marketplace) -> int:
         return await self._client.zcount(
-            _pool_key(marketplace=marketplace), min=time.time(), max='+inf',
+            _pool_key(marketplace=marketplace),
+            min=datetime.now(timezone.utc).timestamp(),
+            max='+inf',
         )
 
-    async def get_pool_stats(self, marketplace: Marketplace) -> tuple[int, float | None]:
+    async def get_pool_stats(self, marketplace: Marketplace) -> tuple[int, datetime | None]:
         """Aggregate pool info without exposing session ids: live count plus the nearest
         `expires_at` among live sessions (`None` if the pool is empty)."""
 
         pool_key = _pool_key(marketplace=marketplace)
-        now = time.time()
+        now = datetime.now(timezone.utc).timestamp()
         live_count = await self._client.zcount(pool_key, min=now, max='+inf')
         nearest = await self._client.zrangebyscore(
             pool_key, min=now, max='+inf', start=0, num=1, withscores=True,
         )
-        nearest_expires_at = nearest[0][1] if nearest else None
+        nearest_expires_at = (
+            datetime.fromtimestamp(nearest[0][1], tz=timezone.utc) if nearest else None
+        )
         return live_count, nearest_expires_at
 
     async def close(self) -> None:

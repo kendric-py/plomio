@@ -1,5 +1,3 @@
-from datetime import datetime, timezone
-
 from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends
 
@@ -23,11 +21,7 @@ async def get_session_pool(
             MarketplaceSessionPool(
                 marketplace=marketplace,
                 live_count=live_count,
-                nearest_expires_at=(
-                    datetime.fromtimestamp(nearest_expires_at, tz=timezone.utc)
-                    if nearest_expires_at is not None
-                    else None
-                ),
+                nearest_expires_at=nearest_expires_at,
             ),
         )
     return SessionPoolResponse(marketplaces=pools)

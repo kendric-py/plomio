@@ -65,4 +65,33 @@ packages/<domain>/
   [`apps/api/src/routers/auth/dependencies.py`](../../apps/api/src/routers/auth/dependencies.py), а не
   в `apps/api/src/routers/auth/endpoints.py`, и подключается в роуте через `Depends(get_client_ip)`.
 
+## Даты и время
+
+- **Все даты/время в проекте — UTC, timezone-aware `datetime`, и сериализуются как ISO8601.**
+  Это единственный допустимый формат даты/времени в проекте: в БД, во внутренних структурах, в
+  Redis, в REST-ответах, в логах.
+- **В Postgres** — только `TIMESTAMP WITH TIME ZONE` (`sa.DateTime(timezone=True)` в
+  SQLAlchemy-моделях и Alembic-миграциях). Naive `DateTime`, `DATE`, `TEXT`- или epoch-колонки под
+  дату — недопустимы.
+- **В Pydantic-моделях** (entity и REST-схемы) поле под дату — всегда типа `datetime`, никогда
+  `float`/`int`/`str`. Стандартная сериализация Pydantic v2/FastAPI уже отдаёт `datetime` как
+  ISO8601-строку — кастомные `json_encoders`/форматтеры не нужны и не должны добавляться.
+- **Текущее время всегда получать через `datetime.now(tz=timezone.utc)`.** Не использовать
+  `datetime.now()` без таймзоны и не использовать `time.time()` для значений, которые где-либо
+  сохраняются, логируются или отдаются наружу.
+- **В Redis** значения дат внутри сериализованных структур (JSON-блобы, поля Stream-записей) —
+  ISO8601-строки, получаемые из `datetime`. Единственное исключение — числовой **score** Redis
+  ZSET (`ZADD`/`ZRANGEBYSCORE`/`ZCOUNT`), который физически обязан быть числом: это механизм
+  сортировки Redis, а не формат хранимой даты. Score вычисляется как `datetime.timestamp()` в
+  момент записи/чтения и не «утекает» дальше по коду как самостоятельное значение — сразу
+  конвертируется обратно в `datetime` (см. `packages/sessions/src/redis_store.py`,
+  `packages/worker_health/src/redis_store.py`).
+- **Явные исключения из правила** (обе — по внешним причинам, не для расширения списка без
+  необходимости):
+  - JWT `exp` claim (`packages/auth/src/security.py`) — по RFC 7519 обязан быть numeric
+    `NumericDate`, ISO8601 туда не кладётся.
+  - `process_reaper` (`apps/worker_sessions/src/generation/process_reaper.py`) — использует
+    epoch от `psutil` (`process.info['create_time']`) для арифметики возраста ОС-процесса; это
+    системная метаинформация `psutil`, а не доменная дата проекта.
+
 > TODO: дополнять этот файл другими обязательными практиками по мере их появления.
