@@ -292,3 +292,12 @@ class TaskService:
             if task.user_id != user_id:
                 raise ObjectNotFoundError
             return task
+
+    async def delete_task(self, task_id: UUID, user_id: int) -> None:
+        async with self.transaction_manager(use_task_repository=True) as transaction:
+            task = await transaction.task_repository.get_by_id(entity_id=task_id)
+            if task.user_id != user_id:
+                raise ObjectNotFoundError
+
+            await transaction.task_repository.delete(entity_id=task_id)
+            await self.transaction_manager.commit()

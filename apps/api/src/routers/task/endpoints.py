@@ -120,3 +120,21 @@ async def get_task_results(
         ],
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
     )
+
+
+@router.delete('/{task_id}', status_code=status.HTTP_204_NO_CONTENT)
+@inject
+async def delete_task(
+    task_id: UUID,
+    current_user: UserEntity = Depends(get_current_user),
+    task_service: TaskService = Depends(
+        Provide[DependencyContainer.task_service],
+    ),
+) -> None:
+    try:
+        await task_service.delete_task(task_id=task_id, user_id=current_user.id)
+    except ObjectNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Task not found',
+        ) from error
