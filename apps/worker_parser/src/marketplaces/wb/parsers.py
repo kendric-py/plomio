@@ -11,6 +11,20 @@ from packages.result.src.entities import (
 )
 
 
+# WB does not expose the wallet-discounted price via `price.wallet` in the public card API (it is
+# always 0 there) — the storefront computes it client-side as `product * (1 - 2%)`, verified by
+# comparing rendered PDP prices against the API response for multiple products.
+WB_WALLET_DISCOUNT_PERCENT = 2
+
+
+def _wb_wallet_price_kopecks(product_kopecks: int | None, wallet_kopecks: int | None) -> int | None:
+    if wallet_kopecks:
+        return wallet_kopecks
+    if not product_kopecks:
+        return None
+    return product_kopecks - product_kopecks * WB_WALLET_DISCOUNT_PERCENT // 100
+
+
 def _format_wb_price(kopecks: int | None) -> str | None:
     if not kopecks:
         return None
@@ -109,6 +123,9 @@ def extract_wb_product_page(
     price_data = selected_size.get('price') if selected_size else {}
     price_kopecks: int | None = price_data.get('product') if price_data else None
     original_price_kopecks: int | None = price_data.get('basic') if price_data else None
+    discounted_price_kopecks = _wb_wallet_price_kopecks(
+        price_kopecks, price_data.get('wallet') if price_data else None,
+    )
     total_quantity = card_api_product.get('totalQuantity') or 0
     in_stock = total_quantity > 0
 
@@ -136,6 +153,7 @@ def extract_wb_product_page(
         category=category,
         category_root=category_root,
         seller_name=seller_name,
+        discounted_price_kopecks=discounted_price_kopecks,
         price_kopecks=price_kopecks,
         original_price_kopecks=original_price_kopecks,
         rating=rating,

@@ -168,6 +168,7 @@ def extract_ozon_product_page(
                 break
 
     price_widget = _find_widget(widget_states_1, 'webPrice') or {}
+    discounted_price_kopecks = _parse_rub_text(price_widget.get('cardPrice', ''))
     price_kopecks = _parse_rub_text(price_widget.get('price', ''))
     original_price_kopecks = _parse_rub_text(price_widget.get('originalPrice', ''))
     in_stock: bool = price_widget.get('isAvailable', True)
@@ -222,6 +223,7 @@ def extract_ozon_product_page(
         category=category,
         category_root=category_root,
         seller_name=seller_name,
+        discounted_price_kopecks=discounted_price_kopecks,
         price_kopecks=price_kopecks,
         original_price_kopecks=original_price_kopecks,
         rating=rating,
