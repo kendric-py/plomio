@@ -60,6 +60,11 @@ class Automation(BaseSQLModel):
     baseline_price_kopecks: Mapped[int | None] = mapped_column(Integer, nullable=True)
     baseline_discounted_price_kopecks: Mapped[int | None] = mapped_column(Integer, nullable=True)
     baseline_original_price_kopecks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Наличие товара по последней завершённой проверке; NULL — проверок ещё не было. Управляет
+    # частотой следующей проверки в claim_due_for_dispatch (AUTOMATION_OUT_OF_STOCK_CHECK_
+    # FREQUENCY_MINUTES вместо check_frequency_minutes, пока False) и служит baseline для
+    # обнаружения возврата в наличие в AutomationService._diff_stock.
+    in_stock: Mapped[bool | None] = mapped_column(nullable=True)
     next_check_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     pending_task_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True),

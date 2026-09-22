@@ -4,7 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from core.enums import Marketplace
-from packages.automation.src.enums import AutomationStatus, PriceField
+from packages.automation.src.enums import AutomationStatus, PriceField, StockField
 
 
 class CreateAutomationRequest(BaseModel):
@@ -56,6 +56,9 @@ class AutomationResponse(BaseModel):
     baseline_original_price_kopecks: int | None = Field(
         description='Базовая перечёркнутая цена в копейках',
     )
+    in_stock: bool | None = Field(
+        description='Наличие товара по последней завершённой проверке; None — проверок ещё не было',
+    )
     next_check_at: datetime = Field(description='Момент следующей плановой проверки')
     last_checked_at: datetime | None = Field(description='Момент последней завершённой проверки')
     last_check_error: str | None = Field(description='Причина провала последней проверки')
@@ -74,10 +77,16 @@ class AutomationListResponse(BaseModel):
 
 
 class PriceChangeItem(BaseModel):
-    field: PriceField = Field(description='Какое из трёх ценовых полей изменилось')
-    old_value: int = Field(description='Предыдущее значение в копейках')
-    new_value: int = Field(description='Новое значение в копейках')
-    threshold_breached: bool = Field(description='Достигнут порог для уведомления по этому полю')
+    field: PriceField | StockField = Field(
+        description='Какое из трёх ценовых полей изменилось, либо IN_STOCK — факт появления/'
+        'исчезновения товара в наличии',
+    )
+    old_value: int | bool = Field(description='Предыдущее значение (в копейках для цен)')
+    new_value: int | bool = Field(description='Новое значение (в копейках для цен)')
+    threshold_breached: bool = Field(
+        description='Достигнут порог для уведомления по этому полю (для IN_STOCK — товар снова '
+        'появился в наличии)',
+    )
 
 
 class AutomationHistoryResponse(BaseModel):

@@ -20,8 +20,9 @@
   `CheckConstraint` — минимум конфигурируем и может меняться без миграции), `history_retention_days`,
   три базовые цены
   (`baseline_price_kopecks`/`baseline_discounted_price_kopecks`/`baseline_original_price_kopecks`),
-  `next_check_at`, `pending_task_id` (FK на `tasks.id`, `SET NULL`), `last_checked_at`,
-  `last_check_error`, `user_id`.
+  `in_stock` (наличие по последней завершённой проверке, `NULL` — проверок ещё не было; см.
+  "Отслеживание наличия" ниже), `next_check_at`, `pending_task_id` (FK на `tasks.id`, `SET NULL`),
+  `last_checked_at`, `last_check_error`, `user_id`.
 - **`AutomationHistory`** (`automation_history`) — append-only лог зафиксированных изменений.
   **Одна строка = одна проверка**, а не одна строка на каждое изменившееся поле: `changes`
   (`JSONB`, список `{field, old_value, new_value, threshold_breached}` — по одному элементу на
@@ -40,6 +41,37 @@
 `original_price_kopecks` (перечёркнутая). Каждое поле имеет свою базовую цену на `Automation` и
 проверяется независимо — `TRACKED_PRICE_FIELDS` в `service.py` единственное место, где перечислены
 все три.
+
+## Отслеживание наличия (in_stock)
+
+`ProductPagePayload.in_stock` (см. "Три отслеживаемые цены" выше — тот же payload) отдаёт булево
+наличие товара. `AutomationService._diff_stock` — тот же контракт, что `_diff_prices` (первая
+проверка проставляет `in_stock` как baseline без записи в историю, дальше сравнение с прошлым
+известным значением, не с "проверкой до этого" — тут разницы нет, так как `in_stock` не
+накопительная величина), но:
+
+- `field` в `changes` — `StockField.IN_STOCK` (`packages/automation/src/enums.py`), отдельный enum
+  от `PriceField`: `old_value`/`new_value` тут `bool`, а не копейки, порог в процентах неприменим.
+- `threshold_breached = True` только когда `False → True` (товар снова появился в наличии) — это и
+  есть событие, ради которого существует вся эта проверка. Переход `True → False` тоже пишется в
+  историю (для графика доступности), но не считается "пробитием порога".
+- И `_diff_prices`, и `_diff_stock` пишут в общий `baseline_updates`-дикт (сейчас `dict[str, int |
+  bool]`, несмотря на имя — исторически "только baseline_*_kopecks", теперь ещё и `in_stock`),
+  который одним `UPDATE` уходит в `AutomationRepository.finalize_check`.
+
+Частота следующей проверки, пока `in_stock = false`, — не `check_frequency_minutes` пользователя, а
+`config.AUTOMATION.OUT_OF_STOCK_CHECK_FREQUENCY_MINUTES` (константа конфига, не настраивается на
+уровне автоматизации): `AutomationRepository.claim_due_for_dispatch` выбирает между ними через `CASE
+WHEN in_stock = false` прямо в `UPDATE ... SET next_check_at`. Смысл — проверять товар без наличия
+чаще, чем раз в обычный (обычно куда более длинный) пользовательский интервал, чтобы быстрее поймать
+факт появления в наличии.
+
+`apps/worker_parser`: у Ozon `webPrice.isAvailable` присутствует и `true` только когда товар в
+наличии — при отсутствии наличия ключ пропадает вовсе (не становится `false`), поэтому
+`in_stock` на Ozon определяется по отдельному виджету `webOutOfStock` (появляется на карточке
+проданного товара — предлагает купить у другого продавца), а не по одному `isAvailable`. У
+Wildberries `in_stock = totalQuantity > 0` — надёжно работает уже как есть (`totalQuantity: 0` и
+пустые `stocks` у всех размеров на реально распроданном товаре).
 
 ## Дубли по артикулу
 
@@ -96,7 +128,9 @@
       `ACTIVE`-автоматизации с `next_check_at <= now()` и `pending_task_id IS NULL`
       (`FOR UPDATE SKIP LOCKED` — защита от повторного диспатча при нескольких репликах `apps/api`,
       как `TaskRepository.claim_next`) и сразу сдвигает им `next_check_at` на
-      `check_frequency_minutes` вперёд же в этой транзакции — это и есть "захват": как только
+      `check_frequency_minutes` вперёд (или на `config.AUTOMATION.
+      OUT_OF_STOCK_CHECK_FREQUENCY_MINUTES`, если `in_stock = false` — см. "Отслеживание наличия"
+      выше) же в этой транзакции — это и есть "захват": как только
       транзакция закоммитится, эти автоматизации больше не `next_check_at <= now()`, значит не
       будут выбраны повторно, даже до того как для них появится `pending_task_id`. Транзакция
       коммитится немедленно, до создания задач.
@@ -113,9 +147,10 @@
 3. **`AUTOMATION_RESULT_SWEEP`** (`AutomationService.process_pending_results`) — раз в
    `config.AUTOMATION.RESULT_SWEEP_INTERVAL_SECONDS`: находит автоматизации с `pending_task_id IS NOT
    NULL`, чья задача дошла до терминального статуса. При `SUCCEEDED` — читает результат через
-   `ResultService.get_results_for_task`, сравнивает три цены с baseline (`_diff_prices`) и, если
-   изменилось хотя бы одно поле, пишет **одну** строку `AutomationHistory` со всеми изменившимися
-   полями сразу в `changes` (две одновременно изменившиеся цены — по-прежнему одна строка, не две).
+   `ResultService.get_results_for_task`, сравнивает три цены с baseline (`_diff_prices`) и наличие
+   с baseline (`_diff_stock`) и, если изменилось хотя бы одно поле (цена или наличие), пишет
+   **одну** строку `AutomationHistory` со всеми изменившимися полями сразу в `changes` (несколько
+   одновременно изменившихся полей — по-прежнему одна строка, не несколько).
    При `FAILED`/`EXPIRED`/`CANCELLED` — история не пишется (это ошибка **конкретной проверки**, не
    самой автоматизации, см. корневой `AGENTS.md`, "Правила по ошибкам"), причина сохраняется в
    `last_check_error`. В обоих случаях — `pending_task_id` очищается
@@ -183,8 +218,8 @@ tasks (..., automation_id) VALUES (...)`, эта вторая сессия за�
 
 - Реальная отправка уведомлений (Telegram и т.п.) при `threshold_breached = true` — только фиксация
   факта в БД. `User.telegram_id` (`packages/user`) уже предусмотрен под это в модели.
-- Отслеживание изменений, отличных от цены (например, описания). Если появится — решить, входит ли
-  такое изменение в ту же строку истории проверки (`changes` — общий список для любых типов) или
-  нужен отдельный признак типа на элементе `changes` (сейчас там неявно только цена).
+- Отслеживание изменений, отличных от цены и наличия (например, описания). Если появится — решить,
+  входит ли такое изменение в ту же строку истории проверки (`changes` — общий список, различается
+  по `field`, уже смешивает `PriceField` и `StockField`) или нужен отдельный механизм.
 - Тарифные квоты на частоту/количество автоматизаций по пользователю — упоминаются в корневом
   `AGENTS.md` ("Домен: пользователи и тарифы") как будущая работа `packages/membership`.

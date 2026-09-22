@@ -53,6 +53,9 @@ def configure_rest_server() -> FastAPI:
         automation_dispatch_job = build_automation_dispatch_job(
             automation_service=container.automation_service(),
             batch_size=config.AUTOMATION.DISPATCH_BATCH_SIZE,
+            out_of_stock_check_frequency_minutes=(
+                config.AUTOMATION.OUT_OF_STOCK_CHECK_FREQUENCY_MINUTES
+            ),
         )
         automation_dispatch_task = asyncio.create_task(
             run_periodic(

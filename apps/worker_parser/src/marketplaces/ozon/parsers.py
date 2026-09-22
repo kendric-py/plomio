@@ -171,7 +171,15 @@ def extract_ozon_product_page(
     discounted_price_kopecks = _parse_rub_text(price_widget.get('cardPrice', ''))
     price_kopecks = _parse_rub_text(price_widget.get('price', ''))
     original_price_kopecks = _parse_rub_text(price_widget.get('originalPrice', ''))
-    in_stock: bool = price_widget.get('isAvailable', True)
+    # `webPrice.isAvailable` is only ever present (and true) when the item IS in stock — when it's
+    # out of stock the key is missing entirely (not `false`), so `.get('isAvailable', True)` alone
+    # would default to "in stock" and miss it. A dedicated `webOutOfStock` widget (offering the item
+    # from another seller) is what actually appears on out-of-stock pages — verified live via
+    # https://www.ozon.ru/product/lf-bros-n3-avtonomnyy-perenosnoy-vozdushnyy-otopitel-12-220v-dizelnyy-1980965427/
+    in_stock: bool = (
+        _find_widget(widget_states_1, 'webOutOfStock') is None
+        and price_widget.get('isAvailable', True) is not False
+    )
 
     score_widget = _find_widget(widget_states_1, 'webReviewProductScore') or {}
     rating: float | None = score_widget.get('totalScore') or None

@@ -47,6 +47,10 @@ class AutomationEntity(BaseModel):
         default=None,
         description='Базовая перечёркнутая цена в копейках, точка отсчёта для сравнения',
     )
+    in_stock: Optional[bool] = Field(
+        default=None,
+        description='Наличие товара по последней завершённой проверке; None — проверок ещё не было',
+    )
     next_check_at: Optional[datetime] = Field(
         default=None,
         description='Момент следующей плановой проверки',

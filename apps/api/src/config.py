@@ -76,6 +76,10 @@ class AutomationConfig(BaseSettings):
     RESULT_SWEEP_INTERVAL_SECONDS: float = Field(default=15.0)
     # Как часто удаляем строки истории старше history_retention_days каждой автоматизации.
     HISTORY_RETENTION_SWEEP_INTERVAL_SECONDS: float = Field(default=3600.0)
+    # Частота проверки товара, у которого последняя проверка зафиксировала "нет в наличии" — не
+    # зависит от пользовательского check_frequency_minutes, задаётся только конфигом (см.
+    # AutomationRepository.claim_due_for_dispatch).
+    OUT_OF_STOCK_CHECK_FREQUENCY_MINUTES: int = Field(default=5)
 
 
 class Config(BaseSettings):

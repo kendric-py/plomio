@@ -39,18 +39,31 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
         database_object = await self.session.scalar(statement)
         return self._to_entity(database_object=database_object) if database_object else None
 
-    async def claim_due_for_dispatch(self, now: datetime, limit: int) -> list[AutomationEntity]:
+    async def claim_due_for_dispatch(
+        self,
+        now: datetime,
+        limit: int,
+        out_of_stock_check_frequency_minutes: int,
+    ) -> list[AutomationEntity]:
         """Atomically claims due automations by advancing `next_check_at` in the same statement
         that locks them (`FOR UPDATE SKIP LOCKED`) — this is the whole claim, `pending_task_id` is
         set later by `set_pending_task`, in a separate transaction, once the check `Task` actually
         exists. The caller MUST commit right after this call, before creating any `Task` — holding
         this row lock across that cross-session INSERT would deadlock against `tasks.automation_id`'s
         FK, which needs to lock the very same automation row to validate its reference (see
-        packages/automation/AGENTS.md)."""
+        packages/automation/AGENTS.md).
+
+        An automation whose last check found the product out of stock (`in_stock = false`) is
+        rescheduled after `out_of_stock_check_frequency_minutes` instead of its own
+        `check_frequency_minutes` — that cadence is config-only, not user-configurable, since it's
+        about detecting restock, not about the user's chosen price-check interval."""
 
         claim_statement = text(
             "UPDATE automations "
-            "SET next_check_at = :now + (check_frequency_minutes * interval '1 minute') "
+            "SET next_check_at = :now + ("
+            "    CASE WHEN in_stock = false THEN :out_of_stock_check_frequency_minutes "
+            "         ELSE check_frequency_minutes END * interval '1 minute'"
+            ") "
             "WHERE id IN ("
             "    SELECT id FROM automations "
             "    WHERE status = 'ACTIVE' AND next_check_at <= :now AND pending_task_id IS NULL "
@@ -60,7 +73,14 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
             ") "
             "RETURNING id",
         )
-        result = await self.session.execute(claim_statement, {'now': now, 'limit': limit})
+        result = await self.session.execute(
+            claim_statement,
+            {
+                'now': now,
+                'limit': limit,
+                'out_of_stock_check_frequency_minutes': out_of_stock_check_frequency_minutes,
+            },
+        )
         claimed_ids = [row[0] for row in result.fetchall()]
         if not claimed_ids:
             return []
@@ -113,11 +133,13 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
         automation_id: UUID,
         last_checked_at: datetime,
         last_check_error: str | None,
-        baseline_updates: dict[str, int],
+        baseline_updates: dict[str, int | bool],
     ) -> None:
         """Clears `pending_task_id` and sets `last_check_error` explicitly to `None` on success —
         both need a raw UPDATE rather than `BaseRepository.update`, which drops `None` fields
-        (`exclude_none=True`) and so can't null out a previously-set value."""
+        (`exclude_none=True`) and so can't null out a previously-set value. `baseline_updates` may
+        also carry `in_stock` (a bool, not a baseline_*_kopecks column) — same "only include what
+        actually changed" contract, just not restricted to price columns despite the name."""
 
         statement = (
             update(self.model)

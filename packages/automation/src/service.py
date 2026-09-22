@@ -6,7 +6,7 @@ from core.exceptions import DuplicatedObjectError, ObjectNotFoundError
 from core.marketplace_article import extract_article
 from core.transaction_manager import AsyncTransactionManager
 from packages.automation.src.entities import AutomationEntity, AutomationHistoryEntity
-from packages.automation.src.enums import AutomationStatus, PriceField
+from packages.automation.src.enums import AutomationStatus, PriceField, StockField
 from packages.automation.src.exceptions import DuplicateAutomationError, InvalidCheckFrequencyError
 from packages.result.src.entities import ProductPagePayload
 from packages.result.src.service import ResultService
@@ -185,7 +185,11 @@ class AutomationService:
             )
         return items, total
 
-    async def dispatch_due_checks(self, batch_size: int) -> dict:
+    async def dispatch_due_checks(
+        self,
+        batch_size: int,
+        out_of_stock_check_frequency_minutes: int,
+    ) -> dict:
         # Claiming (this transaction) and creating the check Task (task_service's own, separate
         # transaction/session) must not overlap: tasks.automation_id's FK has to lock the very
         # automation row that claim_due_for_dispatch's FOR UPDATE SKIP LOCKED just locked, so
@@ -193,7 +197,9 @@ class AutomationService:
         # against each other. Committing here first, before any task_service call, avoids it.
         async with self.transaction_manager(use_automation_repository=True) as transaction:
             claimed_automations = await transaction.automation_repository.claim_due_for_dispatch(
-                now=datetime.now(tz=timezone.utc), limit=batch_size,
+                now=datetime.now(tz=timezone.utc),
+                limit=batch_size,
+                out_of_stock_check_frequency_minutes=out_of_stock_check_frequency_minutes,
             )
             await self.transaction_manager.commit()
 
@@ -251,7 +257,7 @@ class AutomationService:
     ) -> int:
         changes_detected_count = 0
         last_check_error = None
-        baseline_updates: dict[str, int] = {}
+        baseline_updates: dict[str, int | bool] = {}
 
         if task_status == TaskStatus.SUCCEEDED:
             results, _ = await self.result_service.get_results_for_task(
@@ -259,7 +265,12 @@ class AutomationService:
             )
             if results:
                 payload = ProductPagePayload.model_validate(results[0].payload)
-                changes, baseline_updates = self._diff_prices(automation=automation, payload=payload)
+                price_changes, baseline_updates = self._diff_prices(
+                    automation=automation, payload=payload,
+                )
+                stock_changes, stock_update = self._diff_stock(automation=automation, payload=payload)
+                baseline_updates.update(stock_update)
+                changes = price_changes + stock_changes
                 if changes:
                     await transaction.automation_history_repository.create(
                         entity=AutomationHistoryEntity(
@@ -321,6 +332,29 @@ class AutomationService:
             )
 
         return changes, baseline_updates
+
+    def _diff_stock(
+        self,
+        automation: AutomationEntity,
+        payload: ProductPagePayload,
+    ) -> tuple[list[dict], dict[str, bool]]:
+        """Same first-check-seeds-baseline contract as `_diff_prices`, for the single `in_stock`
+        bool. `threshold_breached` here means "product just came back in stock" (`False` → `True`)
+        — the event this whole check exists to catch (see `claim_due_for_dispatch`'s out-of-stock
+        cadence); going out of stock (`True` → `False`) is still recorded, just not flagged."""
+
+        new_value = payload.in_stock
+        if automation.in_stock is None:
+            return [], {'in_stock': new_value}
+        if new_value == automation.in_stock:
+            return [], {}
+        change = {
+            'field': StockField.IN_STOCK.value,
+            'old_value': automation.in_stock,
+            'new_value': new_value,
+            'threshold_breached': new_value is True,
+        }
+        return [change], {'in_stock': new_value}
 
     async def sweep_history_retention(self) -> int:
         async with self.transaction_manager(use_automation_history_repository=True) as transaction:
