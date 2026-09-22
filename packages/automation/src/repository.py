@@ -4,6 +4,7 @@ from uuid import UUID
 from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.enums import Marketplace
 from core.repository import BaseRepository
 from packages.automation.src.entities import AutomationEntity, AutomationHistoryEntity
 from packages.automation.src.models import Automation, AutomationHistory
@@ -12,6 +13,31 @@ from packages.automation.src.models import Automation, AutomationHistory
 class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
     def __init__(self, session: AsyncSession):
         super().__init__(model=Automation, entity_object=AutomationEntity, session=session)
+
+    async def find_duplicate(
+        self,
+        user_id: int,
+        marketplace: Marketplace,
+        article: str | None,
+        input_value: str,
+    ) -> AutomationEntity | None:
+        """Matches by `article` when it was extracted (any status — a PAUSED automation on the
+        same product still counts); falls back to an exact `input_value` match when the article
+        couldn't be extracted for the new one, since there's then nothing else reliable to
+        compare on."""
+
+        statement = select(self.model).where(
+            self.model.user_id == user_id,
+            self.model.marketplace == marketplace,
+        )
+        if article is not None:
+            statement = statement.where(self.model.article == article)
+        else:
+            statement = statement.where(self.model.input_value == input_value)
+        statement = statement.limit(1)
+
+        database_object = await self.session.scalar(statement)
+        return self._to_entity(database_object=database_object) if database_object else None
 
     async def claim_due_for_dispatch(self, now: datetime, limit: int) -> list[AutomationEntity]:
         """Atomically claims due automations by advancing `next_check_at` in the same statement

@@ -14,10 +14,11 @@
 ## Модель
 
 - **`Automation`** (`automations`) — сама автоматизация: `marketplace`, `input_value` (ссылка/
-  артикул), `status` (`ACTIVE`/`PAUSED`), `price_drop_threshold_percent` (1..100,
-  `CheckConstraint`), `check_frequency_minutes` (минимум валидируется на уровне сервиса против
-  сконфигурированного `min_check_frequency_minutes`, не `CheckConstraint` — минимум конфигурируем и
-  может меняться без миграции), `history_retention_days`, три базовые цены
+  артикул), `article` (см. "Дубли по артикулу" ниже), `status` (`ACTIVE`/`PAUSED`),
+  `price_drop_threshold_percent` (1..100, `CheckConstraint`), `check_frequency_minutes` (минимум
+  валидируется на уровне сервиса против сконфигурированного `min_check_frequency_minutes`, не
+  `CheckConstraint` — минимум конфигурируем и может меняться без миграции), `history_retention_days`,
+  три базовые цены
   (`baseline_price_kopecks`/`baseline_discounted_price_kopecks`/`baseline_original_price_kopecks`),
   `next_check_at`, `pending_task_id` (FK на `tasks.id`, `SET NULL`), `last_checked_at`,
   `last_check_error`, `user_id`.
@@ -39,6 +40,31 @@
 `original_price_kopecks` (перечёркнутая). Каждое поле имеет свою базовую цену на `Automation` и
 проверяется независимо — `TRACKED_PRICE_FIELDS` в `service.py` единственное место, где перечислены
 все три.
+
+## Дубли по артикулу
+
+Пользователь не может завести вторую автоматизацию на тот же товар в рамках одного маркетплейса —
+даже если ссылку он ввёл в другом виде (другой текст слага, другие query-параметры и т.п.).
+
+- При создании `core.marketplace_article.extract_article(marketplace, input_value)` пытается
+  вытащить числовой артикул прямо из строки — без похода в сеть (Ozon: `-<цифры>` в конце пути
+  URL; Wildberries: `/catalog/<цифры>/`; либо, если вся строка — просто число, она сама и есть
+  артикул). Результат кладётся в `Automation.article` (может быть `NULL`, если формат не
+  распознан). Это **не** тот же код, что использует `apps/worker_parser` для реального фетчинга
+  (там URL-парсинг рассчитан на строго валидный URL и либо бросает исключение, либо тихо
+  подставляет заглушку — для проверки дублей нужен мягкий результат "не смогли понять", а не
+  ошибка).
+- `AutomationRepository.find_duplicate` ищет у пользователя в этом маркетплейсе автоматизацию
+  (**в любом статусе** — `PAUSED` тоже считается) с тем же `article`; если `article` вытащить не
+  удалось — фолбэк на точное совпадение `input_value` (больше никакого надёжного способа
+  сравнить нет).
+- Найденный дубликат → `DuplicateAutomationError` (`packages/automation/src/exceptions.py`) →
+  REST `409 Conflict`.
+- Частичный уникальный индекс `ux_automations_user_marketplace_article` (`(user_id, marketplace,
+  article) WHERE article IS NOT NULL`) — подстраховка на случай гонки между `find_duplicate` и
+  `create` (два одновременных запроса); `BaseRepository.create` в этом случае ловит
+  `IntegrityError` → `DuplicatedObjectError` (`core.exceptions`), сервис перехватывает и
+  переводит в тот же `DuplicateAutomationError`.
 
 ## Семантика базовой цены (baseline)
 

@@ -2,11 +2,12 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from core.enums import Marketplace
-from core.exceptions import ObjectNotFoundError
+from core.exceptions import DuplicatedObjectError, ObjectNotFoundError
+from core.marketplace_article import extract_article
 from core.transaction_manager import AsyncTransactionManager
 from packages.automation.src.entities import AutomationEntity, AutomationHistoryEntity
 from packages.automation.src.enums import AutomationStatus, PriceField
-from packages.automation.src.exceptions import InvalidCheckFrequencyError
+from packages.automation.src.exceptions import DuplicateAutomationError, InvalidCheckFrequencyError
 from packages.result.src.entities import ProductPagePayload
 from packages.result.src.service import ResultService
 from packages.task.src.enums import ParseType, TaskStatus
@@ -50,18 +51,33 @@ class AutomationService:
         if check_frequency_minutes < min_check_frequency_minutes:
             raise InvalidCheckFrequencyError
 
+        article = extract_article(marketplace=marketplace, input_value=input_value)
+
         async with self.transaction_manager(use_automation_repository=True) as transaction:
-            created_automation = await transaction.automation_repository.create(
-                entity=AutomationEntity(
-                    user_id=user_id,
-                    marketplace=marketplace,
-                    input_value=input_value,
-                    price_drop_threshold_percent=price_drop_threshold_percent,
-                    check_frequency_minutes=check_frequency_minutes,
-                    history_retention_days=history_retention_days,
-                    next_check_at=datetime.now(tz=timezone.utc),
-                ),
+            duplicate = await transaction.automation_repository.find_duplicate(
+                user_id=user_id, marketplace=marketplace, article=article, input_value=input_value,
             )
+            if duplicate is not None:
+                raise DuplicateAutomationError
+
+            try:
+                created_automation = await transaction.automation_repository.create(
+                    entity=AutomationEntity(
+                        user_id=user_id,
+                        marketplace=marketplace,
+                        input_value=input_value,
+                        article=article,
+                        price_drop_threshold_percent=price_drop_threshold_percent,
+                        check_frequency_minutes=check_frequency_minutes,
+                        history_retention_days=history_retention_days,
+                        next_check_at=datetime.now(tz=timezone.utc),
+                    ),
+                )
+            except DuplicatedObjectError as error:
+                # Race window between find_duplicate and this create() — two concurrent requests
+                # for the same article both passing the check above. The partial unique index
+                # (user_id, marketplace, article) catches it here as a last resort.
+                raise DuplicateAutomationError from error
             await self.transaction_manager.commit()
         return created_automation
 

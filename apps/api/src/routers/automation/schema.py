@@ -42,6 +42,9 @@ class AutomationResponse(BaseModel):
     id: UUID = Field(description='Идентификатор автоматизации')
     marketplace: Marketplace = Field(description='Маркетплейс товара')
     input_value: str = Field(description='Ссылка или артикул товара')
+    article: str | None = Field(
+        description='Артикул товара, извлечённый из input_value; None, если формат не распознан',
+    )
     status: AutomationStatus = Field(description='Статус автоматизации')
     price_drop_threshold_percent: int = Field(description='Порог падения цены в процентах')
     check_frequency_minutes: int = Field(description='Периодичность проверки в минутах')

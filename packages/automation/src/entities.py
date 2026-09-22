@@ -16,6 +16,11 @@ class AutomationEntity(BaseModel):
     )
     marketplace: Optional[Marketplace] = Field(default=None, description='Маркетплейс товара')
     input_value: Optional[str] = Field(default=None, description='Ссылка или артикул товара')
+    article: Optional[str] = Field(
+        default=None,
+        description='Артикул товара, извлечённый из input_value для проверки дублей; None, если '
+        'формат ссылки не распознан',
+    )
     status: Optional[AutomationStatus] = Field(default=None, description='Статус автоматизации')
     price_drop_threshold_percent: Optional[int] = Field(
         default=None,

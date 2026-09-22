@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, text
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -20,6 +20,16 @@ class Automation(BaseSQLModel):
             'price_drop_threshold_percent BETWEEN 1 AND 100',
             name='ck_automations_price_drop_threshold_range',
         ),
+        # Partial (article IS NOT NULL only) — a user can still have several automations whose
+        # article couldn't be extracted (see core.marketplace_article.extract_article); those are
+        # de-duplicated by input_value at the application level instead (AutomationRepository.
+        # find_duplicate), not enforceable as a plain column constraint without normalizing it.
+        Index(
+            'ux_automations_user_marketplace_article',
+            'user_id', 'marketplace', 'article',
+            unique=True,
+            postgresql_where=text('article IS NOT NULL'),
+        ),
     )
     # eager_defaults: updated_at is server-computed (onupdate=func.now()) — without this,
     # reading it back right after an async UPDATE fails with MissingGreenlet, since SQLAlchemy
@@ -34,6 +44,11 @@ class Automation(BaseSQLModel):
     user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     marketplace: Mapped[Marketplace] = mapped_column(SqlEnum(Marketplace), nullable=False)
     input_value: Mapped[str] = mapped_column(String, nullable=False)
+    # Extracted from input_value at creation time (core.marketplace_article.extract_article) —
+    # NULL when the format wasn't recognized. Exists purely for duplicate detection: two
+    # differently-formatted links to the same product should still be caught as the same
+    # automation, which comparing input_value as a raw string can't do.
+    article: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[AutomationStatus] = mapped_column(
         SqlEnum(AutomationStatus),
         nullable=False,

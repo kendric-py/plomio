@@ -16,7 +16,7 @@ from apps.api.src.routers.automation.schema import (
     UpdateBaselineRequest,
 )
 from core.exceptions import ObjectNotFoundError
-from packages.automation.src.exceptions import InvalidCheckFrequencyError
+from packages.automation.src.exceptions import DuplicateAutomationError, InvalidCheckFrequencyError
 from packages.automation.src.service import AutomationService
 from packages.user.src.entities import UserEntity
 
@@ -49,6 +49,11 @@ async def create_automation(
                 'check_frequency_minutes must be at least '
                 f'{config.AUTOMATION.MIN_CHECK_FREQUENCY_MINUTES}'
             ),
+        ) from error
+    except DuplicateAutomationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='An automation for this product already exists',
         ) from error
     return AutomationResponse.model_validate(obj=automation, from_attributes=True)
 
