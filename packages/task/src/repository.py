@@ -23,20 +23,30 @@ class TaskRepository(BaseRepository[Task, TaskEntity]):
         limit: int,
         offset: int,
         status: Optional[TaskStatus] = None,
+        include_automation_tasks: bool = False,
     ) -> list[TaskEntity]:
         statement = select(self.model).where(self.model.user_id == user_id)
         if status is not None:
             statement = statement.where(self.model.status == status)
+        if not include_automation_tasks:
+            statement = statement.where(self.model.automation_id.is_(None))
         statement = (
             statement.order_by(self.model.created_at.desc()).limit(limit).offset(offset)
         )
         database_objects = await self.session.scalars(statement)
         return self._to_entities(database_objects=database_objects)
 
-    async def count_by_user_id(self, user_id: int, status: Optional[TaskStatus] = None) -> int:
+    async def count_by_user_id(
+        self,
+        user_id: int,
+        status: Optional[TaskStatus] = None,
+        include_automation_tasks: bool = False,
+    ) -> int:
         statement = select(func.count(self.model.id)).where(self.model.user_id == user_id)
         if status is not None:
             statement = statement.where(self.model.status == status)
+        if not include_automation_tasks:
+            statement = statement.where(self.model.automation_id.is_(None))
         return await self.session.scalar(statement)
 
     async def claim_next(

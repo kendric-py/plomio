@@ -5,6 +5,7 @@ from apps.api.src.config import config
 from core.database import get_database_connection
 from core.transaction_manager import AsyncTransactionManager
 from packages.auth.src.service import AuthService
+from packages.automation.src.service import AutomationService
 from packages.cron.src.service import CronJobService
 from packages.result.src.service import ResultService
 from packages.sessions.src.redis_store import SessionPoolStore
@@ -62,4 +63,11 @@ class DependencyContainer(DeclarativeContainer):
     session_pool_store = providers.Singleton(
         SessionPoolStore,
         redis_config=config.REDIS,
+    )
+
+    automation_service = providers.Factory(
+        AutomationService,
+        transaction_manager=transaction_manager,
+        task_service=task_service,
+        result_service=result_service,
     )

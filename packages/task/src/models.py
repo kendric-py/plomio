@@ -46,6 +46,15 @@ class Task(BaseSQLModel):
     )
     error_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    # Set once at creation by packages.automation (a check task, not a user-initiated one) and
+    # never cleared afterwards — unlike Automation.pending_task_id, which is cleared once the
+    # check completes. This is the only way to tell a check task apart from a regular one once
+    # that link is gone, so REST listing (see packages.task.src.repository) can hide it by default.
+    automation_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey('automations.id', ondelete='SET NULL'),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

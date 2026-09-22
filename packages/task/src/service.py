@@ -31,6 +31,7 @@ class TaskService:
         ttl: timedelta,
         user_id: int,
         result_limit: int | None = None,
+        automation_id: UUID | None = None,
     ) -> TaskEntity:
         async with self.transaction_manager(
             use_task_repository=True,
@@ -44,6 +45,7 @@ class TaskService:
                     queue_expires_at=datetime.now(tz=timezone.utc) + ttl,
                     result_limit=result_limit,
                     user_id=user_id,
+                    automation_id=automation_id,
                 ),
             )
             for position, input_value in enumerate(inputs):
@@ -261,16 +263,21 @@ class TaskService:
         limit: int,
         offset: int,
         status: Optional[TaskStatus] = None,
+        include_automation_tasks: bool = False,
     ) -> tuple[list[dict], int]:
         async with self.transaction_manager(
             use_task_repository=True,
             use_task_item_repository=True,
         ) as transaction:
             tasks = await transaction.task_repository.get_by_user_id(
-                user_id=user_id, limit=limit, offset=offset, status=status,
+                user_id=user_id,
+                limit=limit,
+                offset=offset,
+                status=status,
+                include_automation_tasks=include_automation_tasks,
             )
             total = await transaction.task_repository.count_by_user_id(
-                user_id=user_id, status=status,
+                user_id=user_id, status=status, include_automation_tasks=include_automation_tasks,
             )
             progress_by_task_id = await transaction.task_item_repository.get_progress_by_task_ids(
                 task_ids=[task.id for task in tasks],

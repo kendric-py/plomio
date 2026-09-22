@@ -56,12 +56,35 @@ class TaskConfig(BaseSettings):
     EXPIRY_SWEEP_INTERVAL_SECONDS: float = Field(default=30.0)
 
 
+class AutomationConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=ENV_FILE,
+        env_file_encoding='utf-8',
+        env_prefix='AUTOMATION_',
+        extra='ignore',
+    )
+
+    # Минимальная частота проверки, которую разрешено задать автоматизации (нижний предел из
+    # конфига, см. требование "частота проверки в минутах, минимальное задаётся в конфиге").
+    MIN_CHECK_FREQUENCY_MINUTES: int = Field(default=15)
+    # Как часто сканируем ACTIVE-автоматизации с истёкшим next_check_at и ставим им задачу проверки.
+    DISPATCH_INTERVAL_SECONDS: float = Field(default=30.0)
+    # Сколько автоматизаций диспатчим/забираем результат за один проход job'а.
+    DISPATCH_BATCH_SIZE: int = Field(default=50)
+    # Как часто сканируем автоматизации с незавершённой проверкой (pending_task_id) и, если задача
+    # проверки завершилась, сравниваем цены и пишем историю.
+    RESULT_SWEEP_INTERVAL_SECONDS: float = Field(default=15.0)
+    # Как часто удаляем строки истории старше history_retention_days каждой автоматизации.
+    HISTORY_RETENTION_SWEEP_INTERVAL_SECONDS: float = Field(default=3600.0)
+
+
 class Config(BaseSettings):
     REST: RestConfig = Field(default_factory=RestConfig)
     POSTGRES: PostgresConfig = Field(default_factory=PostgresConfig)
     REDIS: RedisConfig = Field(default_factory=RedisConfig)
     WORKER_HEALTH: WorkerHealthConfig = Field(default_factory=WorkerHealthConfig)
     TASK: TaskConfig = Field(default_factory=TaskConfig)
+    AUTOMATION: AutomationConfig = Field(default_factory=AutomationConfig)
 
     class Config:
         env_file = ENV_FILE

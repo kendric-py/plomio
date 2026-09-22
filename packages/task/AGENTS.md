@@ -1,7 +1,8 @@
 # packages/task
 
 Доменная область задач парсинга маркетплейсов (OZON, Wildberries) — единоразовые задачи (не
-периодические; периодические задачи-мониторинги — будущая доменная область `automations`). Хранит
+периодические; периодические задачи-мониторинги — см. [`packages/automation`](../automation/AGENTS.md),
+которая переиспользует этот домен для одноэлементных проверочных задач). Хранит
 только оркестрацию (статус, приоритет, TTL, прогресс, курсор возобновления, ошибки), а не сами
 результаты парсинга (товары/отзывы) — это отдельная будущая доменная область.
 
@@ -17,7 +18,12 @@
   использовать; не выводится эвристикой из `input_value`, задаётся явно при создании), `status`,
   `priority` (1..10, 1 — наивысший, `CheckConstraint`), `queue_expires_at` (абсолютное время
   истечения TTL — не `ttl_seconds`, чтобы claim-запрос был простым сравнением), `result_limit`,
-  поля lease (`claimed_by`/`claimed_at`/`lease_expires_at`), `error_reason`, `user_id`.
+  поля lease (`claimed_by`/`claimed_at`/`lease_expires_at`), `error_reason`, `user_id`,
+  `automation_id` (`UUID | None`, FK на `automations.id`, `SET NULL`) — проставляется один раз
+  [`packages/automation`](../automation/AGENTS.md) при создании проверочной задачи и не
+  обнуляется; `TaskRepository.get_by_user_id`/`count_by_user_id` по умолчанию скрывают такие
+  задачи (`WHERE automation_id IS NULL`) — обычный список задач пользователя (фронтенд) не должен
+  показывать проверочные задачи автоматизаций вперемешку со своими.
 - **`TaskItem`** (`task_items`) — один на каждый вход из списка (ссылка/поисковый
   запрос), с собственными `status`, `cursor` (JSONB), `result_count`, `error_reason`.
 

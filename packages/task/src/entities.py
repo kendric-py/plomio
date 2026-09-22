@@ -39,6 +39,11 @@ class TaskEntity(BaseModel):
         default=None,
         description='Идентификатор пользователя, поставившего задачу',
     )
+    automation_id: Optional[UUID] = Field(
+        default=None,
+        description='Идентификатор автоматизации, создавшей эту задачу (проверочная задача, не '
+        'пользовательская); не выставляется при обычном создании задачи',
+    )
     created_at: Optional[datetime] = Field(default=None, description='Время создания задачи')
     updated_at: Optional[datetime] = Field(
         default=None,
