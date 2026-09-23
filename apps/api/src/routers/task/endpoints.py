@@ -6,15 +6,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from apps.api.src.container import DependencyContainer
 from apps.api.src.routers.auth.dependencies import get_current_user
+from apps.api.src.routers.schema import PaginationMeta
 from apps.api.src.routers.task.schema import (
     CreateTaskRequest,
-    PaginationMeta,
+    CreateTaskResponse,
     ResultItemResponse,
-    TaskListItemResponse,
+    TaskDetailResponse,
+    TaskItemResponse,
     TaskListResponse,
-    TaskResponse,
     TaskResultsResponse,
-    TaskStatusResponse,
 )
 from core.exceptions import ObjectNotFoundError
 from packages.result.src.service import ResultService
@@ -33,7 +33,7 @@ async def create_task(
     task_service: TaskService = Depends(
         Provide[DependencyContainer.task_service],
     ),
-) -> TaskResponse:
+) -> CreateTaskResponse:
     task = await task_service.create_task(
         parse_type=body.parse_type,
         marketplace=body.marketplace,
@@ -43,7 +43,15 @@ async def create_task(
         user_id=current_user.id,
         result_limit=body.result_limit,
     )
-    return TaskResponse.model_validate(obj=task, from_attributes=True)
+    items = await task_service.get_task_items(task_id=task.id)
+    return CreateTaskResponse.model_validate(
+        obj={
+            **task.model_dump(),
+            'items': [
+                TaskItemResponse.model_validate(obj=item, from_attributes=True) for item in items
+            ],
+        },
+    )
 
 
 @router.get('/')
@@ -63,7 +71,7 @@ async def list_tasks(
         user_id=current_user.id, limit=limit, offset=offset, status=task_status,
     )
     return TaskListResponse(
-        items=[TaskListItemResponse.model_validate(obj=item) for item in items],
+        items=[TaskDetailResponse.model_validate(obj=item) for item in items],
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
     )
 
@@ -76,7 +84,7 @@ async def get_task_status(
     task_service: TaskService = Depends(
         Provide[DependencyContainer.task_service],
     ),
-) -> TaskStatusResponse:
+) -> TaskDetailResponse:
     try:
         task_status = await task_service.get_task_status(task_id=task_id, user_id=current_user.id)
     except ObjectNotFoundError as error:
@@ -84,7 +92,7 @@ async def get_task_status(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='Task not found',
         ) from error
-    return TaskStatusResponse.model_validate(
+    return TaskDetailResponse.model_validate(
         obj={**task_status['task'].model_dump(), **task_status['progress']},
     )
 

@@ -3,6 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from apps.api.src.routers.schema import PaginationMeta
 from core.enums import Marketplace
 from packages.automation.src.enums import AutomationStatus, PriceField, StockField
 
@@ -63,12 +64,6 @@ class AutomationResponse(BaseModel):
     last_checked_at: datetime | None = Field(description='Момент последней завершённой проверки')
     last_check_error: str | None = Field(description='Причина провала последней проверки')
     created_at: datetime = Field(description='Время создания автоматизации')
-
-
-class PaginationMeta(BaseModel):
-    total: int = Field(description='Общее количество элементов')
-    limit: int = Field(description='Размер страницы')
-    offset: int = Field(description='Смещение страницы')
 
 
 class AutomationListResponse(BaseModel):

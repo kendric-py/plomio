@@ -12,9 +12,9 @@ from apps.api.src.routers.automation.schema import (
     AutomationListResponse,
     AutomationResponse,
     CreateAutomationRequest,
-    PaginationMeta,
     UpdateBaselineRequest,
 )
+from apps.api.src.routers.schema import PaginationMeta
 from core.exceptions import ObjectNotFoundError
 from packages.automation.src.exceptions import DuplicateAutomationError, InvalidCheckFrequencyError
 from packages.automation.src.service import AutomationService

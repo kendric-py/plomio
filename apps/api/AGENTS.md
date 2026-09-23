@@ -22,18 +22,41 @@ REST API. Точка входа для клиентов (фронтенд, вн�
   - `GET /` — заглушка `{"message": "Hello World"}`.
   - `GET /me` — требует авторизации (`Depends(get_current_user)`), возвращает `UserResponse` текущего
     пользователя.
-- `routers/task/endpoints.py` + `routers/task/schema.py` (`/api/tasks`):
+- `routers/schema.py` — REST-примитивы, переиспользуемые несколькими роутерами (а не одним доменом),
+  в отличие от `routers/<domain>/schema.py`. Сейчас там `PaginationMeta` (`total`/`limit`/`offset`) —
+  используется в `routers/task/schema.py` (`TaskListResponse`/`TaskResultsResponse`) и
+  `routers/automation/schema.py` (`AutomationListResponse`/`AutomationHistoryListResponse`); до
+  выноса была продублирована в обоих файлах дословно.
+- `routers/task/endpoints.py` + `routers/task/schema.py` (`/api/tasks`). Схема файла разложена на
+  секции: сверху переиспользуемые сущности (`TaskItemResponse`, `TaskBaseResponse` — общие поля
+  задачи, `TaskProgressFields` — агрегаты прогресса, `ResultItemResponse`), ниже — запрос
+  (`CreateTaskRequest`) и ответы, которые их комбинируют. `PaginationMeta` в этот файл не входит —
+  она общая для нескольких роутеров, см. ниже раздел про `routers/schema.py`. `TaskBaseResponse` и
+  `TaskProgressFields` существуют именно для того, чтобы одинаковые по смыслу ручки не расходились
+  составом полей — раньше `GET /{task_id}` (тогда `TaskStatusResponse`) и `GET /` (`TaskListItemResponse`)
+  описывали пересекающийся набор полей задачи вручную и разошлись (в статусе не было `priority`,
+  `queue_expires_at`, `result_limit`, `user_id`, `automation_id`, `updated_at`). Теперь обе ручки
+  используют один класс `TaskDetailResponse(TaskProgressFields, TaskBaseResponse)` — порядок
+  родителей важен (pydantic собирает поля в порядке обратного MRO), `TaskBaseResponse` как основная
+  сущность указан последним, чтобы её поля шли в начале JSON-ответа, см.
+  [gold-rules.md](../../docs/reference/gold-rules.md#rest-схемы).
   - `POST /` — требует авторизации (`Depends(get_current_user)`), создаёт задачу парсинга через
     `Depends(Provide[DependencyContainer.task_service])`
     (`TaskService.create_task` — см. [`packages/task/AGENTS.md`](../../packages/task/AGENTS.md)).
     `user_id` берётся из текущего пользователя, не из тела запроса. `CreateTaskRequest.ttl_seconds`
     конвертируется в `timedelta` в роутере — домен принимает `timedelta`, а не секунды, REST-контракт
-    этого не знает.
-  - `GET /{task_id}` — требует авторизации, возвращает `TaskStatusResponse` (статус, `error_reason`,
+    этого не знает. Ответ (`CreateTaskResponse(TaskBaseResponse)`) отдаёт всю доступную на момент создания
+    информацию о задаче (включая `error_reason`, `automation_id`, `updated_at`), а также `items` —
+    созданные `TaskItem` (`id`/`position`/`input_value`/`status`), которые роутер дополнительно
+    запрашивает через `TaskService.get_task_items`: без этого клиент не узнал бы `id` элементов
+    задачи, нужные для будущих ручек вроде `exclude_task_item`.
+  - `GET /{task_id}` — требует авторизации, возвращает `TaskDetailResponse` (все поля задачи +
     агрегированный прогресс `total_items`/`processed_items`/`result_count` из
     `TaskService.get_task_status`). Задача, принадлежащая другому пользователю, или несуществующий
     `task_id` — оба дают `404` (`ObjectNotFoundError` → `HTTPException(404)`), без различия между
     «не найдено» и «чужое», чтобы не давать возможность перебором `task_id` узнавать о чужих задачах.
+  - `GET /` — требует авторизации, постранично отдаёт задачи пользователя (`TaskListResponse`:
+    `items: list[TaskDetailResponse]` + `meta`), тот же `TaskDetailResponse`, что и у `GET /{task_id}`.
   - `GET /{task_id}/results` — требует авторизации, постранично отдаёт результаты задачи
     (`TaskResultsResponse`: `items` + `meta` — см. [конвенцию пагинации в
     gold-rules.md](../../docs/reference/gold-rules.md#пагинация-в-rest-ответах), `meta` всегда
