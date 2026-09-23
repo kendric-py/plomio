@@ -34,6 +34,16 @@
 - `sessions:pool:{marketplace}` — `ZSET`, score = `expire_at` (unix-время). `ZPOPMIN` —
   атомарный single-consumer забор (`acquire_session`), `ZCOUNT`/`ZRANGEBYSCORE` — учёт глубины
   пула (`live_count`/`get_live_sessions`).
+
+  TTL в Redis истекает у ключа целиком, а не у отдельного элемента `ZSET` — поэтому протухший по
+  TTL `session:{marketplace}:{id}` не убирает сам себя из `sessions:pool:{marketplace}`. Раньше
+  `acquire_session` полагался только на ленивую чистку (`ZPOPMIN` по одному, отбросить, если `PTTL`
+  говорит, что сессия мертва) — при накоплении большого бэклога протухших записей (например,
+  `worker_sessions` генерирует быстрее, чем `worker_parser` потребляет, пока тот не работал) это
+  вычерпывалось пачками по `max_pop_attempts` с `EMPTY_POOL_BACKOFF_SECONDS` сна между вызовами —
+  наблюдались многоминутные простои перед тем, как воркер добирался до живой сессии. Поэтому
+  `acquire_session` теперь в начале делает один `ZREMRANGEBYSCORE` (score < now) — массово выкидывает
+  все уже протухшие элементы одним запросом, до того как пытаться `ZPOPMIN`.
 - `{stream_prefix}:{marketplace}` — Redis Stream, **дополнение** к TTL-пулу выше, не замена —
   источник истины по тому, жива ли сессия, остаётся `session:{marketplace}:{id}` с TTL. См.
   `apps/worker_sessions/AGENTS.md` за полным обоснованием.

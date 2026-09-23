@@ -40,7 +40,19 @@ class SessionPoolStore:
     the key disappears on its own TTL, no separate reaping step. `sessions:pool:{marketplace}` —
     `ZSET` scored by `expire_at`, used both to pop the next session (`ZPOPMIN`) and to report pool
     depth (`ZCOUNT`/`ZRANGEBYSCORE`). `{stream_prefix}:{marketplace}` — a Redis Stream, additive to
-    the TTL'd pool above, not a replacement (see `apps/worker_sessions/AGENTS.md`)."""
+    the TTL'd pool above, not a replacement (see `apps/worker_sessions/AGENTS.md`).
+
+    Redis TTL only ever expires a key wholesale — it has no notion of expiring one member of a
+    `ZSET`, so a `session:{marketplace}:{id}` dying by TTL leaves its `session_id` sitting dead in
+    `sessions:pool:{marketplace}` until something removes it. `acquire_session` used to rely purely
+    on lazy cleanup (`ZPOPMIN` one candidate at a time, discard if `PTTL` says it's gone) — fine
+    when dead entries are rare, but if the pool ever accumulates a large backlog of already-expired
+    members (e.g. `worker_sessions` outpacing consumption while `worker_parser` was down), that
+    backlog only drained `max_pop_attempts` at a time per call, with an `EMPTY_POOL_BACKOFF_SECONDS`
+    sleep between calls whenever a whole batch came back dead — multi-minute stalls before a caller
+    ever reached a live session. `acquire_session` now opens with one `ZREMRANGEBYSCORE` sweep that
+    bulk-drops every already-expired member in a single round trip before attempting any `ZPOPMIN`,
+    so a stale backlog is cleared in one shot instead of trickling out in pop-sized batches."""
 
     def __init__(self, redis_config: RedisConfig) -> None:
         self._client = get_redis_client(redis_config)
@@ -82,6 +94,14 @@ class SessionPoolStore:
         min_ttl_margin_seconds: float,
     ) -> SessionMessage | None:
         pool_key = _pool_key(marketplace=marketplace)
+        expired_removed = await self._client.zremrangebyscore(
+            pool_key, min='-inf', max=datetime.now(timezone.utc).timestamp(),
+        )
+        if expired_removed:
+            logger.info(
+                '[session_pool_swept] marketplace=%s removed=%d',
+                marketplace.value, expired_removed,
+            )
         for _ in range(max_pop_attempts):
             popped = await self._client.zpopmin(pool_key, count=1)
             if not popped:
