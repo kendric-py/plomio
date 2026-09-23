@@ -153,6 +153,13 @@ class TaskService:
             use_task_repository=True,
             use_task_item_repository=True,
         ) as transaction:
+            item = await transaction.task_item_repository.get_by_id(entity_id=item_id)
+            # Serializes concurrently completing siblings of the same task (worker_parser now
+            # processes TaskItems within a task in parallel) — without this lock, two items
+            # finishing at nearly the same time can each see the other as still pending and
+            # neither ever flips the parent Task to its terminal status.
+            await transaction.task_repository.lock_by_id(entity_id=item.task_id)
+
             completed_item = await transaction.task_item_repository.update(
                 entity=TaskItemEntity(id=item_id, status=status, error_reason=error_reason),
             )

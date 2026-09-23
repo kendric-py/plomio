@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.exceptions import ObjectNotFoundError
 from core.repository import BaseRepository
 from packages.task.src.entities import TaskEntity, TaskItemEntity
 from packages.task.src.enums import TaskItemStatus, TaskStatus
@@ -106,6 +107,17 @@ class TaskRepository(BaseRepository[Task, TaskEntity]):
             .values(lease_expires_at=now + lease_duration)
         )
         await self.session.execute(statement)
+
+    async def lock_by_id(self, entity_id: UUID) -> TaskEntity:
+        """Row-level lock (`SELECT ... FOR UPDATE`, blocking — not `skip_locked`), held until the
+        caller's transaction commits/rolls back. Used by `TaskService.complete_item` to serialize
+        concurrently completing sibling `TaskItem`s of the same task — see that method."""
+
+        statement = select(self.model).where(self.model.id == entity_id).with_for_update()
+        database_object = await self.session.scalar(statement)
+        if database_object is None:
+            raise ObjectNotFoundError
+        return self._to_entity(database_object=database_object)
 
 
 class TaskItemRepository(BaseRepository[TaskItem, TaskItemEntity]):

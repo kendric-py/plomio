@@ -27,6 +27,8 @@ class PollConfig(BaseSettings):
     LEASE_DURATION_SECONDS: float = Field(default=120.0)
     HEARTBEAT_INTERVAL_SECONDS: float = Field(default=30.0)
     STATUS_CHECK_INTERVAL_PAGES: int = Field(default=1)
+    MAX_CONCURRENT_TASKS: int = Field(default=3)
+    MAX_CONCURRENT_ITEMS_PER_TASK: int = Field(default=5)
 
 
 class SessionPoolConfig(BaseSettings):

@@ -394,16 +394,28 @@ async def process_claimed_task(
     session_client: SessionPoolStore,
     liveness_reporter: LivenessReporter,
 ) -> None:
+    """Pending `TaskItem`s of this task run concurrently, up to
+    `POLL_MAX_CONCURRENT_ITEMS_PER_TASK`. Each item re-checks the task's status itself right
+    before starting (not just once up front) — a pause/cancel that lands mid-run stops items that
+    haven't started yet, while ones already in flight are left to finish rather than aborted
+    mid-page. `TaskService.complete_item` locks the parent Task row to serialize concurrently
+    completing siblings (see there) — required for the parent Task to reliably reach its terminal
+    status once every item is done."""
+
     items = await task_service.get_task_items(task_id=task.id)
     pending_items = [item for item in items if item.status not in TERMINAL_ITEM_STATUSES]
+    semaphore = asyncio.Semaphore(config.POLL.MAX_CONCURRENT_ITEMS_PER_TASK)
 
-    for item in pending_items:
-        refreshed_task = await task_service.get_task_by_id(task_id=task.id)
-        if refreshed_task.status != TaskStatus.RUNNING:
-            return
-        await process_task_item(
-            task, item, task_service, result_service, session_client, liveness_reporter,
-        )
+    async def run_item(item: TaskItemEntity) -> None:
+        async with semaphore:
+            refreshed_task = await task_service.get_task_by_id(task_id=task.id)
+            if refreshed_task.status != TaskStatus.RUNNING:
+                return
+            await process_task_item(
+                task, item, task_service, result_service, session_client, liveness_reporter,
+            )
+
+    await asyncio.gather(*(run_item(item) for item in pending_items))
 
 
 async def run_lease_heartbeat_loop(
@@ -423,44 +435,75 @@ async def run_lease_heartbeat_loop(
             )
 
 
+async def run_claimed_task(
+    task: TaskEntity,
+    lease_duration: timedelta,
+    task_service: TaskService,
+    result_service: ResultService,
+    session_client: SessionPoolStore,
+    liveness_reporter: LivenessReporter,
+) -> None:
+    stop_event = asyncio.Event()
+    heartbeat_task = asyncio.create_task(
+        run_lease_heartbeat_loop(
+            task_id=task.id,
+            worker_id=config.POLL.WORKER_ID,
+            lease_duration=lease_duration,
+            interval_seconds=config.POLL.HEARTBEAT_INTERVAL_SECONDS,
+            task_service=task_service,
+            stop_event=stop_event,
+        ),
+    )
+    try:
+        await process_claimed_task(
+            task, task_service, result_service, session_client, liveness_reporter,
+        )
+    except Exception:
+        logger.exception('[task_processing_failed] task_id=%s', task.id)
+    finally:
+        stop_event.set()
+        await heartbeat_task
+
+
 async def run_poll_loop(
     task_service: TaskService,
     result_service: ResultService,
     session_client: SessionPoolStore,
     liveness_reporter: LivenessReporter,
 ) -> None:
+    """Up to `POLL_MAX_CONCURRENT_TASKS` claimed tasks run as independent asyncio tasks in this
+    single process. `claim_next`/`acquire_session` are safe to call concurrently (row-level
+    locking / atomic Redis ops respectively — see AGENTS.md), so this is plain fan-out, not a
+    worker pool with its own scheduling. `liveness_reporter`'s status is process-wide, not
+    per-task: WORKING means "at least one task is running", not "N of M slots busy"."""
+
     lease_duration = timedelta(seconds=config.POLL.LEASE_DURATION_SECONDS)
+    running_tasks: set[asyncio.Task] = set()
 
     while True:
-        liveness_reporter.set_status(WorkerParserStatus.READY.value)
-        task = await task_service.claim_next(
-            worker_id=config.POLL.WORKER_ID, lease_duration=lease_duration,
-        )
-        if task is None:
-            await asyncio.sleep(config.POLL.INTERVAL_SECONDS)
-            continue
-
-        liveness_reporter.set_status(WorkerParserStatus.WORKING.value)
-        stop_event = asyncio.Event()
-        heartbeat_task = asyncio.create_task(
-            run_lease_heartbeat_loop(
-                task_id=task.id,
-                worker_id=config.POLL.WORKER_ID,
-                lease_duration=lease_duration,
-                interval_seconds=config.POLL.HEARTBEAT_INTERVAL_SECONDS,
-                task_service=task_service,
-                stop_event=stop_event,
-            ),
-        )
-        try:
-            await process_claimed_task(
-                task, task_service, result_service, session_client, liveness_reporter,
+        if len(running_tasks) < config.POLL.MAX_CONCURRENT_TASKS:
+            task = await task_service.claim_next(
+                worker_id=config.POLL.WORKER_ID, lease_duration=lease_duration,
             )
-        except Exception:
-            logger.exception('[task_processing_failed] task_id=%s', task.id)
-        finally:
-            stop_event.set()
-            await heartbeat_task
+            if task is not None:
+                liveness_reporter.set_status(WorkerParserStatus.WORKING.value)
+                worker_task = asyncio.create_task(
+                    run_claimed_task(
+                        task, lease_duration, task_service, result_service,
+                        session_client, liveness_reporter,
+                    ),
+                )
+                running_tasks.add(worker_task)
+                worker_task.add_done_callback(running_tasks.discard)
+                continue
+
+        if not running_tasks:
+            liveness_reporter.set_status(WorkerParserStatus.READY.value)
+            await asyncio.sleep(config.POLL.INTERVAL_SECONDS)
+        elif len(running_tasks) >= config.POLL.MAX_CONCURRENT_TASKS:
+            await asyncio.wait(running_tasks, return_when=asyncio.FIRST_COMPLETED)
+        else:
+            await asyncio.sleep(config.POLL.INTERVAL_SECONDS)
 
 
 async def run_main() -> None:
