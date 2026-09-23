@@ -34,6 +34,15 @@ class TaskEntity(BaseModel):
         default=None,
         description='Момент истечения аренды задачи воркером',
     )
+    started_at: Optional[datetime] = Field(
+        default=None,
+        description='Момент первого захвата задачи воркером (начало парсинга); в отличие от '
+        'claimed_at не сбрасывается при потере лизы и повторном захвате',
+    )
+    finished_at: Optional[datetime] = Field(
+        default=None,
+        description='Момент, когда задача пришла к терминальному статусу (успех/провал/отмена)',
+    )
     error_reason: Optional[str] = Field(default=None, description='Причина общего провала задачи')
     user_id: Optional[int] = Field(
         default=None,

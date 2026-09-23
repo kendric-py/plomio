@@ -39,7 +39,10 @@ REST API. Точка входа для клиентов (фронтенд, вн�
   используют один класс `TaskDetailResponse(TaskProgressFields, TaskBaseResponse)` — порядок
   родителей важен (pydantic собирает поля в порядке обратного MRO), `TaskBaseResponse` как основная
   сущность указан последним, чтобы её поля шли в начале JSON-ответа, см.
-  [gold-rules.md](../../docs/reference/gold-rules.md#rest-схемы).
+  [gold-rules.md](../../docs/reference/gold-rules.md#rest-схемы). `TaskBaseResponse` также содержит
+  `started_at`/`finished_at` — время начала/конца парсинга (см.
+  [`packages/task/AGENTS.md`](../../packages/task/AGENTS.md#время-парсинга)), поэтому оба доступны
+  и в `GET /{task_id}`, и в `GET /`, и в ответе `POST /`.
   - `POST /` — требует авторизации (`Depends(get_current_user)`), создаёт задачу парсинга через
     `Depends(Provide[DependencyContainer.task_service])`
     (`TaskService.create_task` — см. [`packages/task/AGENTS.md`](../../packages/task/AGENTS.md)).

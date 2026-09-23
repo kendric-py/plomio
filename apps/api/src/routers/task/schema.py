@@ -42,6 +42,14 @@ class TaskBaseResponse(BaseModel):
         description='Идентификатор автоматизации, создавшей эту задачу (проверочная задача, не '
         'пользовательская)',
     )
+    started_at: datetime | None = Field(
+        description='Момент начала парсинга (первый захват задачи воркером); `null`, если задача '
+        'ещё не была взята в работу',
+    )
+    finished_at: datetime | None = Field(
+        description='Момент завершения парсинга (успех/провал/отмена); `null`, если задача ещё не '
+        'завершена. Вместе с started_at позволяет посчитать длительность парсинга',
+    )
     created_at: datetime = Field(description='Время создания задачи')
     updated_at: datetime = Field(description='Время последнего изменения задачи')
 

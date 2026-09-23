@@ -18,7 +18,8 @@
   использовать; не выводится эвристикой из `input_value`, задаётся явно при создании), `status`,
   `priority` (1..10, 1 — наивысший, `CheckConstraint`), `queue_expires_at` (абсолютное время
   истечения TTL — не `ttl_seconds`, чтобы claim-запрос был простым сравнением), `result_limit`,
-  поля lease (`claimed_by`/`claimed_at`/`lease_expires_at`), `error_reason`, `user_id`,
+  поля lease (`claimed_by`/`claimed_at`/`lease_expires_at`), `started_at`/`finished_at` (время
+  парсинга — см. ниже), `error_reason`, `user_id`,
   `automation_id` (`UUID | None`, FK на `automations.id`, `SET NULL`) — проставляется один раз
   [`packages/automation`](../automation/AGENTS.md) при создании проверочной задачи и не
   обнуляется; `TaskRepository.get_by_user_id`/`count_by_user_id` по умолчанию скрывают такие
@@ -66,6 +67,24 @@
 TTL: задача, не взятая в работу (`claim_next`) до истечения `queue_expires_at`, получает явный статус
 `EXPIRED` через `expire_stale_queued()` — это видно в истории задач, а не просто "зависает" в очереди
 молча.
+
+## Время парсинга
+
+`Task.started_at`/`Task.finished_at` — специально отдельные от `claimed_at`/`updated_at` поля, чтобы
+клиент мог посчитать длительность парсинга (`finished_at - started_at`):
+
+- **`started_at`** проставляется один раз в `TaskRepository.claim_next`, только если ещё `None` —
+  момент **первого** захвата задачи воркером. В отличие от `claimed_at` (тоже проставляется в
+  `claim_next`, но означает «текущая аренда» и обнуляется в `reclaim_expired_leases` при потере
+  лизы), `started_at` не сбрасывается при повторном захвате после падения воркера — иначе
+  длительность парсинга обнулялась бы при каждом ретрае.
+- **`finished_at`** проставляется в `TaskService.complete_item` (когда все `TaskItem` пришли к
+  терминальному статусу — задача становится `SUCCEEDED`/`FAILED`), в `TaskService.cancel_task`
+  (`CANCELLED`) и в `TaskService.exclude_task_item`, если исключение последнего активного входа
+  переводит задачу в `SUCCEEDED`. Не проставляется при `expire_stale_queued()` — задача, ни разу не
+  взятая в работу (`started_at is None`), не «завершила» парсинг, а просто протухла в очереди.
+- `updated_at` для этой цели не подходит — он меняется от любого `UPDATE` строки `Task` (heartbeat,
+  промежуточный прогресс сиблингов и т.д.), а не только от начала/конца обработки.
 
 ## `complete_item` блокирует родительский `Task` — конкурентные siblings
 

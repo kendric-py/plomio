@@ -66,7 +66,11 @@ class TaskService:
                 raise InvalidTaskTransitionError
 
             updated_task = await transaction.task_repository.update(
-                entity=TaskEntity(id=task_id, status=TaskStatus.CANCELLED),
+                entity=TaskEntity(
+                    id=task_id,
+                    status=TaskStatus.CANCELLED,
+                    finished_at=datetime.now(tz=timezone.utc),
+                ),
             )
             await self.transaction_manager.commit()
         return updated_task
@@ -125,9 +129,10 @@ class TaskService:
 
             updated_task = task
             if new_status is not None:
-                updated_task = await transaction.task_repository.update(
-                    entity=TaskEntity(id=task_id, status=new_status),
-                )
+                update_entity = TaskEntity(id=task_id, status=new_status)
+                if new_status == TaskStatus.SUCCEEDED:
+                    update_entity.finished_at = datetime.now(tz=timezone.utc)
+                updated_task = await transaction.task_repository.update(entity=update_entity)
             await self.transaction_manager.commit()
         return updated_task
 
@@ -177,6 +182,7 @@ class TaskService:
                     id=completed_item.task_id,
                     status=TaskStatus.FAILED if has_failed_items else TaskStatus.SUCCEEDED,
                     error_reason='item_failed' if has_failed_items else None,
+                    finished_at=datetime.now(tz=timezone.utc),
                 ),
             )
             await self.transaction_manager.commit()

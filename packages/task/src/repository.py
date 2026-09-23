@@ -71,6 +71,8 @@ class TaskRepository(BaseRepository[Task, TaskEntity]):
         database_object.claimed_by = worker_id
         database_object.claimed_at = now
         database_object.lease_expires_at = now + lease_duration
+        if database_object.started_at is None:
+            database_object.started_at = now
         await self.session.flush()
         return self._to_entity(database_object=database_object)
 

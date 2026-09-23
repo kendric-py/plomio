@@ -44,6 +44,11 @@ class Task(BaseSQLModel):
         DateTime(timezone=True),
         nullable=True,
     )
+    # Set once, on the first claim (unlike claimed_at, never cleared by reclaim_expired_leases) —
+    # see packages/task/AGENTS.md#время-парсинга для того, почему это отдельное поле, а не
+    # claimed_at.
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     # Set once at creation by packages.automation (a check task, not a user-initiated one) and
