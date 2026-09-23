@@ -102,6 +102,15 @@ class AsyncTransactionManager:
         exception_value: Optional[BaseException],
         exception_traceback: Optional[TracebackType],
     ) -> None:
+        if exception_type is not None and issubclass(exception_type, asyncio.CancelledError):
+            # Cancellation landed mid-operation (session state is mid-flight, e.g.
+            # `_connection_for_bind()` still "in progress") — any further session call, even
+            # `close()`, can raise `IllegalStateChangeError` and *replace* the CancelledError,
+            # turning a clean shutdown/cancellation into a fatal, unhandled exception that
+            # crashes the whole worker process. Let cancellation propagate untouched; the
+            # connection pool reclaims the leaked connection on its own (logged as a harmless
+            # SAWarning) instead.
+            return None
         if exception_type:
             await asyncio.shield(self.session.close())
             return None

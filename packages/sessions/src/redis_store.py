@@ -113,6 +113,45 @@ class SessionPoolStore:
             return SessionMessage.model_validate_json(raw_session)
         return None
 
+    async def release(
+        self,
+        session_message: SessionMessage,
+        min_ttl_margin_seconds: float,
+    ) -> bool:
+        """Returns a still-usable session back into the pool instead of letting it go to waste
+        after one caller's worth of use — `acquire_session` above `ZPOPMIN`s a session out of
+        `sessions:pool:{marketplace}` exclusively, and without this there was no way back in, so
+        a session that died of TTL/idle time rather than getting blocked (or one whose consumer
+        simply finished before exhausting it) was silently thrown away instead of serving another
+        caller. Only re-adds the pool-membership `ZSET` entry — the `session:{marketplace}:{id}`
+        body/TTL from the original `save` is untouched, since nothing about the session itself
+        changed. Callers are responsible for only releasing a session they still trust (e.g. not
+        one that just failed with a block) — this method has no way to verify that itself.
+
+        Re-checks remaining TTL first: a session already below `min_ttl_margin_seconds` would
+        just get filtered straight back out by `acquire_session`'s own margin check, so adding it
+        back would only pollute `live_count`/pool-depth stats with a session that's functionally
+        already dead. Returns whether the session was actually re-added."""
+        session_key = _session_key(
+            marketplace=session_message.marketplace, session_id=session_message.session_id,
+        )
+        remaining_ttl_ms = await self._client.pttl(session_key)
+        if remaining_ttl_ms is None or remaining_ttl_ms / 1000 < min_ttl_margin_seconds:
+            logger.info(
+                '[session_release_skipped] marketplace=%s session_id=%s remaining_ms=%s',
+                session_message.marketplace.value, session_message.session_id, remaining_ttl_ms,
+            )
+            return False
+
+        pool_key = _pool_key(marketplace=session_message.marketplace)
+        expire_at = datetime.now(timezone.utc).timestamp() + remaining_ttl_ms / 1000
+        await self._client.zadd(pool_key, {session_message.session_id: expire_at})
+        logger.info(
+            '[session_released] marketplace=%s session_id=%s remaining_ms=%d',
+            session_message.marketplace.value, session_message.session_id, remaining_ttl_ms,
+        )
+        return True
+
     async def live_count(self, marketplace: Marketplace) -> int:
         return await self._client.zcount(
             _pool_key(marketplace=marketplace),

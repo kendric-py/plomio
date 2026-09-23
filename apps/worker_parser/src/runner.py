@@ -4,6 +4,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.worker_parser.src.config import config
 from apps.worker_parser.src.entities import (
@@ -30,6 +31,29 @@ from packages.task.src.service import TERMINAL_ITEM_STATUSES, TaskService
 from packages.worker_health.src.liveness_reporter import LivenessReporter
 
 logger = logging.getLogger(__name__)
+
+
+def build_services(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> tuple[TaskService, ResultService]:
+    """Fresh `TaskService`/`ResultService`, each backed by its own `AsyncTransactionManager`.
+
+    `AsyncTransactionManager` keeps the active session/repositories as mutable attributes on
+    itself (set in `__aenter__`), not per-call-local state — safe to reuse *sequentially*, but
+    two coroutines entering the same instance's `async with` block concurrently race on that
+    shared state (one can `commit()` while another is still mid-query on the same
+    `AsyncSession`), surfacing as `InvalidRequestError`/`IllegalStateChangeError` from
+    SQLAlchemy and crashing the whole process. `apps/worker_parser` runs several `Task`s and,
+    within a `Task`, several `TaskItem`s concurrently (see AGENTS.md, "Модель конкурентности"),
+    so every independently-scheduled coroutine (each claimed task, its heartbeat loop, each
+    concurrently processed item) must call this to get its own instances rather than share ones
+    handed down by its caller. `apps/api` doesn't need this helper — its DI container already
+    hands out a fresh `AsyncTransactionManager` per request (`providers.Factory`)."""
+
+    return (
+        TaskService(transaction_manager=AsyncTransactionManager(session_factory=session_factory)),
+        ResultService(transaction_manager=AsyncTransactionManager(session_factory=session_factory)),
+    )
 
 _LISTING_FETCHERS = {
     (Marketplace.OZON, ParseType.SEARCH_QUERY): ozon_fetchers.fetch_ozon_search_page,
@@ -78,6 +102,22 @@ async def acquire_session_or_wait(
         await asyncio.sleep(config.SESSION_POOL.EMPTY_POOL_BACKOFF_SECONDS)
 
 
+async def _release_session(
+    session_message: SessionMessage | None,
+    session_client: SessionPoolStore,
+) -> None:
+    """Hands a still-trusted session back to the pool for the next item/task to pick up, instead
+    of letting whatever request budget it has left go to waste. Callers must only pass a session
+    that didn't just fail with a block/error whose retry policy is `REINIT_SESSION` — this
+    doesn't re-validate anything itself, it trusts the caller's judgment (see
+    `SessionPoolStore.release`)."""
+    if session_message is None:
+        return
+    await session_client.release(
+        session_message, min_ttl_margin_seconds=config.SESSION_POOL.MIN_TTL_MARGIN_SECONDS,
+    )
+
+
 async def handle_product_page_item(
     task: TaskEntity,
     item: TaskItemEntity,
@@ -111,6 +151,8 @@ async def handle_product_page_item(
                     status=policy.resulting_item_status_on_exhaustion,
                     error_reason=str(error),
                 )
+                if policy.session_action == SessionAction.KEEP:
+                    await _release_session(session_message, session_client)
                 return
             if policy.session_action == SessionAction.REINIT_SESSION:
                 session_message = None
@@ -123,6 +165,7 @@ async def handle_product_page_item(
     )
     await task_service.record_item_progress(item_id=item.id, cursor=None, result_count=1)
     await task_service.complete_item(item_id=item.id, status=TaskItemStatus.SUCCEEDED)
+    await _release_session(session_message, session_client)
 
 
 async def handle_listing_item(
@@ -166,6 +209,8 @@ async def handle_listing_item(
                     status=policy.resulting_item_status_on_exhaustion,
                     error_reason=str(error),
                 )
+                if policy.session_action == SessionAction.KEEP:
+                    await _release_session(session_message, session_client)
                 return
             if policy.session_action == SessionAction.REINIT_SESSION:
                 session_message = None
@@ -197,14 +242,18 @@ async def handle_listing_item(
             pages_since_status_check = 0
             refreshed_task = await task_service.get_task_by_id(task_id=task.id)
             if refreshed_task.status != TaskStatus.RUNNING:
+                await _release_session(session_message, session_client)
                 return
 
+    session_still_trusted = True
     if task.parse_type == ParseType.SELLER:
-        await _record_seller_profile(
+        session_still_trusted = await _record_seller_profile(
             task, item, session_message, result_service, session_client, liveness_reporter,
         )
 
     await task_service.complete_item(item_id=item.id, status=TaskItemStatus.SUCCEEDED)
+    if session_still_trusted:
+        await _release_session(session_message, session_client)
 
 
 async def _record_seller_profile(
@@ -214,7 +263,11 @@ async def _record_seller_profile(
     result_service: ResultService,
     session_client: SessionPoolStore,
     liveness_reporter: LivenessReporter,
-) -> None:
+) -> bool:
+    """Returns whether `session_message` is still trustworthy enough to hand back to the pool
+    afterward — this function doesn't retry on failure (unlike the retry-policy-driven handlers),
+    so a `ParserError` here means we don't actually know whether the session died or the data was
+    just off; treated as untrusted either way, matching the conservative default elsewhere."""
     fetch_seller_profile = _SELLER_PROFILE_FETCHERS[task.marketplace]
     create_http_session = _HTTP_SESSION_FACTORY_BY_MARKETPLACE[task.marketplace]
     if session_message is None:
@@ -228,13 +281,14 @@ async def _record_seller_profile(
         logger.warning(
             '[seller_profile] failed to fetch profile for %s: %s', item.input_value, error,
         )
-        return
+        return False
     await result_service.record_results(
         task_item_id=item.id,
         marketplace=task.marketplace,
         parse_type=task.parse_type,
         payloads=[profile],
     )
+    return True
 
 
 async def handle_reviews_item(
@@ -290,6 +344,8 @@ async def _handle_ozon_reviews(
                     status=policy.resulting_item_status_on_exhaustion,
                     error_reason=str(error),
                 )
+                if policy.session_action == SessionAction.KEEP:
+                    await _release_session(session_message, session_client)
                 return
             if policy.session_action == SessionAction.REINIT_SESSION:
                 session_message = None
@@ -314,6 +370,7 @@ async def _handle_ozon_reviews(
             break
 
     await task_service.complete_item(item_id=item.id, status=TaskItemStatus.SUCCEEDED)
+    await _release_session(session_message, session_client)
 
 
 async def _handle_wb_reviews(
@@ -348,6 +405,8 @@ async def _handle_wb_reviews(
                     status=policy.resulting_item_status_on_exhaustion,
                     error_reason=str(error),
                 )
+                if policy.session_action == SessionAction.KEEP:
+                    await _release_session(session_message, session_client)
                 return
             if policy.session_action == SessionAction.REINIT_SESSION:
                 session_message = None
@@ -363,6 +422,7 @@ async def _handle_wb_reviews(
         item_id=item.id, cursor=None, result_count=len(reviews),
     )
     await task_service.complete_item(item_id=item.id, status=TaskItemStatus.SUCCEEDED)
+    await _release_session(session_message, session_client)
 
 
 async def process_task_item(
@@ -389,8 +449,7 @@ async def process_task_item(
 
 async def process_claimed_task(
     task: TaskEntity,
-    task_service: TaskService,
-    result_service: ResultService,
+    session_factory: async_sessionmaker[AsyncSession],
     session_client: SessionPoolStore,
     liveness_reporter: LivenessReporter,
 ) -> None:
@@ -402,17 +461,23 @@ async def process_claimed_task(
     completing siblings (see there) — required for the parent Task to reliably reach its terminal
     status once every item is done."""
 
-    items = await task_service.get_task_items(task_id=task.id)
+    own_task_service, _ = build_services(session_factory)
+    items = await own_task_service.get_task_items(task_id=task.id)
     pending_items = [item for item in items if item.status not in TERMINAL_ITEM_STATUSES]
     semaphore = asyncio.Semaphore(config.POLL.MAX_CONCURRENT_ITEMS_PER_TASK)
 
     async def run_item(item: TaskItemEntity) -> None:
+        # Own TaskService/ResultService per concurrently-gathered item — sharing one across
+        # gathered coroutines races on AsyncTransactionManager's shared session state (see
+        # build_services docstring) and crashes the process.
+        item_task_service, item_result_service = build_services(session_factory)
         async with semaphore:
-            refreshed_task = await task_service.get_task_by_id(task_id=task.id)
+            refreshed_task = await item_task_service.get_task_by_id(task_id=task.id)
             if refreshed_task.status != TaskStatus.RUNNING:
                 return
             await process_task_item(
-                task, item, task_service, result_service, session_client, liveness_reporter,
+                task, item, item_task_service, item_result_service,
+                session_client, liveness_reporter,
             )
 
     await asyncio.gather(*(run_item(item) for item in pending_items))
@@ -438,11 +503,14 @@ async def run_lease_heartbeat_loop(
 async def run_claimed_task(
     task: TaskEntity,
     lease_duration: timedelta,
-    task_service: TaskService,
-    result_service: ResultService,
+    session_factory: async_sessionmaker[AsyncSession],
     session_client: SessionPoolStore,
     liveness_reporter: LivenessReporter,
 ) -> None:
+    # Own TaskService for the heartbeat loop — it runs concurrently with process_claimed_task
+    # below for the whole lifetime of this task, so it can't share build_services() output with
+    # it (see build_services docstring).
+    heartbeat_task_service, _ = build_services(session_factory)
     stop_event = asyncio.Event()
     heartbeat_task = asyncio.create_task(
         run_lease_heartbeat_loop(
@@ -450,13 +518,13 @@ async def run_claimed_task(
             worker_id=config.POLL.WORKER_ID,
             lease_duration=lease_duration,
             interval_seconds=config.POLL.HEARTBEAT_INTERVAL_SECONDS,
-            task_service=task_service,
+            task_service=heartbeat_task_service,
             stop_event=stop_event,
         ),
     )
     try:
         await process_claimed_task(
-            task, task_service, result_service, session_client, liveness_reporter,
+            task, session_factory, session_client, liveness_reporter,
         )
     except Exception:
         logger.exception('[task_processing_failed] task_id=%s', task.id)
@@ -466,8 +534,7 @@ async def run_claimed_task(
 
 
 async def run_poll_loop(
-    task_service: TaskService,
-    result_service: ResultService,
+    session_factory: async_sessionmaker[AsyncSession],
     session_client: SessionPoolStore,
     liveness_reporter: LivenessReporter,
 ) -> None:
@@ -475,8 +542,13 @@ async def run_poll_loop(
     single process. `claim_next`/`acquire_session` are safe to call concurrently (row-level
     locking / atomic Redis ops respectively — see AGENTS.md), so this is plain fan-out, not a
     worker pool with its own scheduling. `liveness_reporter`'s status is process-wide, not
-    per-task: WORKING means "at least one task is running", not "N of M slots busy"."""
+    per-task: WORKING means "at least one task is running", not "N of M slots busy".
 
+    `task_service` here is this loop's own instance, used only for its own sequential
+    `claim_next` calls — each spawned `run_claimed_task` gets a fresh one via `session_factory`
+    instead of sharing this one (see `build_services` docstring)."""
+
+    task_service, _ = build_services(session_factory)
     lease_duration = timedelta(seconds=config.POLL.LEASE_DURATION_SECONDS)
     running_tasks: set[asyncio.Task] = set()
 
@@ -489,7 +561,7 @@ async def run_poll_loop(
                 liveness_reporter.set_status(WorkerParserStatus.WORKING.value)
                 worker_task = asyncio.create_task(
                     run_claimed_task(
-                        task, lease_duration, task_service, result_service,
+                        task, lease_duration, session_factory,
                         session_client, liveness_reporter,
                     ),
                 )
@@ -508,15 +580,12 @@ async def run_poll_loop(
 
 async def run_main() -> None:
     _, session_factory = get_database_connection(config=config)
-    transaction_manager = AsyncTransactionManager(session_factory=session_factory)
-    task_service = TaskService(transaction_manager=transaction_manager)
-    result_service = ResultService(transaction_manager=transaction_manager)
     session_client = SessionPoolStore(redis_config=config.REDIS)
     liveness_reporter = LivenessReporter(config=config.LIVENESS)
 
     try:
         await asyncio.gather(
-            run_poll_loop(task_service, result_service, session_client, liveness_reporter),
+            run_poll_loop(session_factory, session_client, liveness_reporter),
             liveness_reporter.run(),
         )
     finally:

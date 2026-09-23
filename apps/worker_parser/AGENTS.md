@@ -135,9 +135,18 @@ race, которой не было при строго последовател�
   одного процесса не пересекаются так же, как не пересекаются вызовы из разных процессов;
 - `SessionPoolStore.acquire_session` — атомарный `ZPOPMIN` (`packages/sessions`), конкурентные
   вызовы не выдадут одну и ту же сессию дважды;
-- `TaskService`/`ResultService` открывают новую сессию БД на каждый вызов метода
-  (`AsyncTransactionManager.__aenter__`), а не держат одну на процесс — конкурентные корутины не
-  делят соединение.
+- Каждая независимо запланированная конкурентная корутина (каждая claimed-задача, её
+  heartbeat-луп, каждый конкурентно обрабатываемый `TaskItem`) получает **свою собственную пару**
+  `TaskService`/`ResultService` через `runner.build_services(session_factory)`, а не общие на
+  процесс — `AsyncTransactionManager` хранит активную сессию/репозитории как мутируемые атрибуты
+  самого себя (`self.session`, выставляется в `__aenter__`), а не per-call-локальное состояние.
+  Он безопасен при **последовательном** переиспользовании, но если два `asyncio.gather`/
+  `asyncio.create_task`-сиблинга одновременно войдут в `async with` одного и того же экземпляра,
+  они гонятся за одним `self.session` — раньше здесь был один `AsyncTransactionManager` на весь
+  процесс, и это приводило к `sqlalchemy.exc.InvalidRequestError: This session is provisioning a
+  new connection; concurrent operations are not permitted` и падению всего воркера.
+  `apps/api` эта гонка не касается — там DI (`providers.Factory`) сам выдаёт свежий
+  `AsyncTransactionManager` на каждый HTTP-запрос.
 
 Liveness-статус (`WorkerParserStatus`) остаётся общим на процесс, не per-task: `WORKING` значит
 "хотя бы одна задача выполняется" (не "N из M слотов заняты"), `WAITING_FOR_SESSION`/`WORKING` от

@@ -131,7 +131,12 @@ def _validate_wb(session_message: SessionMessage) -> bool:
 def _validate_ozon(session_message: SessionMessage) -> bool:
     """Replays the same request sequence Ozon's search fetcher makes (search-page navigation
     warmup, then the real entrypoint-api search) — catches sessions that get blocked on the
-    API even though they'd pass a homepage-only check."""
+    API even though they'd pass a homepage-only check.
+
+    Impersonates Firefox, not Chrome — Camoufox is a Firefox-engine browser (see the comment
+    on `_validate_wb` below), so `session_message.user_agent` is a real Firefox string. A
+    Chrome TLS/HTTP2 fingerprint under a Firefox user-agent is an internally inconsistent
+    identity that's trivial for antibot to flag; matching WB's already-correct handling here."""
     session = _build_curl_session(
         session_message=session_message,
         cookie_domain='www.ozon.ru',
@@ -139,6 +144,7 @@ def _validate_ozon(session_message: SessionMessage) -> bool:
             'xcid': session_message.extra['xcid'],
             '__Secure-ab-group': session_message.extra['ab_group'],
         },
+        impersonate='firefox135',
     )
     search_query = quote_plus(OZON_VALIDATION_QUERY)
     search_nav_url = f'{OZON_BASE_URL}/search/?from_global=true&text={search_query}'
@@ -147,9 +153,6 @@ def _validate_ozon(session_message: SessionMessage) -> bool:
             'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
         ),
         'accept-language': 'ru-RU,ru;q=0.9,en;q=0.8',
-        'sec-ch-ua': session_message.sec_ch_ua,
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': f'"{session_message.sec_ch_ua_platform}"',
         'sec-fetch-dest': 'document',
         'sec-fetch-mode': 'navigate',
         'upgrade-insecure-requests': '1',
@@ -162,9 +165,6 @@ def _validate_ozon(session_message: SessionMessage) -> bool:
         'accept-language': 'ru-RU,ru;q=0.9,en;q=0.8',
         'content-type': 'application/json',
         'referer': search_nav_url,
-        'sec-ch-ua': session_message.sec_ch_ua,
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': f'"{session_message.sec_ch_ua_platform}"',
         'sec-fetch-dest': 'empty',
         'sec-fetch-mode': 'cors',
         'sec-fetch-site': 'same-origin',
@@ -174,6 +174,13 @@ def _validate_ozon(session_message: SessionMessage) -> bool:
         'x-o3-manifest-version': OZON_FALLBACK_MANIFEST_VERSION,
         'x-page-view-id': str(uuid.uuid4()).upper(),
     }
+    # Real Firefox has no User-Agent Client Hints API — `sec_ch_ua` is only non-empty for a
+    # browser that actually produced one (see `OZON_FALLBACK_SEC_CH_UA`).
+    if session_message.sec_ch_ua:
+        for headers in (nav_headers, api_headers):
+            headers['sec-ch-ua'] = session_message.sec_ch_ua
+            headers['sec-ch-ua-mobile'] = '?0'
+            headers['sec-ch-ua-platform'] = f'"{session_message.sec_ch_ua_platform}"'
     timeout = config.GENERATION.VALIDATION_TIMEOUT_SECONDS
     next_url = f'/search/?from_global=true&text={search_query}'
 

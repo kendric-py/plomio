@@ -12,6 +12,7 @@ from apps.worker_sessions.src.generation.browser import (
 from apps.worker_sessions.src.generation.marketplaces.ozon.constants import (
     OZON_BASE_URL,
     OZON_FALLBACK_SEC_CH_UA,
+    OZON_OPTIONAL_COOKIES,
     OZON_REQUIRED_COOKIES,
     build_ozon_stealth_js,
 )
@@ -41,6 +42,7 @@ def initialize_ozon_session(
         fallback_sec_ch_ua=OZON_FALLBACK_SEC_CH_UA,
         launch_options=options,
         label='ozon',
+        optional_cookies=OZON_OPTIONAL_COOKIES,
     )
     logger.info('[session_init] ozon stage=total elapsed=%.2fs', time.monotonic() - start)
     return browser_session
