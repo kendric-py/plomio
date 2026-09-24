@@ -11,6 +11,7 @@ from apps.api.src.routers.task.schema import (
     CreateTaskRequest,
     CreateTaskResponse,
     ResultItemResponse,
+    ResumeTaskRequest,
     TaskDetailResponse,
     TaskItemResponse,
     TaskListResponse,
@@ -19,6 +20,7 @@ from apps.api.src.routers.task.schema import (
 from core.exceptions import ObjectNotFoundError
 from packages.result.src.service import ResultService
 from packages.task.src.enums import TaskStatus
+from packages.task.src.exceptions import InvalidTaskTransitionError
 from packages.task.src.service import TaskService
 from packages.user.src.entities import UserEntity
 
@@ -128,6 +130,86 @@ async def get_task_results(
         ],
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
     )
+
+
+@router.post('/{task_id}/cancel')
+@inject
+async def cancel_task(
+    task_id: UUID,
+    current_user: UserEntity = Depends(get_current_user),
+    task_service: TaskService = Depends(
+        Provide[DependencyContainer.task_service],
+    ),
+) -> TaskDetailResponse:
+    try:
+        task = await task_service.cancel_task(task_id=task_id, user_id=current_user.id)
+    except ObjectNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Task not found',
+        ) from error
+    except InvalidTaskTransitionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='Task cannot be cancelled in its current status',
+        ) from error
+    progress = await task_service.get_progress(task_id=task_id)
+    return TaskDetailResponse.model_validate(obj={**task.model_dump(), **progress})
+
+
+@router.post('/{task_id}/pause')
+@inject
+async def pause_task(
+    task_id: UUID,
+    current_user: UserEntity = Depends(get_current_user),
+    task_service: TaskService = Depends(
+        Provide[DependencyContainer.task_service],
+    ),
+) -> TaskDetailResponse:
+    try:
+        task = await task_service.pause_task(task_id=task_id, user_id=current_user.id)
+    except ObjectNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Task not found',
+        ) from error
+    except InvalidTaskTransitionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='Task cannot be paused in its current status',
+        ) from error
+    progress = await task_service.get_progress(task_id=task_id)
+    return TaskDetailResponse.model_validate(obj={**task.model_dump(), **progress})
+
+
+@router.post('/{task_id}/resume')
+@inject
+async def resume_task(
+    task_id: UUID,
+    body: ResumeTaskRequest,
+    current_user: UserEntity = Depends(get_current_user),
+    task_service: TaskService = Depends(
+        Provide[DependencyContainer.task_service],
+    ),
+) -> TaskDetailResponse:
+    try:
+        task = await task_service.resume_task(
+            task_id=task_id,
+            user_id=current_user.id,
+            ttl=timedelta(seconds=body.ttl_seconds),
+        )
+    except ObjectNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Task not found',
+        ) from error
+    except InvalidTaskTransitionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='Task is not paused',
+        ) from error
+    progress = await task_service.get_progress(task_id=task_id)
+    return TaskDetailResponse.model_validate(obj={**task.model_dump(), **progress})
 
 
 @router.delete('/{task_id}', status_code=status.HTTP_204_NO_CONTENT)

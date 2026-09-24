@@ -68,7 +68,27 @@ REST API. Точка входа для клиентов (фронтенд, вн�
     «не найдено» и «чужое»), сами результаты — через `ResultService.get_results_for_task` (см.
     [`packages/result/AGENTS.md`](../../packages/result/AGENTS.md)) — join `result_items`↔`task_items`
     по `task_id`, сортировка по `created_at`.
-    Остальные операции (пауза/отмена/исключение входа) пока не имеют REST-ручек.
+  - `POST /{task_id}/cancel`, `POST /{task_id}/pause`, `POST /{task_id}/resume` — требуют
+    авторизации, возвращают `TaskDetailResponse` (та же форма, что и `GET /{task_id}`/`GET /`;
+    сервис не пересчитывает прогресс сам, роутер дополнительно запрашивает его через
+    `TaskService.get_progress`, аналогично тому, как `POST /` дополнительно запрашивает `items`).
+    `TaskService.cancel_task`/`pause_task`/`resume_task` проверяют `task.user_id == current_user.id`
+    **до** проверки допустимости перехода — чужая или несуществующая задача даёт `404`
+    (`ObjectNotFoundError`), а собственная задача в недопустимом для операции статусе (например,
+    повторная пауза уже приостановленной задачи, или `resume` не-`PAUSED` задачи) даёт `409`
+    (`InvalidTaskTransitionError` → `HTTPException(409)`) — первый такой домен-специфичный (не
+    `ObjectNotFoundError`) exception-маппинг в этом роутере, см.
+    [`packages/task/AGENTS.md`](../../packages/task/AGENTS.md#rest). `cancel` разрешён и для задачи в
+    `RUNNING` (уже идёт парсинг) — отмена **кооперативная**: домен только выставляет `CANCELLED`,
+    сам воркер обязан заметить это между страницами/батчами и прекратить работу (см.
+    [`packages/task/AGENTS.md`](../../packages/task/AGENTS.md#статусы)); REST не может прервать уже
+    выполняющийся код воркера напрямую. `POST /{task_id}/resume` — единственный из трёх, что требует
+    тело запроса (`ResumeTaskRequest.ttl_seconds`, тот же смысл, что у `CreateTaskRequest.ttl_seconds`):
+    `TaskService.resume_task` пересчитывает `queue_expires_at = now + ttl`, а не оставляет исходный
+    дедлайн из создания задачи — тот почти наверняка уже в прошлом к моменту паузы/возобновления уже
+    поработавшей задачи, см. [`packages/task/AGENTS.md`](../../packages/task/AGENTS.md#статусы) за
+    объяснением, почему без этого `claim_next` не забрал бы её обратно.
+    `exclude_task_item` пока не имеет REST-ручки.
 
 Новый роутер домена: создать `routers/<domain>/endpoints.py` с `router = APIRouter(prefix='/<domain>',
 tags=[...])`, подключить в `routers/router.py` через `api_router.include_router(router=...)`. Если

@@ -97,6 +97,17 @@ class CreateTaskRequest(BaseModel):
     result_limit: int | None = Field(default=None, description='Общий лимит результатов по задаче')
 
 
+class ResumeTaskRequest(BaseModel):
+    """Тело запроса `POST /api/tasks/{task_id}/resume` — возобновление приостановленной задачи."""
+
+    ttl_seconds: int = Field(
+        description='Через сколько секунд задача считается просроченной, если не взята в работу '
+        'повторно; отсчитывается заново от момента возобновления (симметрично '
+        'CreateTaskRequest.ttl_seconds)',
+        gt=0,
+    )
+
+
 # --- Ответы ---
 
 

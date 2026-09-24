@@ -59,9 +59,11 @@ class TaskService:
             await self.transaction_manager.commit()
         return created_task
 
-    async def cancel_task(self, task_id: UUID) -> TaskEntity:
+    async def cancel_task(self, task_id: UUID, user_id: int) -> TaskEntity:
         async with self.transaction_manager(use_task_repository=True) as transaction:
             task = await transaction.task_repository.get_by_id(entity_id=task_id)
+            if task.user_id != user_id:
+                raise ObjectNotFoundError
             if task.status not in CANCELLABLE_STATUSES:
                 raise InvalidTaskTransitionError
 
@@ -75,9 +77,11 @@ class TaskService:
             await self.transaction_manager.commit()
         return updated_task
 
-    async def pause_task(self, task_id: UUID) -> TaskEntity:
+    async def pause_task(self, task_id: UUID, user_id: int) -> TaskEntity:
         async with self.transaction_manager(use_task_repository=True) as transaction:
             task = await transaction.task_repository.get_by_id(entity_id=task_id)
+            if task.user_id != user_id:
+                raise ObjectNotFoundError
             if task.status not in PAUSABLE_STATUSES:
                 raise InvalidTaskTransitionError
 
@@ -87,14 +91,25 @@ class TaskService:
             await self.transaction_manager.commit()
         return updated_task
 
-    async def resume_task(self, task_id: UUID) -> TaskEntity:
+    async def resume_task(self, task_id: UUID, user_id: int, ttl: timedelta) -> TaskEntity:
         async with self.transaction_manager(use_task_repository=True) as transaction:
             task = await transaction.task_repository.get_by_id(entity_id=task_id)
+            if task.user_id != user_id:
+                raise ObjectNotFoundError
             if task.status != TaskStatus.PAUSED:
                 raise InvalidTaskTransitionError
 
+            # queue_expires_at is the deadline claim_next checks; the original one (from
+            # create_task) is almost certainly already in the past by the time a task that has
+            # already run gets paused and resumed — without pushing it forward here, claim_next
+            # would never pick the task back up, and the next expire_stale_queued() sweep would
+            # flip it to EXPIRED instead of resuming it.
             updated_task = await transaction.task_repository.update(
-                entity=TaskEntity(id=task_id, status=TaskStatus.QUEUED),
+                entity=TaskEntity(
+                    id=task_id,
+                    status=TaskStatus.QUEUED,
+                    queue_expires_at=datetime.now(tz=timezone.utc) + ttl,
+                ),
             )
             await self.transaction_manager.commit()
         return updated_task

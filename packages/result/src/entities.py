@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from core.enums import Marketplace
 from packages.task.src.enums import ParseType
@@ -88,6 +88,11 @@ class ReviewPayload(BaseModel):
     positive_text: str = Field(default='', description='Текст "достоинства"')
     negative_text: str = Field(default='', description='Текст "недостатки"')
     photo_urls: list[str] = Field(default_factory=list, description='Ссылки на фотографии отзыва')
+
+    @field_validator('comment_text', 'positive_text', 'negative_text', mode='before')
+    @classmethod
+    def _none_to_empty(cls, value: str | None) -> str:
+        return value if value is not None else ''
 
 
 class SellerCategoryPayload(BaseModel):
