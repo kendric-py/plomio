@@ -3,8 +3,10 @@
 Доменная область периодических задач-мониторинга цены (упоминалась как будущая работа в
 [`packages/task/AGENTS.md`](../task/AGENTS.md) и в корневом [`AGENTS.md`](../../AGENTS.md), раздел
 "Домен: задачи"). Пользователь регистрирует автоматизацию — ссылку/артикул товара, маркетплейс,
-порог падения цены и периодичность — система периодически перепарсивает товар и фиксирует изменения
-трёх цен в истории, для последующих графиков и (в будущем, отдельной работой) отправки уведомлений.
+порог падения цены и периодичность — система периодически перепарсивает товар и фиксирует **каждый
+тик проверки** (успех/провал/успех без изменений) в лог, для последующих графиков и уведомлений
+(см. [`packages/notifications/AGENTS.md`](../notifications/AGENTS.md) — доменная область
+существует и вызывается отсюда, реальная отправка всё ещё отложена).
 
 Не строит собственную очередь — переиспользует [`packages/task`](../task) (`ParseType.PRODUCT_PAGE`,
 одноэлементная задача на каждую проверку) и [`packages/result`](../result) (чтение спарсенного
@@ -23,41 +25,63 @@
   `in_stock` (наличие по последней завершённой проверке, `NULL` — проверок ещё не было; см.
   "Отслеживание наличия" ниже), `next_check_at`, `pending_task_id` (FK на `tasks.id`, `SET NULL`),
   `last_checked_at`, `last_check_error`, `user_id`.
-- **`AutomationHistory`** (`automation_history`) — append-only лог зафиксированных изменений.
-  **Одна строка = одна проверка**, а не одна строка на каждое изменившееся поле: `changes`
-  (`JSONB`, список `{field, old_value, new_value, threshold_breached}` — по одному элементу на
-  каждую из трёх цен, изменившуюся за эту проверку) и `threshold_breached` на самой строке —
-  агрегат, `any(change['threshold_breached'] for change in changes)`, чтобы можно было отфильтровать
-  "проверки, где хоть что-то пробило порог" без разбора JSONB. Нет отдельной колонки `change_type` —
-  раз строка уже группирует все изменения одной проверки, тип на уровне строки был бы не нужен, пока
-  отслеживается только цена (см. "Не входит в эту итерацию"). `id` — автоинкрементный `int`, не
-  `UUID` (внутренняя запись, не публичный ресурс, как `cron_job_runs`), в отличие от `Automation.id`
-  (`UUID`, публичный ресурс, как `Task.id`).
+- **`AutomationCheckLog`** (`automation_check_log`, переименована из `AutomationHistory`/
+  `automation_history` — смысл таблицы фундаментально изменился) — append-only лог. **Одна строка =
+  один тик проверки, всегда** — успех, провал или успех без изменений (раньше строка писалась
+  только при успехе с реальным изменением): `succeeded`, `error_message` (причина провала;
+  `None` при успехе), `snapshot` (`JSONB`, полный снимок всех отслеживаемых полей на момент тика —
+  только при успехе; нужен, чтобы следующий тик было с чем сравнивать), `changes` (`JSONB`, список
+  `{field, old_value, new_value, threshold_breached}` — все поля, изменившиеся **относительно
+  предыдущего успешного тика**), `has_changes` (`bool(changes)`), `threshold_breached` (агрегат,
+  `any(change['threshold_breached'] for change in changes)` — семантика не изменилась, см. "Семантика
+  базовой цены" ниже) и `checked_at` (переименовано из `detected_at`). `id` — автоинкрементный
+  `int`, не `UUID` (внутренняя запись, не публичный ресурс, как `cron_job_runs`), в отличие от
+  `Automation.id` (`UUID`, публичный ресурс, как `Task.id`).
 
-## Три отслеживаемые цены
+**`has_changes` vs `threshold_breached` — два независимых сравнения, с разными точками отсчёта:**
 
-`ProductPagePayload` (`packages/result/src/entities.py`) отдаёт три поля цены с карточки товара —
-`price_kopecks` (без скидки), `discounted_price_kopecks` (со скидкой/по карте),
-`original_price_kopecks` (перечёркнутая). Каждое поле имеет свою базовую цену на `Automation` и
-проверяется независимо — `TRACKED_PRICE_FIELDS` в `service.py` единственное место, где перечислены
-все три.
+- `has_changes` — новое значение поля сравнивается со **снимком предыдущего успешного тика**
+  (`AutomationCheckLogRepository.get_latest_succeeded`). Отвечает на вопрос "что-то изменилось с
+  прошлой проверки" — для всех восьми отслеживаемых полей одинаково.
+- `threshold_breached` — новое значение сравнивается с фиксированным **baseline** на `Automation`
+  (см. "Семантика базовой цены" ниже), только для `KOPECKS`-полей и восстановления наличия. Отвечает
+  на вопрос "пробит ли порог падения цены/товар снова в наличии" — не путать с `has_changes`:
+  постепенное падение цены на 1% за тик может быть `has_changes=true` много раз подряд, пока
+  `threshold_breached` не станет `true` только когда накопленное падение относительно baseline
+  превысит `price_drop_threshold_percent`.
+
+## Отслеживаемые поля
+
+`ProductPagePayload` (`packages/result/src/entities.py`) отдаёт карточку товара. Восемь полей
+отслеживаются на изменение — `TrackedField`/`TrackedFieldKind` (`packages/automation/src/enums.py`)
+и `TRACKED_FIELDS` в `service.py` (единственное место, где перечислены все восемь):
+
+| `TrackedField` | `TrackedFieldKind` | baseline-колонка на `Automation` | payload-поле |
+|---|---|---|---|
+| `PRICE` | `KOPECKS` | `baseline_price_kopecks` | `price_kopecks` |
+| `DISCOUNTED_PRICE` | `KOPECKS` | `baseline_discounted_price_kopecks` | `discounted_price_kopecks` |
+| `ORIGINAL_PRICE` | `KOPECKS` | `baseline_original_price_kopecks` | `original_price_kopecks` |
+| `IN_STOCK` | `BOOLEAN` | `in_stock` | `in_stock` |
+| `TITLE` | `TEXT` | — | `title` |
+| `RATING` | `NUMERIC` | — | `rating` |
+| `REVIEW_COUNT` | `NUMERIC` | — | `review_count` |
+| `SELLER_NAME` | `TEXT` | — | `seller_name` |
+
+Поля без baseline-колонки (`TITLE`/`RATING`/`REVIEW_COUNT`/`SELLER_NAME`) участвуют только в
+`has_changes` (сравнение с предыдущим тиком) — у них нет понятия "порог в процентах", `threshold_
+breached` для них всегда `False`.
 
 ## Отслеживание наличия (in_stock)
 
-`ProductPagePayload.in_stock` (см. "Три отслеживаемые цены" выше — тот же payload) отдаёт булево
-наличие товара. `AutomationService._diff_stock` — тот же контракт, что `_diff_prices` (первая
-проверка проставляет `in_stock` как baseline без записи в историю, дальше сравнение с прошлым
-известным значением, не с "проверкой до этого" — тут разницы нет, так как `in_stock` не
-накопительная величина), но:
+`ProductPagePayload.in_stock` — тот же payload, что и остальные поля (см. таблицу выше), `TrackedFieldKind.BOOLEAN`:
 
-- `field` в `changes` — `StockField.IN_STOCK` (`packages/automation/src/enums.py`), отдельный enum
-  от `PriceField`: `old_value`/`new_value` тут `bool`, а не копейки, порог в процентах неприменим.
 - `threshold_breached = True` только когда `False → True` (товар снова появился в наличии) — это и
-  есть событие, ради которого существует вся эта проверка. Переход `True → False` тоже пишется в
-  историю (для графика доступности), но не считается "пробитием порога".
-- И `_diff_prices`, и `_diff_stock` пишут в общий `baseline_updates`-дикт (сейчас `dict[str, int |
-  bool]`, несмотря на имя — исторически "только baseline_*_kopecks", теперь ещё и `in_stock`),
-  который одним `UPDATE` уходит в `AutomationRepository.finalize_check`.
+  есть событие, ради которого частота проверки для отсутствующего в наличии товара увеличена (см.
+  ниже). Переход `True → False` тоже пишется в лог (для графика доступности), но не считается
+  "пробитием порога".
+- `AutomationService._diff_against_previous_and_baseline` пишет в общий `baseline_updates`-дикт
+  (`dict[str, int | bool]`, несмотря на имя — исторически "только baseline_*_kopecks", теперь ещё и
+  `in_stock`), который одним `UPDATE` уходит в `AutomationRepository.finalize_check`.
 
 Частота следующей проверки, пока `in_stock = false`, — не `check_frequency_minutes` пользователя, а
 `config.AUTOMATION.OUT_OF_STOCK_CHECK_FREQUENCY_MINUTES` (константа конфига, не настраивается на
@@ -110,13 +134,14 @@ Wildberries `in_stock = totalQuantity > 0` — надёжно работает �
 - Пользователь может обновить базовую цену вручную (`AutomationService.update_baseline`,
   `PATCH /api/automations/{id}/baseline`) — например, чтобы "переустановить" точку отсчёта после
   осознанного решения считать текущую цену новой нормой.
-- `threshold_breached` на строке истории — `new_value <= baseline_value * (1 -
+- `threshold_breached` на строке лога — `new_value <= baseline_value * (1 -
   price_drop_threshold_percent / 100)`, вычисляется относительно baseline на момент проверки, не
-  относительно предыдущего значения истории.
+  относительно снимка предыдущего тика (см. "has_changes vs threshold_breached — два независимых
+  сравнения" выше).
 
-В историю пишется **любое** изменение цены между проверками (не только просадка ниже baseline) — под
-будущие графики; `threshold_breached` — отдельный флаг для будущей интеграции уведомлений (в этой
-итерации без реальной отправки, см. "Не входит в эту итерацию").
+В лог пишется **любое** изменение поля между тиками (не только просадка ниже baseline) — под
+будущие графики; `threshold_breached`/`has_changes` — оба триггерят `NotificationService.notify`
+(`packages/notifications`) с разными `event_code` (см. "Уведомления" ниже).
 
 ## Флоу выполнения (три периодических job'а, `packages/cron` + `apps/api/src/jobs`)
 
@@ -144,22 +169,34 @@ Wildberries `in_stock = totalQuantity > 0` — надёжно работает �
    в дальнейший обычный цикл на следующий `next_check_at`.
 2. `apps/worker_parser` берёт и обрабатывает эту задачу как обычную `PRODUCT_PAGE`-задачу — без
    изменений в воркере.
-3. **`AUTOMATION_RESULT_SWEEP`** (`AutomationService.process_pending_results`) — раз в
-   `config.AUTOMATION.RESULT_SWEEP_INTERVAL_SECONDS`: находит автоматизации с `pending_task_id IS NOT
-   NULL`, чья задача дошла до терминального статуса. При `SUCCEEDED` — читает результат через
-   `ResultService.get_results_for_task`, сравнивает три цены с baseline (`_diff_prices`) и наличие
-   с baseline (`_diff_stock`) и, если изменилось хотя бы одно поле (цена или наличие), пишет
-   **одну** строку `AutomationHistory` со всеми изменившимися полями сразу в `changes` (несколько
-   одновременно изменившихся полей — по-прежнему одна строка, не несколько).
-   При `FAILED`/`EXPIRED`/`CANCELLED` — история не пишется (это ошибка **конкретной проверки**, не
-   самой автоматизации, см. корневой `AGENTS.md`, "Правила по ошибкам"), причина сохраняется в
-   `last_check_error`. В обоих случаях — `pending_task_id` очищается
-   (`AutomationRepository.finalize_check`, сырой `UPDATE`, так как `BaseRepository.update` не умеет
-   обнулять поле через `exclude_none=True`).
+3. **`AUTOMATION_RESULT_SWEEP`** (`AutomationService.process_pending_results` →
+   `_finalize_check`) — раз в `config.AUTOMATION.RESULT_SWEEP_INTERVAL_SECONDS`: находит
+   автоматизации с `pending_task_id IS NOT NULL`, чья задача дошла до терминального статуса.
+   **Пишет ровно одну строку `AutomationCheckLog` на каждый такой тик, независимо от исхода**
+   (раньше — только при успехе с реальным изменением):
+   - `SUCCEEDED` с результатом — строит снимок всех восьми полей (`_build_snapshot`), сравнивает
+     его со снимком предыдущего успешного тика (`has_changes`/`changes`) и с baseline
+     (`threshold_breached`/`baseline_updates`) единым проходом
+     (`_diff_against_previous_and_baseline`).
+   - `SUCCEEDED` без результата (нет строки в `packages/result`) — трактуется как провал тика,
+     `error_message='check_task_no_result'`.
+   - `FAILED`/`EXPIRED`/`CANCELLED` — `succeeded=False`, `error_message=f'check_task_
+     {status.lower()}'` (это ошибка **конкретной проверки**, не самой автоматизации, см. корневой
+     `AGENTS.md`, "Правила по ошибкам"); та же причина дублируется в `Automation.last_check_error`.
+
+   В обоих случаях — `pending_task_id` очищается (`AutomationRepository.finalize_check`, сырой
+   `UPDATE`, так как `BaseRepository.update` не умеет обнулять поле через `exclude_none=True`).
+   После записи лога, вне открытой транзакции: если `has_changes or threshold_breached` — один
+   вызов `notification_service.notify(event_code='automation.change_detected', payload={...,
+   'has_changes': ..., 'threshold_breached': ...}, changed_fields=[c['field'] for c in changes])`
+   (единый `event_code` на оба случая — `threshold_breached` всегда подразумевает `has_changes`,
+   получатель различает их по `payload`/по фильтру полей в своей подписке). См.
+   [`packages/notifications/AGENTS.md`](../notifications/AGENTS.md).
 4. **`AUTOMATION_HISTORY_RETENTION_SWEEP`** (`AutomationService.sweep_history_retention`) — раз в
-   `config.AUTOMATION.HISTORY_RETENTION_SWEEP_INTERVAL_SECONDS`: удаляет строки `automation_history`
-   старше `history_retention_days` **своей** автоматизации — один `DELETE ... USING automations`
-   запрос на все автоматизации сразу (`AutomationHistoryRepository.delete_expired`), не цикл в Python.
+   `config.AUTOMATION.HISTORY_RETENTION_SWEEP_INTERVAL_SECONDS`: удаляет строки
+   `automation_check_log` старше `history_retention_days` **своей** автоматизации — один
+   `DELETE ... USING automations` запрос на все автоматизации сразу
+   (`AutomationCheckLogRepository.delete_expired`), не цикл в Python.
 
 ## `Task.automation_id` — скрытие проверочных задач от обычного списка задач
 
@@ -200,11 +237,11 @@ tasks (..., automation_id) VALUES (...)`, эта вторая сессия за�
 вызов `self.transaction_manager(...)` поверх уже открытого того же инстанса подменяет его сессию у же
 внутри блока. Поэтому каждый метод открывает ровно один блок со всеми нужными ему флагами репозиториев
 сразу (как `TaskService.list_tasks` с `use_task_repository`+`use_task_item_repository`). Вызовы
-`self.task_service.*`/`self.result_service.*` внутри такого блока безопасны — это отдельные инстансы
-`TaskService`/`ResultService` со своим `AsyncTransactionManager` (DI-контейнер резолвит
-`transaction_manager`-провайдер как `Factory` заново для каждого сервиса, см.
-`apps/api/src/container.py`), то есть отдельная транзакция/сессия, не вложенная в транзакцию
-`AutomationService`.
+`self.task_service.*`/`self.result_service.*`/`self.notification_service.notify(...)` внутри такого
+блока безопасны — это отдельные инстансы `TaskService`/`ResultService`/`NotificationService` со
+своим `AsyncTransactionManager` (DI-контейнер резолвит `transaction_manager`-провайдер как
+`Factory` заново для каждого сервиса, см. `apps/api/src/container.py`), то есть отдельная
+транзакция/сессия, не вложенная в транзакцию `AutomationService`.
 
 ## REST
 
@@ -216,11 +253,13 @@ tasks (..., automation_id) VALUES (...)`, эта вторая сессия за�
 
 ## Не входит в эту итерацию
 
-- Реальная отправка уведомлений (Telegram и т.п.) при `threshold_breached = true` — только фиксация
-  факта в БД. `User.telegram_id` (`packages/user`) уже предусмотрен под это в модели.
-- Отслеживание изменений, отличных от цены и наличия (например, описания). Если появится — решить,
-  входит ли такое изменение в ту же строку истории проверки (`changes` — общий список, различается
-  по `field`, уже смешивает `PriceField` и `StockField`) или нужен отдельный механизм.
+- Реальная отправка уведомлений (Telegram и т.п.) — доменная область `packages/notifications`
+  существует и вызывается отсюда (`notify('automation.change_detected', ...)`), но сама отправка
+  ещё не реализована — только фиксация факта в БД (`NotificationDelivery.status = PENDING`).
+  `User.telegram_id` (`packages/user`) уже предусмотрен под это в модели.
+- Отслеживание изменений карточки сверх восьми уже перечисленных в `TRACKED_FIELDS` полей
+  (например, описания, фото, характеристик). Если появится — добавить в `TRACKED_FIELDS`/
+  `TrackedField` по тому же образцу, что `TITLE`/`RATING`/`REVIEW_COUNT`/`SELLER_NAME`.
 - Квоты на количество активных автоматизаций по маркетплейсу — не реализованы в этой итерации
   (тарификация сейчас покрывает только кредиты, см. "Тарификация — `packages/billing`" ниже).
 

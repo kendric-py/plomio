@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from apps.api.src.routers.schema import PaginationMeta
 from core.enums import Marketplace
-from packages.automation.src.enums import AutomationStatus, PriceField, StockField
+from packages.automation.src.enums import AutomationStatus, TrackedField
 
 
 class CreateAutomationRequest(BaseModel):
@@ -71,30 +71,35 @@ class AutomationListResponse(BaseModel):
     meta: PaginationMeta = Field(description='Метаданные пагинации')
 
 
-class PriceChangeItem(BaseModel):
-    field: PriceField | StockField = Field(
-        description='Какое из трёх ценовых полей изменилось, либо IN_STOCK — факт появления/'
-        'исчезновения товара в наличии',
+class TrackedFieldChangeItem(BaseModel):
+    field: TrackedField = Field(description='Какое из отслеживаемых полей карточки изменилось')
+    old_value: int | bool | str | float | None = Field(
+        description='Предыдущее значение (по снимку предыдущего успешного тика)',
     )
-    old_value: int | bool = Field(description='Предыдущее значение (в копейках для цен)')
-    new_value: int | bool = Field(description='Новое значение (в копейках для цен)')
+    new_value: int | bool | str | float | None = Field(description='Новое значение')
     threshold_breached: bool = Field(
-        description='Достигнут порог для уведомления по этому полю (для IN_STOCK — товар снова '
-        'появился в наличии)',
+        description='Достигнут порог падения цены относительно базовой (для IN_STOCK — товар '
+        'снова появился в наличии)',
     )
 
 
 class AutomationHistoryResponse(BaseModel):
-    id: int = Field(description='Идентификатор строки истории')
-    changes: list[PriceChangeItem] = Field(
-        description='Все поля, изменившиеся за эту проверку',
+    """Один тик проверки автоматизации — успешный, неуспешный или без изменений
+    (GET /api/automations/{id}/history)."""
+
+    id: int = Field(description='Идентификатор строки лога проверки')
+    succeeded: bool = Field(description='Проверка завершилась успешно')
+    error_message: str | None = Field(description='Причина провала проверки; null при успехе')
+    changes: list[TrackedFieldChangeItem] = Field(
+        description='Поля, изменившиеся относительно предыдущего успешного тика',
     )
+    has_changes: bool = Field(description='Хотя бы одно поле изменилось относительно предыдущего тика')
     threshold_breached: bool = Field(
-        description='Достигнут порог для уведомления хотя бы по одному из изменений',
+        description='Достигнут порог падения цены относительно базовой хотя бы по одному изменению',
     )
-    detected_at: datetime = Field(description='Момент фиксации изменения')
+    checked_at: datetime = Field(description='Момент проверки')
 
 
 class AutomationHistoryListResponse(BaseModel):
-    items: list[AutomationHistoryResponse] = Field(description='История изменений на текущей странице')
+    items: list[AutomationHistoryResponse] = Field(description='Тики проверок на текущей странице')
     meta: PaginationMeta = Field(description='Метаданные пагинации')

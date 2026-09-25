@@ -82,7 +82,7 @@ class CreditWallet(BaseSQLModel):
 
 class CreditTransaction(BaseSQLModel):
     """Append-only журнал списаний/начислений — источник правды для анализа расходов, тот же
-    принцип, что `automation_history` для истории проверок. Никогда не обновляется/не удаляется."""
+    принцип, что `automation_check_log` для истории проверок. Никогда не обновляется/не удаляется."""
 
     __tablename__ = 'credit_transactions'
 

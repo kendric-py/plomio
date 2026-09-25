@@ -202,6 +202,21 @@ TTL: задача, не взятая в работу (`claim_next`) до ист�
   `resume_task`. REST-ручки у метода пока нет (см. `apps/api/AGENTS.md`), но домен обязан быть
   корректен и без неё.
 
+## Уведомления — `packages/notifications`
+
+`TaskService` инжектит `NotificationService` (см. [`packages/notifications/AGENTS.md`](../notifications/AGENTS.md)
+за полным контрактом `notify`). Единственная точка интеграции — **`complete_item`**: когда все
+`TaskItem` задачи дошли до терминального статуса и `Task` переходит в `SUCCEEDED`/`FAILED`, после
+коммита транзакции (вне блока `async with`, отдельная сессия — тот же принцип, что описан в
+[`packages/automation/AGENTS.md`](../automation/AGENTS.md#композиция-сервисов-и-транзакции)) зовёт
+`notification_service.notify(event_code='task.completed'|'task.failed', payload={'task_id': ...,
+'error_reason': ...})`.
+
+**Пропускается, если `Task.automation_id is not None`** — это внутренняя проверочная задача
+автоматизации (см. "`Task.automation_id`" в [`packages/automation/AGENTS.md`](../automation/AGENTS.md)),
+её завершение уже обрабатывается `AutomationService._finalize_check` собственным событием
+(`automation.change_detected`) — повторное `task.*`-уведомление на том же тике было бы дублем.
+
 ## Не входит в эту итерацию
 
 Хранение результатов парсинга (товары/отзывы) — отдельная доменная область `packages/result`.

@@ -24,6 +24,7 @@ from core.database import get_database_connection
 from core.enums import Marketplace
 from core.transaction_manager import AsyncTransactionManager
 from packages.billing.src.service import BillingService
+from packages.notifications.src.service import NotificationService
 from packages.result.src.service import ResultService
 from packages.sessions.src.redis_store import SessionPoolStore
 from packages.task.src.entities import TaskEntity, TaskItemEntity
@@ -55,6 +56,9 @@ def build_services(
         TaskService(
             transaction_manager=AsyncTransactionManager(session_factory=session_factory),
             billing_service=BillingService(
+                transaction_manager=AsyncTransactionManager(session_factory=session_factory),
+            ),
+            notification_service=NotificationService(
                 transaction_manager=AsyncTransactionManager(session_factory=session_factory),
             ),
         ),

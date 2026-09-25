@@ -176,9 +176,13 @@ poll-лупом, вызывающим `TaskService.claim_next`; собствен
 
 ## Тарификация — `packages/billing`
 
-`runner.build_services` теперь дополнительно строит `BillingService` (со своим отдельным
-`AsyncTransactionManager`, тем же принципом, что и `TaskService`/`ResultService` — см. докстринг
-`build_services`) и передаёт его в `TaskService`. Воркер сам не вызывает `BillingService` напрямую —
+`runner.build_services` теперь дополнительно строит `BillingService`/`NotificationService` (каждый
+со своим отдельным `AsyncTransactionManager`, тем же принципом, что и `TaskService`/`ResultService`
+— см. докстринг `build_services`) и передаёт их в `TaskService`. `NotificationService` нужен
+`TaskService.complete_item`, чтобы завершение задачи могло породить `task.completed`/`task.failed`
+уведомление (см. [`packages/task/AGENTS.md`](../../packages/task/AGENTS.md), "Уведомления") — воркер
+сам его не вызывает, только конструирует и передаёт. Воркер сам не вызывает `BillingService`
+напрямую —
 списание за сохранённые результаты происходит внутри `TaskService.record_item_progress` (см.
 [`packages/task/AGENTS.md`](../../packages/task/AGENTS.md), "Тарификация"), воркер просто продолжает
 звать этот метод как раньше, без изменений в `runner.py` за пределами `build_services`. Если баланс

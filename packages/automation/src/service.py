@@ -5,24 +5,39 @@ from core.enums import Marketplace
 from core.exceptions import DuplicatedObjectError, ObjectNotFoundError
 from core.marketplace_article import extract_article
 from core.transaction_manager import AsyncTransactionManager
-from packages.automation.src.entities import AutomationEntity, AutomationHistoryEntity
-from packages.automation.src.enums import AutomationStatus, PriceField, StockField
+from packages.automation.src.entities import AutomationCheckLogEntity, AutomationEntity
+from packages.automation.src.enums import AutomationStatus, TrackedField, TrackedFieldKind
 from packages.automation.src.exceptions import DuplicateAutomationError, InvalidCheckFrequencyError
 from packages.billing.src.enums import PricingDimension, ReferenceType
 from packages.billing.src.exceptions import InsufficientCreditsError
 from packages.billing.src.service import BillingService
+from packages.notifications.src.service import NotificationService
 from packages.result.src.entities import ProductPagePayload
 from packages.result.src.service import ResultService
 from packages.task.src.enums import ParseType, TaskStatus
 from packages.task.src.service import TaskService
 
-# (PriceField, automation baseline attribute, payload attribute) — the single place that maps a
-# tracked price to where its baseline lives on Automation and where its current value comes from
-# in ProductPagePayload, so dispatch/compare logic doesn't repeat the three fields by hand.
-TRACKED_PRICE_FIELDS: tuple[tuple[PriceField, str, str], ...] = (
-    (PriceField.PRICE, 'baseline_price_kopecks', 'price_kopecks'),
-    (PriceField.DISCOUNTED_PRICE, 'baseline_discounted_price_kopecks', 'discounted_price_kopecks'),
-    (PriceField.ORIGINAL_PRICE, 'baseline_original_price_kopecks', 'original_price_kopecks'),
+# (TrackedField, kind, automation baseline attribute or None, ProductPagePayload attribute) — the
+# single place that maps every tracked product-card field to how it's compared. baseline_attribute
+# is None for fields without a baseline_*-column on Automation (title/rating/review_count/
+# seller_name) — those participate only in the has_changes diff against the previous tick's
+# snapshot, never in threshold_breached (a price-drop-specific concept, see AGENTS.md "Семантика
+# базовой цены").
+TRACKED_FIELDS: tuple[tuple[TrackedField, TrackedFieldKind, str | None, str], ...] = (
+    (TrackedField.PRICE, TrackedFieldKind.KOPECKS, 'baseline_price_kopecks', 'price_kopecks'),
+    (
+        TrackedField.DISCOUNTED_PRICE, TrackedFieldKind.KOPECKS,
+        'baseline_discounted_price_kopecks', 'discounted_price_kopecks',
+    ),
+    (
+        TrackedField.ORIGINAL_PRICE, TrackedFieldKind.KOPECKS,
+        'baseline_original_price_kopecks', 'original_price_kopecks',
+    ),
+    (TrackedField.IN_STOCK, TrackedFieldKind.BOOLEAN, 'in_stock', 'in_stock'),
+    (TrackedField.TITLE, TrackedFieldKind.TEXT, None, 'title'),
+    (TrackedField.RATING, TrackedFieldKind.NUMERIC, None, 'rating'),
+    (TrackedField.REVIEW_COUNT, TrackedFieldKind.NUMERIC, None, 'review_count'),
+    (TrackedField.SELLER_NAME, TrackedFieldKind.TEXT, None, 'seller_name'),
 )
 
 DISPATCH_PRIORITY = 5
@@ -37,11 +52,13 @@ class AutomationService:
         task_service: TaskService,
         result_service: ResultService,
         billing_service: BillingService,
+        notification_service: NotificationService,
     ):
         self.transaction_manager = transaction_manager
         self.task_service = task_service
         self.result_service = result_service
         self.billing_service = billing_service
+        self.notification_service = notification_service
 
     async def create_automation(
         self,
@@ -183,19 +200,19 @@ class AutomationService:
         user_id: int,
         limit: int,
         offset: int,
-    ) -> tuple[list[AutomationHistoryEntity], int]:
+    ) -> tuple[list[AutomationCheckLogEntity], int]:
         async with self.transaction_manager(
             use_automation_repository=True,
-            use_automation_history_repository=True,
+            use_automation_check_log_repository=True,
         ) as transaction:
             automation = await transaction.automation_repository.get_by_id(entity_id=automation_id)
             if automation.user_id != user_id:
                 raise ObjectNotFoundError
 
-            items = await transaction.automation_history_repository.get_by_automation_id(
+            items = await transaction.automation_check_log_repository.get_by_automation_id(
                 automation_id=automation_id, limit=limit, offset=offset,
             )
-            total = await transaction.automation_history_repository.count_by_automation_id(
+            total = await transaction.automation_check_log_repository.count_by_automation_id(
                 automation_id=automation_id,
             )
         return items, total
@@ -258,7 +275,7 @@ class AutomationService:
     async def process_pending_results(self, batch_size: int) -> dict:
         async with self.transaction_manager(
             use_automation_repository=True,
-            use_automation_history_repository=True,
+            use_automation_check_log_repository=True,
         ) as transaction:
             awaiting_automations = await transaction.automation_repository.get_awaiting_result(
                 limit=batch_size,
@@ -289,35 +306,61 @@ class AutomationService:
         automation: AutomationEntity,
         task_status: TaskStatus,
     ) -> int:
-        changes_detected_count = 0
-        last_check_error = None
+        """Записывает ровно одну строку AutomationCheckLog на каждый финализируемый тик,
+        независимо от исхода (успех/провал/успех без изменений), в отличие от прежнего поведения
+        (строка только при успехе с реальным изменением). has_changes считается относительно
+        снимка ПРЕДЫДУЩЕГО успешного тика, threshold_breached — относительно baseline на
+        Automation, как раньше (см. AGENTS.md, "Семантика базовой цены")."""
+
+        succeeded = task_status == TaskStatus.SUCCEEDED
+        error_message: str | None = None
+        last_check_error: str | None = None
+        snapshot: dict | None = None
+        changes: list[dict] = []
+        has_changes = False
+        threshold_breached = False
         baseline_updates: dict[str, int | bool] = {}
 
-        if task_status == TaskStatus.SUCCEEDED:
+        if succeeded:
             results, _ = await self.result_service.get_results_for_task(
                 task_id=automation.pending_task_id, limit=CHECK_TASK_RESULT_LIMIT, offset=0,
             )
             if results:
                 payload = ProductPagePayload.model_validate(results[0].payload)
-                price_changes, baseline_updates = self._diff_prices(
-                    automation=automation, payload=payload,
-                )
-                stock_changes, stock_update = self._diff_stock(automation=automation, payload=payload)
-                baseline_updates.update(stock_update)
-                changes = price_changes + stock_changes
-                if changes:
-                    await transaction.automation_history_repository.create(
-                        entity=AutomationHistoryEntity(
-                            automation_id=automation.id,
-                            changes=changes,
-                            threshold_breached=any(
-                                change['threshold_breached'] for change in changes
-                            ),
-                        ),
+                snapshot = self._build_snapshot(payload=payload)
+
+                previous_log = (
+                    await transaction.automation_check_log_repository.get_latest_succeeded(
+                        automation_id=automation.id,
                     )
-                    changes_detected_count = 1
+                )
+                changes, threshold_breached, baseline_updates = (
+                    self._diff_against_previous_and_baseline(
+                        automation=automation,
+                        payload=payload,
+                        previous_snapshot=previous_log.snapshot if previous_log else None,
+                    )
+                )
+                has_changes = bool(changes)
+            else:
+                succeeded = False
+                error_message = 'check_task_no_result'
+                last_check_error = error_message
         else:
-            last_check_error = f'check_task_{task_status.value.lower()}'
+            error_message = f'check_task_{task_status.value.lower()}'
+            last_check_error = error_message
+
+        await transaction.automation_check_log_repository.create(
+            entity=AutomationCheckLogEntity(
+                automation_id=automation.id,
+                succeeded=succeeded,
+                error_message=error_message,
+                snapshot=snapshot,
+                changes=changes,
+                has_changes=has_changes,
+                threshold_breached=threshold_breached,
+            ),
+        )
 
         await transaction.automation_repository.finalize_check(
             automation_id=automation.id,
@@ -325,73 +368,88 @@ class AutomationService:
             last_check_error=last_check_error,
             baseline_updates=baseline_updates,
         )
-        return changes_detected_count
 
-    def _diff_prices(
+        if has_changes or threshold_breached:
+            await self.notification_service.notify(
+                user_id=automation.user_id,
+                event_code='automation.change_detected',
+                payload={
+                    'automation_id': str(automation.id),
+                    'changes': changes,
+                    'has_changes': has_changes,
+                    'threshold_breached': threshold_breached,
+                },
+                changed_fields=[change['field'] for change in changes],
+            )
+
+        return 1 if has_changes else 0
+
+    def _build_snapshot(self, payload: ProductPagePayload) -> dict:
+        """Снимок всех TrackedField из текущего payload — сохраняется на этой строке лога и
+        используется как база сравнения для СЛЕДУЮЩЕГО тика (см. get_latest_succeeded)."""
+
+        return {
+            field.value: getattr(payload, payload_attribute)
+            for field, _kind, _baseline_attribute, payload_attribute in TRACKED_FIELDS
+        }
+
+    def _diff_against_previous_and_baseline(
         self,
         automation: AutomationEntity,
         payload: ProductPagePayload,
-    ) -> tuple[list[dict], dict[str, int]]:
-        """First check for the automation (no baseline yet) seeds the baseline from the current
-        prices and records no history. Every later check compares against that fixed baseline —
-        not the previous check — per the domain's "reference point" semantics: the baseline only
-        moves when the user explicitly updates it via `update_baseline`. Every field that changed
-        in this one check is collected into a single list — the caller writes at most one
-        `AutomationHistory` row per check, not one row per changed field."""
+        previous_snapshot: dict | None,
+    ) -> tuple[list[dict], bool, dict[str, int | bool]]:
+        """Единый проход по всем TrackedField. has_changes — новое значение против
+        previous_snapshot (снимок предыдущего успешного тика; None на самом первом успешном тике —
+        изменений тогда нет). threshold_breached — новое значение против Automation.baseline_*/
+        in_stock, только для KOPECKS-полей и восстановления наличия (IN_STOCK False -> True) — та
+        же математика, что раньше в _diff_prices/_diff_stock. baseline_updates сохраняет прежний
+        контракт: сеет baseline на первой проверке (baseline_value is None), обновляет in_stock на
+        любое реальное изменение."""
 
-        baseline_updates: dict[str, int] = {}
         changes: list[dict] = []
+        baseline_updates: dict[str, int | bool] = {}
 
-        for field, baseline_attribute, payload_attribute in TRACKED_PRICE_FIELDS:
+        for field, kind, baseline_attribute, payload_attribute in TRACKED_FIELDS:
             new_value = getattr(payload, payload_attribute)
             if new_value is None:
                 continue
 
-            baseline_value = getattr(automation, baseline_attribute)
-            if baseline_value is None:
-                baseline_updates[baseline_attribute] = new_value
-                continue
+            previous_value = previous_snapshot.get(field.value) if previous_snapshot else None
+            field_changed = previous_snapshot is not None and new_value != previous_value
 
-            if new_value == baseline_value:
-                continue
+            field_threshold_breached = False
+            if baseline_attribute is not None:
+                baseline_value = getattr(automation, baseline_attribute)
+                if baseline_value is None:
+                    baseline_updates[baseline_attribute] = new_value
+                elif new_value != baseline_value:
+                    if kind == TrackedFieldKind.KOPECKS:
+                        threshold_price = (
+                            baseline_value * (100 - automation.price_drop_threshold_percent) / 100
+                        )
+                        field_threshold_breached = new_value <= threshold_price
+                    elif kind == TrackedFieldKind.BOOLEAN:
+                        field_threshold_breached = new_value is True
+                        baseline_updates[baseline_attribute] = new_value
 
-            threshold_price = baseline_value * (100 - automation.price_drop_threshold_percent) / 100
-            changes.append(
-                {
-                    'field': field.value,
-                    'old_value': baseline_value,
-                    'new_value': new_value,
-                    'threshold_breached': new_value <= threshold_price,
-                },
-            )
+            if field_changed or field_threshold_breached:
+                changes.append(
+                    {
+                        'field': field.value,
+                        'old_value': previous_value,
+                        'new_value': new_value,
+                        'threshold_breached': field_threshold_breached,
+                    },
+                )
 
-        return changes, baseline_updates
-
-    def _diff_stock(
-        self,
-        automation: AutomationEntity,
-        payload: ProductPagePayload,
-    ) -> tuple[list[dict], dict[str, bool]]:
-        """Same first-check-seeds-baseline contract as `_diff_prices`, for the single `in_stock`
-        bool. `threshold_breached` here means "product just came back in stock" (`False` → `True`)
-        — the event this whole check exists to catch (see `claim_due_for_dispatch`'s out-of-stock
-        cadence); going out of stock (`True` → `False`) is still recorded, just not flagged."""
-
-        new_value = payload.in_stock
-        if automation.in_stock is None:
-            return [], {'in_stock': new_value}
-        if new_value == automation.in_stock:
-            return [], {}
-        change = {
-            'field': StockField.IN_STOCK.value,
-            'old_value': automation.in_stock,
-            'new_value': new_value,
-            'threshold_breached': new_value is True,
-        }
-        return [change], {'in_stock': new_value}
+        threshold_breached = any(change['threshold_breached'] for change in changes)
+        return changes, threshold_breached, baseline_updates
 
     async def sweep_history_retention(self) -> int:
-        async with self.transaction_manager(use_automation_history_repository=True) as transaction:
-            deleted_count = await transaction.automation_history_repository.delete_expired()
+        async with self.transaction_manager(
+            use_automation_check_log_repository=True,
+        ) as transaction:
+            deleted_count = await transaction.automation_check_log_repository.delete_expired()
             await self.transaction_manager.commit()
         return deleted_count

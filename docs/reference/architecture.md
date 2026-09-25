@@ -82,6 +82,15 @@
 - Срок хранения результата периодической задачи — задаёт администратор.
 - Миграции — **Alembic**.
 
+## Уведомления
+
+`packages/notifications` — сквозная доменная область, вызываемая изнутри `apps/api` (не отдельный
+процесс/поток данных): `packages/automation` и `packages/task` зовут её один раз при наступлении
+события (см. [`packages/notifications/AGENTS.md`](../../packages/notifications/AGENTS.md)).
+Зависимость односторонняя — `automation`/`task` → `notifications`, не наоборот. В этой итерации
+результат — запись в PostgreSQL (`notification_deliveries`, статус `PENDING`), без исходящего
+трафика; поток "реальная отправка" (HTTP к Telegram Bot API и т.п.) — будущая работа.
+
 ## Роли и доступ
 
 - **Клиент** — фронтенд (постановка задач) и/или API.

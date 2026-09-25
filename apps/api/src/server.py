@@ -117,6 +117,7 @@ def configure_rest_server() -> FastAPI:
             'apps.api.src.routers.automation.endpoints',
             'apps.api.src.routers.billing.dependencies',
             'apps.api.src.routers.billing.endpoints',
+            'apps.api.src.routers.notifications.endpoints',
         ],
     )
     app.add_middleware(

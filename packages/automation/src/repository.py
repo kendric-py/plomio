@@ -6,8 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.enums import Marketplace
 from core.repository import BaseRepository
-from packages.automation.src.entities import AutomationEntity, AutomationHistoryEntity
-from packages.automation.src.models import Automation, AutomationHistory
+from packages.automation.src.entities import AutomationCheckLogEntity, AutomationEntity
+from packages.automation.src.models import Automation, AutomationCheckLog
 
 
 class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
@@ -154,11 +154,11 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
         await self.session.execute(statement)
 
 
-class AutomationHistoryRepository(BaseRepository[AutomationHistory, AutomationHistoryEntity]):
+class AutomationCheckLogRepository(BaseRepository[AutomationCheckLog, AutomationCheckLogEntity]):
     def __init__(self, session: AsyncSession):
         super().__init__(
-            model=AutomationHistory,
-            entity_object=AutomationHistoryEntity,
+            model=AutomationCheckLog,
+            entity_object=AutomationCheckLogEntity,
             session=session,
         )
 
@@ -167,11 +167,11 @@ class AutomationHistoryRepository(BaseRepository[AutomationHistory, AutomationHi
         automation_id: UUID,
         limit: int,
         offset: int,
-    ) -> list[AutomationHistoryEntity]:
+    ) -> list[AutomationCheckLogEntity]:
         statement = (
             select(self.model)
             .where(self.model.automation_id == automation_id)
-            .order_by(self.model.detected_at.desc())
+            .order_by(self.model.checked_at.desc())
             .limit(limit)
             .offset(offset)
         )
@@ -184,16 +184,29 @@ class AutomationHistoryRepository(BaseRepository[AutomationHistory, AutomationHi
         )
         return await self.session.scalar(statement)
 
+    async def get_latest_succeeded(self, automation_id: UUID) -> AutomationCheckLogEntity | None:
+        """Последний успешный тик этой автоматизации — источник snapshot, с которым сравнивается
+        текущий тик для вычисления has_changes (см. AutomationService._finalize_check)."""
+
+        statement = (
+            select(self.model)
+            .where(self.model.automation_id == automation_id, self.model.succeeded.is_(True))
+            .order_by(self.model.checked_at.desc())
+            .limit(1)
+        )
+        database_object = await self.session.scalar(statement)
+        return self._to_entity(database_object=database_object) if database_object else None
+
     async def delete_expired(self) -> int:
-        """Deletes every history row older than its own automation's `history_retention_days` —
+        """Deletes every check-log row older than its own automation's `history_retention_days` —
         one statement across all automations (join on the parent table), rather than looping over
         automations in Python and issuing one DELETE per row — to avoid N+1 round-trips."""
 
         statement = text(
-            "DELETE FROM automation_history "
+            "DELETE FROM automation_check_log "
             "USING automations "
-            "WHERE automation_history.automation_id = automations.id "
-            "AND automation_history.detected_at < now() - "
+            "WHERE automation_check_log.automation_id = automations.id "
+            "AND automation_check_log.checked_at < now() - "
             "(automations.history_retention_days * interval '1 day')",
         )
         result = await self.session.execute(statement)

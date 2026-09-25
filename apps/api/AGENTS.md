@@ -104,6 +104,14 @@ REST API. Точка входа для клиентов (фронтенд, вн�
   `routers/task/endpoints.py::create_task`/`resume_task` и
   `routers/automation/endpoints.py::create_automation`, не только в этом роутере.
 
+- `routers/notifications/endpoints.py` + `routers/notifications/schema.py` (`/api/notifications`,
+  owner-only, `Depends(get_current_user)`, без admin-роутера — настройки полностью принадлежат
+  пользователю, см. [`packages/notifications/AGENTS.md`](../../packages/notifications/AGENTS.md)):
+  `GET /events` (каталог активных типов событий), `GET`/`PUT /preferences` (карта
+  `{event_code: [channel, ...]}` пользователя целиком; `PUT` с неизвестным/неактивным `event_code`
+  → `UnknownNotificationEventError` → `422`), `GET /deliveries` (read-only постраничный журнал —
+  доставки создаются только доменом, не пользователем).
+
 Новый роутер домена: создать `routers/<domain>/endpoints.py` с `router = APIRouter(prefix='/<domain>',
 tags=[...])`, подключить в `routers/router.py` через `api_router.include_router(router=...)`. Если
 роутер использует `@inject`/`Provide[...]` (напрямую или через зависимость вроде `get_current_user`,
@@ -138,13 +146,15 @@ Swagger UI (`/docs`) появляется кнопка **Authorize**, куда �
 - `user_service` — [`packages.user.src.service.UserService`](../../packages/user/AGENTS.md#сервис).
 - `auth_service` — [`packages.auth.src.service.AuthService`](../../packages/auth/AGENTS.md).
 - `task_service` — [`packages.task.src.service.TaskService`](../../packages/task/AGENTS.md), теперь
-  также принимает `billing_service`.
+  также принимает `billing_service` и `notification_service`.
 - `result_service` — [`packages.result.src.service.ResultService`](../../packages/result/AGENTS.md).
 - `billing_service` — [`packages.billing.src.service.BillingService`](../../packages/billing/AGENTS.md),
   инжектируется и в `task_service`, и в `automation_service` (каждый получает свой отдельный
   `AsyncTransactionManager`-экземпляр — `transaction_manager` сам `providers.Factory`, повторное
   разрешение внутри одного графа создаёт новый инстанс, тот же принцип, что описан в
   [`packages/automation/AGENTS.md`](../../packages/automation/AGENTS.md#композиция-сервисов-и-транзакции)).
+- `notification_service` — [`packages.notifications.src.service.NotificationService`](../../packages/notifications/AGENTS.md),
+  тем же принципом инжектируется и в `task_service`, и в `automation_service`.
 
 Контейнер создаётся в `src/server.py::configure_rest_server` и кладётся в `app.container`.
 `container.wire(modules=[...])` перечисляет каждый модуль роутера, который использует

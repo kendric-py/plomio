@@ -8,6 +8,7 @@ from core.transaction_manager import AsyncTransactionManager
 from packages.billing.src.enums import PricingDimension, ReferenceType
 from packages.billing.src.exceptions import InsufficientCreditsError
 from packages.billing.src.service import BillingService
+from packages.notifications.src.service import NotificationService
 from packages.task.src.entities import TaskEntity, TaskItemEntity
 from packages.task.src.enums import ParseType, TaskItemStatus, TaskStatus
 from packages.task.src.exceptions import (
@@ -23,10 +24,14 @@ TERMINAL_ITEM_STATUSES = (TaskItemStatus.SUCCEEDED, TaskItemStatus.FAILED, TaskI
 
 class TaskService:
     def __init__(
-        self, transaction_manager: AsyncTransactionManager, billing_service: BillingService,
+        self,
+        transaction_manager: AsyncTransactionManager,
+        billing_service: BillingService,
+        notification_service: NotificationService,
     ):
         self.transaction_manager = transaction_manager
         self.billing_service = billing_service
+        self.notification_service = notification_service
 
     async def create_task(
         self,
@@ -274,7 +279,7 @@ class TaskService:
             # processes TaskItems within a task in parallel) — without this lock, two items
             # finishing at nearly the same time can each see the other as still pending and
             # neither ever flips the parent Task to its terminal status.
-            await transaction.task_repository.lock_by_id(entity_id=item.task_id)
+            locked_task = await transaction.task_repository.lock_by_id(entity_id=item.task_id)
 
             completed_item = await transaction.task_item_repository.update(
                 entity=TaskItemEntity(id=item_id, status=status, error_reason=error_reason),
@@ -288,15 +293,32 @@ class TaskService:
                 return
 
             has_failed_items = any(sibling.status == TaskItemStatus.FAILED for sibling in items)
+            final_status = TaskStatus.FAILED if has_failed_items else TaskStatus.SUCCEEDED
             await transaction.task_repository.update(
                 entity=TaskEntity(
                     id=completed_item.task_id,
-                    status=TaskStatus.FAILED if has_failed_items else TaskStatus.SUCCEEDED,
+                    status=final_status,
                     error_reason='item_failed' if has_failed_items else None,
                     finished_at=datetime.now(tz=timezone.utc),
                 ),
             )
             await self.transaction_manager.commit()
+
+        # automation_id is not None <=> this is an automation's internal check task (see
+        # packages/automation/AGENTS.md) — its completion already drives
+        # AutomationService._finalize_check's own automation.change_detected event, so emitting
+        # task.completed/task.failed here too would duplicate the notification for the same tick.
+        if locked_task.automation_id is None:
+            await self.notification_service.notify(
+                user_id=locked_task.user_id,
+                event_code=(
+                    'task.completed' if final_status == TaskStatus.SUCCEEDED else 'task.failed'
+                ),
+                payload={
+                    'task_id': str(completed_item.task_id),
+                    'error_reason': 'item_failed' if has_failed_items else None,
+                },
+            )
 
     async def get_progress(self, task_id: UUID) -> dict:
         async with self.transaction_manager(use_task_item_repository=True) as transaction:

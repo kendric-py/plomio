@@ -5,7 +5,7 @@ from packages.automation.src.service import AutomationService
 
 
 async def sweep_automation_history_retention(automation_service: AutomationService) -> dict:
-    """One sweep pass: deletes every `automation_history` row older than its own automation's
+    """One sweep pass: deletes every `automation_check_log` row older than its own automation's
     `history_retention_days`."""
 
     deleted_count = await automation_service.sweep_history_retention()

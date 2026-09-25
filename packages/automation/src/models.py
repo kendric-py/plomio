@@ -86,8 +86,14 @@ class Automation(BaseSQLModel):
     )
 
 
-class AutomationHistory(BaseSQLModel):
-    __tablename__ = 'automation_history'
+class AutomationCheckLog(BaseSQLModel):
+    __tablename__ = 'automation_check_log'
+    __table_args__ = (
+        Index(
+            'ix_automation_check_log_automation_id_checked_at',
+            'automation_id', 'checked_at',
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     automation_id: Mapped[uuid.UUID] = mapped_column(
@@ -95,14 +101,23 @@ class AutomationHistory(BaseSQLModel):
         ForeignKey('automations.id', ondelete='CASCADE'),
         nullable=False,
     )
-    # Одна строка = одна проверка: все поля, изменившиеся за эту проверку (может быть и цена, и
-    # в будущем другие типы изменений), а не одна строка на каждое изменившееся поле — список
-    # {field, old_value, new_value, threshold_breached} на верхнем уровне не даёт единообразно
-    # запросить конкретное поле без JSONB-операторов, зато это осознанный компромисс ради "одна
-    # проверка — одна запись".
-    changes: Mapped[list[dict]] = mapped_column(JSONB, nullable=False)
-    threshold_breached: Mapped[bool] = mapped_column(nullable=False)
-    detected_at: Mapped[datetime] = mapped_column(
+    # Одна строка = один тик проверки, всегда — успех, провал или успех без изменений. Раньше
+    # (AutomationHistory) строка писалась только при успехе с реальным изменением; теперь любой
+    # финализированный тик оставляет след.
+    succeeded: Mapped[bool] = mapped_column(nullable=False)
+    error_message: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Полный снимок всех TrackedField на момент тика (только при succeeded=True с результатом) —
+    # нужен, чтобы следующий тик мог сравниться с этим, в том числе по полям без baseline_*-колонки
+    # на Automation (title/rating/review_count/seller_name).
+    snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Поля, изменившиеся относительно ПРЕДЫДУЩЕГО успешного тика (не относительно baseline) — список
+    # {field, old_value, new_value, threshold_breached}, по одному элементу на каждую из полей.
+    changes: Mapped[list[dict]] = mapped_column(JSONB, nullable=False, server_default='[]')
+    has_changes: Mapped[bool] = mapped_column(nullable=False, server_default='false')
+    # Достигнут порог падения цены (или восстановление наличия) относительно baseline на
+    # Automation — семантика не изменилась, в отличие от has_changes.
+    threshold_breached: Mapped[bool] = mapped_column(nullable=False, server_default='false')
+    checked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),

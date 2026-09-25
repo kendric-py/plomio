@@ -74,20 +74,33 @@ class AutomationEntity(BaseModel):
     )
 
 
-class AutomationHistoryEntity(BaseModel):
-    id: Optional[int] = Field(default=None, description='Идентификатор строки истории')
+class AutomationCheckLogEntity(BaseModel):
+    id: Optional[int] = Field(default=None, description='Идентификатор строки лога проверки')
     automation_id: Optional[UUID] = Field(
         default=None,
         description='Идентификатор родительской автоматизации',
     )
+    succeeded: Optional[bool] = Field(default=None, description='Проверка завершилась успешно')
+    error_message: Optional[str] = Field(
+        default=None,
+        description='Причина провала проверки; None при успехе',
+    )
+    snapshot: Optional[dict] = Field(
+        default=None,
+        description='Снимок всех отслеживаемых полей карточки на момент тика (только при успехе)',
+    )
     changes: Optional[list[dict]] = Field(
         default=None,
-        description='Все поля, изменившиеся за эту проверку: список '
+        description='Поля, изменившиеся относительно предыдущего успешного тика: список '
         '{field, old_value, new_value, threshold_breached}',
+    )
+    has_changes: Optional[bool] = Field(
+        default=None,
+        description='Хотя бы одно поле изменилось относительно предыдущего тика',
     )
     threshold_breached: Optional[bool] = Field(
         default=None,
         description='Хотя бы одно из изменений в changes упало относительно базовой цены не менее '
         'чем на price_drop_threshold_percent',
     )
-    detected_at: Optional[datetime] = Field(default=None, description='Момент фиксации изменения')
+    checked_at: Optional[datetime] = Field(default=None, description='Момент проверки')
