@@ -18,6 +18,7 @@ from apps.api.src.routers.task.schema import (
     TaskResultsResponse,
 )
 from core.exceptions import ObjectNotFoundError
+from packages.billing.src.exceptions import InsufficientCreditsError
 from packages.result.src.service import ResultService
 from packages.task.src.enums import TaskStatus
 from packages.task.src.exceptions import InvalidTaskTransitionError
@@ -36,15 +37,21 @@ async def create_task(
         Provide[DependencyContainer.task_service],
     ),
 ) -> CreateTaskResponse:
-    task = await task_service.create_task(
-        parse_type=body.parse_type,
-        marketplace=body.marketplace,
-        inputs=body.inputs,
-        priority=body.priority,
-        ttl=timedelta(seconds=body.ttl_seconds),
-        user_id=current_user.id,
-        result_limit=body.result_limit,
-    )
+    try:
+        task = await task_service.create_task(
+            parse_type=body.parse_type,
+            marketplace=body.marketplace,
+            inputs=body.inputs,
+            priority=body.priority,
+            ttl=timedelta(seconds=body.ttl_seconds),
+            user_id=current_user.id,
+            result_limit=body.result_limit,
+        )
+    except InsufficientCreditsError as error:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail='Insufficient credits',
+        ) from error
     items = await task_service.get_task_items(task_id=task.id)
     return CreateTaskResponse.model_validate(
         obj={
@@ -202,6 +209,11 @@ async def resume_task(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='Task not found',
+        ) from error
+    except InsufficientCreditsError as error:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail='Insufficient credits',
         ) from error
     except InvalidTaskTransitionError as error:
         raise HTTPException(

@@ -90,6 +90,20 @@ REST API. Точка входа для клиентов (фронтенд, вн�
     объяснением, почему без этого `claim_next` не забрал бы её обратно.
     `exclude_task_item` пока не имеет REST-ручки.
 
+- `routers/billing/endpoints.py` + `routers/billing/schema.py` — два роутера в одном файле:
+  `router` (`/api/billing`, owner-only, `Depends(get_current_user)`) — `GET /balance`,
+  `GET /transactions` (пагинированный журнал трат, `PaginationMeta`); `admin_router`
+  (`/api/admin/billing`, `Depends(get_current_admin_user)`) — CRUD над каталогом действий
+  (`GET`/`PATCH /actions/{action_code}`) и правилами множителей (`GET`/`POST /pricing-rules`,
+  `DELETE /pricing-rules/{rule_id}`), `POST /users/{user_id}/grant` — ручное начисление кредитов.
+  `routers/billing/dependencies.py::get_current_admin_user` — первая admin-only зависимость в
+  проекте, оборачивает `get_current_user` проверкой `current_user.role == UserRole.ADMIN` (иначе
+  `403`). `OverlappingPricingRuleError` → `409`, `ObjectNotFoundError` → `404`. См.
+  [`packages/billing/AGENTS.md`](../../packages/billing/AGENTS.md) за доменной логикой.
+  `packages.billing.src.exceptions.InsufficientCreditsError` → `402` — обрабатывается также в
+  `routers/task/endpoints.py::create_task`/`resume_task` и
+  `routers/automation/endpoints.py::create_automation`, не только в этом роутере.
+
 Новый роутер домена: создать `routers/<domain>/endpoints.py` с `router = APIRouter(prefix='/<domain>',
 tags=[...])`, подключить в `routers/router.py` через `api_router.include_router(router=...)`. Если
 роутер использует `@inject`/`Provide[...]` (напрямую или через зависимость вроде `get_current_user`,
@@ -123,8 +137,14 @@ Swagger UI (`/docs`) появляется кнопка **Authorize**, куда �
 - `transaction_manager` — [`core.transaction_manager.AsyncTransactionManager`](../../core/transaction_manager.py).
 - `user_service` — [`packages.user.src.service.UserService`](../../packages/user/AGENTS.md#сервис).
 - `auth_service` — [`packages.auth.src.service.AuthService`](../../packages/auth/AGENTS.md).
-- `task_service` — [`packages.task.src.service.TaskService`](../../packages/task/AGENTS.md).
+- `task_service` — [`packages.task.src.service.TaskService`](../../packages/task/AGENTS.md), теперь
+  также принимает `billing_service`.
 - `result_service` — [`packages.result.src.service.ResultService`](../../packages/result/AGENTS.md).
+- `billing_service` — [`packages.billing.src.service.BillingService`](../../packages/billing/AGENTS.md),
+  инжектируется и в `task_service`, и в `automation_service` (каждый получает свой отдельный
+  `AsyncTransactionManager`-экземпляр — `transaction_manager` сам `providers.Factory`, повторное
+  разрешение внутри одного графа создаёт новый инстанс, тот же принцип, что описан в
+  [`packages/automation/AGENTS.md`](../../packages/automation/AGENTS.md#композиция-сервисов-и-транзакции)).
 
 Контейнер создаётся в `src/server.py::configure_rest_server` и кладётся в `app.container`.
 `container.wire(modules=[...])` перечисляет каждый модуль роутера, который использует

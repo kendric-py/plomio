@@ -6,6 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from packages.audit_log.src.repository import AuditLogRepository
 from packages.automation.src.repository import AutomationHistoryRepository, AutomationRepository
+from packages.billing.src.repository import (
+    BillingActionRepository,
+    CreditTransactionRepository,
+    CreditWalletRepository,
+    PricingMultiplierRuleRepository,
+)
 from packages.cron.src.repository import CronJobRunRepository
 from packages.result.src.repository import ResultItemRepository
 from packages.task.src.repository import TaskItemRepository, TaskRepository
@@ -26,6 +32,14 @@ REPOSITORIES = {
     'use_automation_history_repository': (
         'automation_history_repository', AutomationHistoryRepository,
     ),
+    'use_billing_action_repository': ('billing_action_repository', BillingActionRepository),
+    'use_pricing_multiplier_rule_repository': (
+        'pricing_multiplier_rule_repository', PricingMultiplierRuleRepository,
+    ),
+    'use_credit_wallet_repository': ('credit_wallet_repository', CreditWalletRepository),
+    'use_credit_transaction_repository': (
+        'credit_transaction_repository', CreditTransactionRepository,
+    ),
 }
 
 
@@ -39,6 +53,10 @@ class AsyncTransactionManager:
     cron_job_run_repository: CronJobRunRepository
     automation_repository: AutomationRepository
     automation_history_repository: AutomationHistoryRepository
+    billing_action_repository: BillingActionRepository
+    pricing_multiplier_rule_repository: PricingMultiplierRuleRepository
+    credit_wallet_repository: CreditWalletRepository
+    credit_transaction_repository: CreditTransactionRepository
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]):
         self.session_factory = session_factory
@@ -52,6 +70,10 @@ class AsyncTransactionManager:
         self.use_cron_job_run_repository = False
         self.use_automation_repository = False
         self.use_automation_history_repository = False
+        self.use_billing_action_repository = False
+        self.use_pricing_multiplier_rule_repository = False
+        self.use_credit_wallet_repository = False
+        self.use_credit_transaction_repository = False
 
     def __call__(
         self,
@@ -64,6 +86,10 @@ class AsyncTransactionManager:
         use_cron_job_run_repository: bool = False,
         use_automation_repository: bool = False,
         use_automation_history_repository: bool = False,
+        use_billing_action_repository: bool = False,
+        use_pricing_multiplier_rule_repository: bool = False,
+        use_credit_wallet_repository: bool = False,
+        use_credit_transaction_repository: bool = False,
     ) -> 'AsyncTransactionManager':
         self.use_user_repository = use_user_repository
         self.use_audit_log_repository = use_audit_log_repository
@@ -74,6 +100,10 @@ class AsyncTransactionManager:
         self.use_cron_job_run_repository = use_cron_job_run_repository
         self.use_automation_repository = use_automation_repository
         self.use_automation_history_repository = use_automation_history_repository
+        self.use_billing_action_repository = use_billing_action_repository
+        self.use_pricing_multiplier_rule_repository = use_pricing_multiplier_rule_repository
+        self.use_credit_wallet_repository = use_credit_wallet_repository
+        self.use_credit_transaction_repository = use_credit_transaction_repository
         return self
 
     def _init_repositories(self, session: AsyncSession) -> None:

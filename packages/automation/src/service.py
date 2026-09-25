@@ -8,6 +8,9 @@ from core.transaction_manager import AsyncTransactionManager
 from packages.automation.src.entities import AutomationEntity, AutomationHistoryEntity
 from packages.automation.src.enums import AutomationStatus, PriceField, StockField
 from packages.automation.src.exceptions import DuplicateAutomationError, InvalidCheckFrequencyError
+from packages.billing.src.enums import PricingDimension, ReferenceType
+from packages.billing.src.exceptions import InsufficientCreditsError
+from packages.billing.src.service import BillingService
 from packages.result.src.entities import ProductPagePayload
 from packages.result.src.service import ResultService
 from packages.task.src.enums import ParseType, TaskStatus
@@ -33,10 +36,12 @@ class AutomationService:
         transaction_manager: AsyncTransactionManager,
         task_service: TaskService,
         result_service: ResultService,
+        billing_service: BillingService,
     ):
         self.transaction_manager = transaction_manager
         self.task_service = task_service
         self.result_service = result_service
+        self.billing_service = billing_service
 
     async def create_automation(
         self,
@@ -50,6 +55,9 @@ class AutomationService:
     ) -> AutomationEntity:
         if check_frequency_minutes < min_check_frequency_minutes:
             raise InvalidCheckFrequencyError
+
+        if not await self.billing_service.has_positive_balance(user_id=user_id):
+            raise InsufficientCreditsError
 
         article = extract_article(marketplace=marketplace, input_value=input_value)
 
@@ -79,6 +87,13 @@ class AutomationService:
                 # (user_id, marketplace, article) catches it here as a last resort.
                 raise DuplicateAutomationError from error
             await self.transaction_manager.commit()
+
+        await self.billing_service.charge(
+            user_id=user_id,
+            action_code='automation.create',
+            reference_type=ReferenceType.AUTOMATION,
+            reference_id=str(created_automation.id),
+        )
         return created_automation
 
     async def update_baseline(
@@ -203,7 +218,23 @@ class AutomationService:
             )
             await self.transaction_manager.commit()
 
+        dispatched_count = 0
         for automation in claimed_automations:
+            # next_check_at was already advanced by claim_due_for_dispatch above regardless of
+            # this guard — an automation skipped here for insufficient credits simply sits out
+            # this cycle and is reconsidered at its next (already-advanced) next_check_at, not
+            # retried immediately; see packages/billing/AGENTS.md.
+            if not await self.billing_service.has_positive_balance(user_id=automation.user_id):
+                async with self.transaction_manager(use_automation_repository=True) as transaction:
+                    await transaction.automation_repository.finalize_check(
+                        automation_id=automation.id,
+                        last_checked_at=datetime.now(tz=timezone.utc),
+                        last_check_error='insufficient_credits',
+                        baseline_updates={},
+                    )
+                    await self.transaction_manager.commit()
+                continue
+
             task = await self.task_service.create_task(
                 parse_type=ParseType.PRODUCT_PAGE,
                 marketplace=automation.marketplace,
@@ -213,13 +244,16 @@ class AutomationService:
                 user_id=automation.user_id,
                 result_limit=CHECK_TASK_RESULT_LIMIT,
                 automation_id=automation.id,
+                pricing_dimension_code=PricingDimension.AUTOMATION_CHECK_FREQUENCY.value,
+                pricing_dimension_value=automation.check_frequency_minutes,
             )
             async with self.transaction_manager(use_automation_repository=True) as transaction:
                 await transaction.automation_repository.set_pending_task(
                     automation_id=automation.id, task_id=task.id,
                 )
                 await self.transaction_manager.commit()
-        return {'dispatched': len(claimed_automations)}
+            dispatched_count += 1
+        return {'dispatched': dispatched_count}
 
     async def process_pending_results(self, batch_size: int) -> dict:
         async with self.transaction_manager(

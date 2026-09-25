@@ -18,6 +18,7 @@ from apps.api.src.routers.schema import PaginationMeta
 from core.exceptions import ObjectNotFoundError
 from packages.automation.src.exceptions import DuplicateAutomationError, InvalidCheckFrequencyError
 from packages.automation.src.service import AutomationService
+from packages.billing.src.exceptions import InsufficientCreditsError
 from packages.user.src.entities import UserEntity
 
 router = APIRouter(prefix='/automations', tags=['Automations'])
@@ -54,6 +55,11 @@ async def create_automation(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail='An automation for this product already exists',
+        ) from error
+    except InsufficientCreditsError as error:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail='Insufficient credits',
         ) from error
     return AutomationResponse.model_validate(obj=automation, from_attributes=True)
 

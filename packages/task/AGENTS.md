@@ -155,6 +155,53 @@ TTL: задача, не взятая в работу (`claim_next`) до ист�
 `exclude_task_item` REST-ручки пока не имеет — остальные мутирующие операции сервиса
 (`cancel_task`/`pause_task`/`resume_task`) уже подключены.
 
+## Тарификация — `packages/billing`
+
+`TaskService` инжектит `BillingService` (см. [`packages/billing/AGENTS.md`](../billing/AGENTS.md) за
+полным контрактом `charge`/`has_positive_balance`) — единственная точка интеграции с тарификацией:
+
+- **`create_task`** — для обычной (не проверочной, `automation_id is None`) задачи сначала
+  проверяет `billing_service.has_positive_balance(user_id)` (иначе `InsufficientCreditsError`,
+  REST — `402`), после успешного создания зовёт `charge(action_code='task.create', ...)`
+  (no-op, пока `base_cost=0`). Проверочные задачи автоматизации (`automation_id` задан) не
+  проверяются и не тарифицируются здесь — их экономика полностью в `packages/automation`
+  (`AutomationService.dispatch_due_checks` сам проверяет баланс до вызова `create_task`).
+- **`pricing_dimension_code`/`pricing_dimension_value`** (`Task`) — денормализованный снэпшот,
+  проставляется один раз при создании и не меняется: для обычной задачи —
+  `("task_priority", priority)`, для проверочной — `("automation_check_frequency",
+  automation.check_frequency_minutes на момент диспатча)`, передаётся вызывающим кодом
+  (`AutomationService.dispatch_due_checks`). Так `record_item_progress` резолвит множитель
+  тарификации без обращения к `packages/automation` — зависимость односторонняя
+  (`task`/`automation` → `billing`, не наоборот).
+- **`record_item_progress`** — главный хук инкрементального списания. `result_count`, который
+  передаёт воркер, кумулятивный (не дельта — см. `apps/worker_parser/AGENTS.md`); метод сам
+  считает `delta = result_count - TaskItem.result_count (до апдейта)` и после коммита апдейта
+  зовёт `billing_service.charge(action_code=f'result.{parse_type}', quantity=delta,
+  dimension_code=task.pricing_dimension_code, dimension_value=task.pricing_dimension_value, ...)`.
+  Если после списания баланс пользователя `<= 0` — задача переводится в `PAUSED` через
+  `pause_task_system` (см. ниже). Списание никогда не блокирует уже идущий парсинг — баланс может
+  на этом шаге уйти в минус, следующая страница просто не будет запрошена (кооперативная пауза).
+- **`pause_task_system(task_id)`** — internal-аналог `pause_task`, без проверки `user_id` (та же
+  связь, что `get_task_by_id`/`get_task_status`), no-op, если задача уже не в паузируемом статусе.
+  Вызывается только из `record_item_progress`, не имеет REST-ручки.
+- **`resume_task`** — для обычной задачи (`automation_id is None`) тоже проверяет
+  `has_positive_balance` (иначе `InsufficientCreditsError`, REST — `402`), **до** перевода в
+  `QUEUED`. Без этой проверки задачу, автопаузированную `record_item_progress` из-за нехватки
+  кредитов, можно было бы возобновить с тем же нулевым/отрицательным балансом — воркер успел бы
+  собрать ещё немного результатов до следующей кооперативной проверки статуса
+  (`config.POLL.STATUS_CHECK_INTERVAL_PAGES` страниц, не каждая страница — см.
+  `apps/worker_parser/AGENTS.md`), баланс ушёл бы ещё глубже в минус, и задача тут же встала бы на
+  паузу заново — цикл "resume → чуть поработал → снова PAUSED", пока пользователь не пополнит
+  баланс настолько, чтобы задача успела дойти до конца между двумя проверками статуса. Проверочные
+  задачи автоматизации (`automation_id` задан) не проверяются здесь — они и не паузируются этим
+  путём (см. выше).
+- **`exclude_task_item`** — та же проверка по той же причине: исключение последнего `FAILED`-
+  элемента может вернуть задачу `FAILED → QUEUED` (см. "Статусы"), а это тоже решение "возобновить
+  трату", не просто чистка. Проверяется до коммита — при недостатке кредитов откатывается и само
+  исключение элемента, пользователь повторяет операцию после пополнения баланса, симметрично
+  `resume_task`. REST-ручки у метода пока нет (см. `apps/api/AGENTS.md`), но домен обязан быть
+  корректен и без неё.
+
 ## Не входит в эту итерацию
 
 Хранение результатов парсинга (товары/отзывы) — отдельная доменная область `packages/result`.

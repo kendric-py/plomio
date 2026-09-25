@@ -60,6 +60,13 @@ class Task(BaseSQLModel):
         ForeignKey('automations.id', ondelete='SET NULL'),
         nullable=True,
     )
+    # Set once at creation, never changed afterwards — snapshot of which billing dimension prices
+    # this task's results (packages/billing) and its value at that moment. Denormalized here so
+    # TaskService.record_item_progress can charge per result without packages/task depending on
+    # packages/automation to read Automation.check_frequency_minutes (see packages/billing/AGENTS.md
+    # and packages/task/AGENTS.md).
+    pricing_dimension_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    pricing_dimension_value: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -23,6 +23,7 @@ from apps.worker_parser.src.retry_policy import SessionAction, resolve_retry_pol
 from core.database import get_database_connection
 from core.enums import Marketplace
 from core.transaction_manager import AsyncTransactionManager
+from packages.billing.src.service import BillingService
 from packages.result.src.service import ResultService
 from packages.sessions.src.redis_store import SessionPoolStore
 from packages.task.src.entities import TaskEntity, TaskItemEntity
@@ -51,9 +52,15 @@ def build_services(
     hands out a fresh `AsyncTransactionManager` per request (`providers.Factory`)."""
 
     return (
-        TaskService(transaction_manager=AsyncTransactionManager(session_factory=session_factory)),
+        TaskService(
+            transaction_manager=AsyncTransactionManager(session_factory=session_factory),
+            billing_service=BillingService(
+                transaction_manager=AsyncTransactionManager(session_factory=session_factory),
+            ),
+        ),
         ResultService(transaction_manager=AsyncTransactionManager(session_factory=session_factory)),
     )
+
 
 _LISTING_FETCHERS = {
     (Marketplace.OZON, ParseType.SEARCH_QUERY): ozon_fetchers.fetch_ozon_search_page,

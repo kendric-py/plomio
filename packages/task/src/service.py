@@ -5,6 +5,9 @@ from uuid import UUID
 from core.enums import Marketplace
 from core.exceptions import ObjectNotFoundError
 from core.transaction_manager import AsyncTransactionManager
+from packages.billing.src.enums import PricingDimension, ReferenceType
+from packages.billing.src.exceptions import InsufficientCreditsError
+from packages.billing.src.service import BillingService
 from packages.task.src.entities import TaskEntity, TaskItemEntity
 from packages.task.src.enums import ParseType, TaskItemStatus, TaskStatus
 from packages.task.src.exceptions import (
@@ -19,8 +22,11 @@ TERMINAL_ITEM_STATUSES = (TaskItemStatus.SUCCEEDED, TaskItemStatus.FAILED, TaskI
 
 
 class TaskService:
-    def __init__(self, transaction_manager: AsyncTransactionManager):
+    def __init__(
+        self, transaction_manager: AsyncTransactionManager, billing_service: BillingService,
+    ):
         self.transaction_manager = transaction_manager
+        self.billing_service = billing_service
 
     async def create_task(
         self,
@@ -32,7 +38,21 @@ class TaskService:
         user_id: int,
         result_limit: int | None = None,
         automation_id: UUID | None = None,
+        pricing_dimension_code: str | None = None,
+        pricing_dimension_value: int | None = None,
     ) -> TaskEntity:
+        # automation_id is None <=> a regular user-initiated task (not an automation's check task,
+        # which packages.automation.src.service.AutomationService.dispatch_due_checks creates with
+        # its own pricing_dimension_code/value already set) — see packages/billing/AGENTS.md,
+        # "Интеграция с packages/task/packages/automation".
+        if pricing_dimension_code is None and pricing_dimension_value is None:
+            pricing_dimension_code = PricingDimension.TASK_PRIORITY.value
+            pricing_dimension_value = priority
+
+        if automation_id is None:
+            if not await self.billing_service.has_positive_balance(user_id=user_id):
+                raise InsufficientCreditsError
+
         async with self.transaction_manager(
             use_task_repository=True,
             use_task_item_repository=True,
@@ -46,6 +66,8 @@ class TaskService:
                     result_limit=result_limit,
                     user_id=user_id,
                     automation_id=automation_id,
+                    pricing_dimension_code=pricing_dimension_code,
+                    pricing_dimension_value=pricing_dimension_value,
                 ),
             )
             for position, input_value in enumerate(inputs):
@@ -57,6 +79,14 @@ class TaskService:
                     ),
                 )
             await self.transaction_manager.commit()
+
+        if automation_id is None:
+            await self.billing_service.charge(
+                user_id=user_id,
+                action_code='task.create',
+                reference_type=ReferenceType.TASK,
+                reference_id=str(created_task.id),
+            )
         return created_task
 
     async def cancel_task(self, task_id: UUID, user_id: int) -> TaskEntity:
@@ -91,6 +121,24 @@ class TaskService:
             await self.transaction_manager.commit()
         return updated_task
 
+    async def pause_task_system(self, task_id: UUID) -> TaskEntity:
+        """Internal counterpart of `pause_task`, without the `user_id` ownership check (same
+        relationship as `get_task_by_id` vs `get_task_status`) — called by
+        `record_item_progress` when a charge drains the user's balance to `<= 0` mid-task. No-op
+        (returns the task unchanged) if it's no longer in a pausable status, since this fires as a
+        side effect of billing, not a user action that must succeed."""
+
+        async with self.transaction_manager(use_task_repository=True) as transaction:
+            task = await transaction.task_repository.get_by_id(entity_id=task_id)
+            if task.status not in PAUSABLE_STATUSES:
+                return task
+
+            updated_task = await transaction.task_repository.update(
+                entity=TaskEntity(id=task_id, status=TaskStatus.PAUSED),
+            )
+            await self.transaction_manager.commit()
+        return updated_task
+
     async def resume_task(self, task_id: UUID, user_id: int, ttl: timedelta) -> TaskEntity:
         async with self.transaction_manager(use_task_repository=True) as transaction:
             task = await transaction.task_repository.get_by_id(entity_id=task_id)
@@ -98,6 +146,18 @@ class TaskService:
                 raise ObjectNotFoundError
             if task.status != TaskStatus.PAUSED:
                 raise InvalidTaskTransitionError
+
+            # A task auto-paused by record_item_progress for insufficient credits (see
+            # pause_task_system) must not be resumable until the balance is topped up — otherwise
+            # the worker drains a few more pages before its next cooperative status check, the
+            # balance dips further negative, and it pauses again on the very next charge, forever.
+            # Only relevant for tasks that were actually running against billed results
+            # (automation_id is None — see create_task); automation check tasks never get
+            # auto-paused this way in the first place, since dispatch_due_checks already gates on
+            # balance before creating them.
+            if task.automation_id is None:
+                if not await self.billing_service.has_positive_balance(user_id=user_id):
+                    raise InsufficientCreditsError
 
             # queue_expires_at is the deadline claim_next checks; the original one (from
             # create_task) is almost certainly already in the past by the time a task that has
@@ -138,6 +198,14 @@ class TaskService:
             if not has_active_items:
                 new_status = TaskStatus.SUCCEEDED
             elif task.status == TaskStatus.FAILED:
+                # Reviving FAILED -> QUEUED is a resume decision in disguise — same guard as
+                # resume_task, and for the same reason: excluding the last bad item off an
+                # insufficient-credits task must not be a backdoor around that guard. Checked
+                # before commit, so the item exclusion above rolls back too — the user has to
+                # retry the exclude once the balance is topped up, same as they'd retry resume.
+                if task.automation_id is None:
+                    if not await self.billing_service.has_positive_balance(user_id=task.user_id):
+                        raise InsufficientCreditsError
                 new_status = TaskStatus.QUEUED
             else:
                 new_status = None
@@ -157,11 +225,39 @@ class TaskService:
         cursor: dict | None,
         result_count: int,
     ) -> None:
-        async with self.transaction_manager(use_task_item_repository=True) as transaction:
-            await transaction.task_item_repository.update(
+        # result_count is the running total the worker has saved for this item so far (not a
+        # delta) — see apps/worker_parser/src/runner.py. The delta since the last recorded value is
+        # what's actually new since the last charge, so it's what gets billed here.
+        async with self.transaction_manager(
+            use_task_repository=True,
+            use_task_item_repository=True,
+        ) as transaction:
+            item = await transaction.task_item_repository.get_by_id(entity_id=item_id)
+            delta = result_count - (item.result_count or 0)
+
+            updated_item = await transaction.task_item_repository.update(
                 entity=TaskItemEntity(id=item_id, cursor=cursor, result_count=result_count),
             )
+
+            task = None
+            if delta > 0:
+                task = await transaction.task_repository.get_by_id(entity_id=updated_item.task_id)
             await self.transaction_manager.commit()
+
+        if task is None:
+            return
+
+        await self.billing_service.charge(
+            user_id=task.user_id,
+            action_code=f'result.{task.parse_type.value}',
+            quantity=delta,
+            dimension_code=task.pricing_dimension_code,
+            dimension_value=task.pricing_dimension_value,
+            reference_type=ReferenceType.TASK,
+            reference_id=str(task.id),
+        )
+        if not await self.billing_service.has_positive_balance(user_id=task.user_id):
+            await self.pause_task_system(task_id=task.id)
 
     async def complete_item(
         self,

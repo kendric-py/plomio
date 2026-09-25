@@ -53,6 +53,16 @@ class TaskEntity(BaseModel):
         description='Идентификатор автоматизации, создавшей эту задачу (проверочная задача, не '
         'пользовательская); не выставляется при обычном создании задачи',
     )
+    pricing_dimension_code: Optional[str] = Field(
+        default=None,
+        description='Код измерения billing-множителя, применённого к результатам этой задачи '
+        '(например, task_priority или automation_check_frequency); снэпшот на момент создания',
+    )
+    pricing_dimension_value: Optional[int] = Field(
+        default=None,
+        description='Значение измерения billing-множителя на момент создания задачи (приоритет '
+        'или частота проверки автоматизации)',
+    )
     created_at: Optional[datetime] = Field(default=None, description='Время создания задачи')
     updated_at: Optional[datetime] = Field(
         default=None,

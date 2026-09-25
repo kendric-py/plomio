@@ -6,6 +6,7 @@ from core.database import get_database_connection
 from core.transaction_manager import AsyncTransactionManager
 from packages.auth.src.service import AuthService
 from packages.automation.src.service import AutomationService
+from packages.billing.src.service import BillingService
 from packages.cron.src.service import CronJobService
 from packages.result.src.service import ResultService
 from packages.sessions.src.redis_store import SessionPoolStore
@@ -35,9 +36,15 @@ class DependencyContainer(DeclarativeContainer):
         transaction_manager=transaction_manager,
     )
 
+    billing_service = providers.Factory(
+        BillingService,
+        transaction_manager=transaction_manager,
+    )
+
     task_service = providers.Factory(
         TaskService,
         transaction_manager=transaction_manager,
+        billing_service=billing_service,
     )
 
     result_service = providers.Factory(
@@ -70,4 +77,5 @@ class DependencyContainer(DeclarativeContainer):
         transaction_manager=transaction_manager,
         task_service=task_service,
         result_service=result_service,
+        billing_service=billing_service,
     )

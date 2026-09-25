@@ -221,5 +221,29 @@ tasks (..., automation_id) VALUES (...)`, эта вторая сессия за�
 - Отслеживание изменений, отличных от цены и наличия (например, описания). Если появится — решить,
   входит ли такое изменение в ту же строку истории проверки (`changes` — общий список, различается
   по `field`, уже смешивает `PriceField` и `StockField`) или нужен отдельный механизм.
-- Тарифные квоты на частоту/количество автоматизаций по пользователю — упоминаются в корневом
-  `AGENTS.md` ("Домен: пользователи и тарифы") как будущая работа `packages/membership`.
+- Квоты на количество активных автоматизаций по маркетплейсу — не реализованы в этой итерации
+  (тарификация сейчас покрывает только кредиты, см. "Тарификация — `packages/billing`" ниже).
+
+## Тарификация — `packages/billing`
+
+`AutomationService` инжектит `BillingService` (см. [`packages/billing/AGENTS.md`](../billing/AGENTS.md)
+за полным контрактом) — тарифов/подписок нет, единая кредитная система на всех пользователей:
+
+- **`create_automation`** — сначала проверяет `billing_service.has_positive_balance(user_id)`
+  (иначе `InsufficientCreditsError`, REST — `402`), после успешного создания зовёт
+  `charge(action_code='automation.create', ...)` (no-op, пока `base_cost=0`).
+- **`dispatch_due_checks`** — для каждой захваченной (`claim_due_for_dispatch`, `next_check_at` уже
+  сдвинут) автоматизации проверяет баланс её владельца **до** создания проверочной задачи. При
+  `<= 0` — задача этого цикла не создаётся, `Automation.last_check_error = 'insufficient_credits'`
+  через `AutomationRepository.finalize_check` (без сброса `next_check_at` — автоматизация тихо
+  пропускает эту проверку и снова попадёт в выборку на своём обычном `next_check_at`, не раньше и
+  не через отдельный retry-механизм). При положительном балансе — `task_service.create_task(...,
+  pricing_dimension_code='automation_check_frequency', pricing_dimension_value=
+  automation.check_frequency_minutes)`: проверочная задача несёт снэпшот текущей
+  `check_frequency_minutes` на момент диспатча, а не живую ссылку — `packages/task` тарифицирует
+  результаты этой задачи по этому снэпшоту, не обращаясь к `packages/automation` (см.
+  [`packages/task/AGENTS.md`](../task/AGENTS.md), "Тарификация").
+- Фактическое списание за результат проверки (1 `PRODUCT_PAGE` = 1 результат) происходит не здесь,
+  а в `TaskService.record_item_progress`, когда воркер сохраняет результат этой проверочной
+  задачи — `AutomationService` только проставляет измерение множителя, сам расчёт и списание вне
+  этого домена.

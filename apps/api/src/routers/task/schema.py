@@ -42,6 +42,12 @@ class TaskBaseResponse(BaseModel):
         description='Идентификатор автоматизации, создавшей эту задачу (проверочная задача, не '
         'пользовательская)',
     )
+    pricing_dimension_code: str | None = Field(
+        description='Код измерения billing-множителя, применённого к результатам этой задачи',
+    )
+    pricing_dimension_value: int | None = Field(
+        description='Значение измерения billing-множителя на момент создания задачи',
+    )
     started_at: datetime | None = Field(
         description='Момент начала парсинга (первый захват задачи воркером); `null`, если задача '
         'ещё не была взята в работу',
