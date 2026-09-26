@@ -64,8 +64,8 @@ CORS настроен максимально открыто (`allow_origins=['*'
 ## Конвенция пагинации
 
 Все постраничные ответы (`GET /api/tasks/`, `GET /api/tasks/{id}/results`, `GET /api/automations/`,
-`GET /api/automations/{id}/history`, `GET /api/billing/transactions`,
-`GET /api/notifications/deliveries`) имеют одну и ту же форму:
+`GET /api/automations/with-history`, `GET /api/automations/{id}/history`,
+`GET /api/billing/transactions`, `GET /api/notifications/deliveries`) имеют одну и ту же форму:
 
 ```json
 { "items": [ /* ... */ ], "meta": { "total": 0, "limit": 100, "offset": 0 } }
@@ -434,6 +434,48 @@ cancel/pause/resume):
 Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по умолчанию 0).
 
 **Ответ `200`** (`AutomationListResponse`): `{ "items": [ /* AutomationResponse */ ], "meta": { ... } }`.
+
+### `GET /api/automations/with-history` — список автоматизаций с последними проверками
+
+Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по умолчанию 0) — те же, что у
+`GET /api/automations/`, применяются к списку автоматизаций, не к историям внутри него.
+
+Удобно для дашборда списка автоматизаций, где под каждой карточкой сразу нужен мини-график/индикатор
+последних проверок — экономит по отдельному вызову `GET /api/automations/{id}/history` на каждую
+автоматизацию страницы.
+
+**Ответ `200`** (`AutomationWithHistoryListResponse`):
+
+```json
+{
+  "items": [
+    {
+      "id": "...",
+      "marketplace": "ozon",
+      "...": "... все поля AutomationResponse ...",
+      "recent_checks": [
+        {
+          "id": 42,
+          "succeeded": true,
+          "error_message": null,
+          "changes": [],
+          "has_changes": false,
+          "threshold_breached": false,
+          "checked_at": "2026-09-24T10:00:00Z"
+        }
+      ]
+    }
+  ],
+  "meta": { "total": 0, "limit": 100, "offset": 0 }
+}
+```
+
+Каждый элемент `items` — все поля `AutomationResponse` (см. раздел "Поля автоматизации" ниже) плюс
+`recent_checks`: до **5** последних строк истории этой автоматизации, в том же формате, что элементы
+`GET /api/automations/{id}/history`, отсортированные новые сначала. Если проверок ещё не было —
+`recent_checks: []`. Это не пагинированный срез истории — просто последние 5 тиков без `meta`; для
+полной постраничной истории конкретной автоматизации по-прежнему нужен отдельный вызов
+`GET /api/automations/{id}/history`.
 
 ### `GET /api/automations/{automation_id}` — одна автоматизация
 

@@ -11,6 +11,8 @@ from apps.api.src.routers.automation.schema import (
     AutomationHistoryResponse,
     AutomationListResponse,
     AutomationResponse,
+    AutomationWithHistoryListResponse,
+    AutomationWithHistoryResponse,
     CreateAutomationRequest,
     UpdateBaselineRequest,
 )
@@ -80,6 +82,36 @@ async def list_automations(
     return AutomationListResponse(
         items=[
             AutomationResponse.model_validate(obj=item, from_attributes=True) for item in items
+        ],
+        meta=PaginationMeta(total=total, limit=limit, offset=offset),
+    )
+
+
+@router.get('/with-history')
+@inject
+async def list_automations_with_history(
+    limit: int = Query(default=100, ge=1, le=500, description='Размер страницы'),
+    offset: int = Query(default=0, ge=0, description='Смещение страницы'),
+    current_user: UserEntity = Depends(get_current_user),
+    automation_service: AutomationService = Depends(
+        Provide[DependencyContainer.automation_service],
+    ),
+) -> AutomationWithHistoryListResponse:
+    items, total = await automation_service.list_automations_with_recent_checks(
+        user_id=current_user.id, limit=limit, offset=offset,
+    )
+    return AutomationWithHistoryListResponse(
+        items=[
+            AutomationWithHistoryResponse(
+                **AutomationResponse.model_validate(
+                    obj=automation, from_attributes=True,
+                ).model_dump(),
+                recent_checks=[
+                    AutomationHistoryResponse.model_validate(obj=check, from_attributes=True)
+                    for check in recent_checks
+                ],
+            )
+            for automation, recent_checks in items
         ],
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
     )

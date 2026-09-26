@@ -3,6 +3,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from core.enums import Marketplace
 from core.repository import BaseRepository
@@ -196,6 +197,47 @@ class AutomationCheckLogRepository(BaseRepository[AutomationCheckLog, Automation
         )
         database_object = await self.session.scalar(statement)
         return self._to_entity(database_object=database_object) if database_object else None
+
+    async def get_recent_by_automation_ids(
+        self,
+        automation_ids: list[UUID],
+        limit_per_automation: int,
+    ) -> dict[UUID, list[AutomationCheckLogEntity]]:
+        """Batched "last N ticks per automation" for a whole page of automations in one query
+        (`ROW_NUMBER() OVER (PARTITION BY automation_id ORDER BY checked_at DESC)`), instead of one
+        `get_by_automation_id` round-trip per automation — avoids N+1 for
+        `AutomationService.list_automations_with_recent_checks`."""
+
+        if not automation_ids:
+            return {}
+
+        ranked = (
+            select(
+                self.model,
+                func.row_number()
+                .over(
+                    partition_by=self.model.automation_id,
+                    order_by=self.model.checked_at.desc(),
+                )
+                .label('rn'),
+            )
+            .where(self.model.automation_id.in_(automation_ids))
+            .subquery()
+        )
+        ranked_model = aliased(self.model, ranked)
+        statement = (
+            select(ranked_model)
+            .where(ranked.c.rn <= limit_per_automation)
+            .order_by(ranked.c.automation_id, ranked.c.rn)
+        )
+        database_objects = await self.session.scalars(statement)
+
+        grouped: dict[UUID, list[AutomationCheckLogEntity]] = {
+            automation_id: [] for automation_id in automation_ids
+        }
+        for entity in self._to_entities(database_objects=database_objects):
+            grouped[entity.automation_id].append(entity)
+        return grouped
 
     async def delete_expired(self) -> int:
         """Deletes every check-log row older than its own automation's `history_retention_days` —

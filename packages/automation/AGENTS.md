@@ -246,10 +246,21 @@ tasks (..., automation_id) VALUES (...)`, эта вторая сессия за�
 ## REST
 
 `apps/api/src/routers/automation/` — `POST /api/automations/`, `GET /api/automations/`,
-`GET /api/automations/{id}`, `PATCH /api/automations/{id}/baseline`,
-`POST /api/automations/{id}/pause`, `POST /api/automations/{id}/resume`,
-`DELETE /api/automations/{id}`, `GET /api/automations/{id}/history` — все владелец-only
-(`ObjectNotFoundError` при чужой/несуществующей автоматизации, как в `packages/task`).
+`GET /api/automations/with-history`, `GET /api/automations/{id}`,
+`PATCH /api/automations/{id}/baseline`, `POST /api/automations/{id}/pause`,
+`POST /api/automations/{id}/resume`, `DELETE /api/automations/{id}`,
+`GET /api/automations/{id}/history` — все владелец-only (`ObjectNotFoundError` при
+чужой/несуществующей автоматизации, как в `packages/task`).
+
+`GET /api/automations/with-history` (`AutomationService.list_automations_with_recent_checks`) —
+та же страница, что `GET /api/automations/`, но каждая автоматизация приходит с последними
+`RECENT_CHECKS_LIMIT` (5) строками `AutomationCheckLog`, новые сначала. Реализовано без N+1:
+`AutomationCheckLogRepository.get_recent_by_automation_ids` берёт последние 5 тиков сразу для всех
+автоматизаций страницы одним запросом (`ROW_NUMBER() OVER (PARTITION BY automation_id ORDER BY
+checked_at DESC)`, `WHERE rn <= 5`), а не по отдельному запросу на автоматизацию. Роутер регистрирует
+`GET /with-history` **до** `GET /{automation_id}` — иначе Starlette сопоставил бы `with-history` с
+динамическим `{automation_id}` (структурное совпадение "один сегмент пути") раньше, чем со
+статическим маршрутом, и отдавал бы `422` при попытке провалидировать `"with-history"` как `UUID`.
 
 ## Не входит в эту итерацию
 

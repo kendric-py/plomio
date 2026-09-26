@@ -103,3 +103,17 @@ class AutomationHistoryResponse(BaseModel):
 class AutomationHistoryListResponse(BaseModel):
     items: list[AutomationHistoryResponse] = Field(description='Тики проверок на текущей странице')
     meta: PaginationMeta = Field(description='Метаданные пагинации')
+
+
+class AutomationWithHistoryResponse(AutomationResponse):
+    recent_checks: list[AutomationHistoryResponse] = Field(
+        description='Последние (не более 5) тики проверок этой автоматизации, новые сначала',
+    )
+
+
+class AutomationWithHistoryListResponse(BaseModel):
+    items: list[AutomationWithHistoryResponse] = Field(
+        description='Автоматизации пользователя на текущей странице, каждая — с последними '
+        'проверками',
+    )
+    meta: PaginationMeta = Field(description='Метаданные пагинации')

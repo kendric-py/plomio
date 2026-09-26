@@ -43,6 +43,7 @@ TRACKED_FIELDS: tuple[tuple[TrackedField, TrackedFieldKind, str | None, str], ..
 DISPATCH_PRIORITY = 5
 DISPATCH_TTL = timedelta(minutes=10)
 CHECK_TASK_RESULT_LIMIT = 1
+RECENT_CHECKS_LIMIT = 5
 
 
 class AutomationService:
@@ -193,6 +194,37 @@ class AutomationService:
             )
             total = await transaction.automation_repository.count_by_user_id(user_id=user_id)
         return automations, total
+
+    async def list_automations_with_recent_checks(
+        self,
+        user_id: int,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[tuple[AutomationEntity, list[AutomationCheckLogEntity]]], int]:
+        """Same page of automations as `list_automations`, each paired with its last
+        `RECENT_CHECKS_LIMIT` check-log ticks (newest first) — one extra batched query
+        (`AutomationCheckLogRepository.get_recent_by_automation_ids`), not one query per
+        automation."""
+
+        async with self.transaction_manager(
+            use_automation_repository=True,
+            use_automation_check_log_repository=True,
+        ) as transaction:
+            automations = await transaction.automation_repository.get_by_user_id(
+                user_id=user_id, limit=limit, offset=offset,
+            )
+            total = await transaction.automation_repository.count_by_user_id(user_id=user_id)
+            recent_checks_by_automation_id = (
+                await transaction.automation_check_log_repository.get_recent_by_automation_ids(
+                    automation_ids=[automation.id for automation in automations],
+                    limit_per_automation=RECENT_CHECKS_LIMIT,
+                )
+            )
+        items = [
+            (automation, recent_checks_by_automation_id.get(automation.id, []))
+            for automation in automations
+        ]
+        return items, total
 
     async def list_history(
         self,
