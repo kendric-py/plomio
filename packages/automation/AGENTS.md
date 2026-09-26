@@ -254,7 +254,10 @@ tasks (..., automation_id) VALUES (...)`, эта вторая сессия за�
 
 `GET /api/automations/with-history` (`AutomationService.list_automations_with_recent_checks`) —
 та же страница, что `GET /api/automations/`, но каждая автоматизация приходит с последними
-`RECENT_CHECKS_LIMIT` (5) строками `AutomationCheckLog`, новые сначала. Реализовано без N+1:
+`RECENT_CHECKS_LIMIT` (5) строками `AutomationCheckLog`, новые сначала, **включая `snapshot`**
+(`AutomationRecentCheckResponse` в `apps/api/src/routers/automation/schema.py` — расширяет
+`AutomationHistoryResponse` этим единственным полем; `GET /api/automations/{id}/history` snapshot
+по-прежнему не отдаёт). Реализовано без N+1:
 `AutomationCheckLogRepository.get_recent_by_automation_ids` берёт последние 5 тиков сразу для всех
 автоматизаций страницы одним запросом (`ROW_NUMBER() OVER (PARTITION BY automation_id ORDER BY
 checked_at DESC)`, `WHERE rn <= 5`), а не по отдельному запросу на автоматизацию. Роутер регистрирует

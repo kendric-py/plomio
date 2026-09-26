@@ -105,8 +105,18 @@ class AutomationHistoryListResponse(BaseModel):
     meta: PaginationMeta = Field(description='Метаданные пагинации')
 
 
+class AutomationRecentCheckResponse(AutomationHistoryResponse):
+    """Тик проверки в составе GET /api/automations/with-history — тот же набор полей, что
+    AutomationHistoryResponse, плюс snapshot (не отдаётся в GET /{id}/history)."""
+
+    snapshot: dict | None = Field(
+        description='Снимок всех восьми отслеживаемых полей карточки на момент этого тика; null '
+        'при неуспешном тике',
+    )
+
+
 class AutomationWithHistoryResponse(AutomationResponse):
-    recent_checks: list[AutomationHistoryResponse] = Field(
+    recent_checks: list[AutomationRecentCheckResponse] = Field(
         description='Последние (не более 5) тики проверок этой автоматизации, новые сначала',
     )
 

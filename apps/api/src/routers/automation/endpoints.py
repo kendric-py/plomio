@@ -10,6 +10,7 @@ from apps.api.src.routers.automation.schema import (
     AutomationHistoryListResponse,
     AutomationHistoryResponse,
     AutomationListResponse,
+    AutomationRecentCheckResponse,
     AutomationResponse,
     AutomationWithHistoryListResponse,
     AutomationWithHistoryResponse,
@@ -107,7 +108,7 @@ async def list_automations_with_history(
                     obj=automation, from_attributes=True,
                 ).model_dump(),
                 recent_checks=[
-                    AutomationHistoryResponse.model_validate(obj=check, from_attributes=True)
+                    AutomationRecentCheckResponse.model_validate(obj=check, from_attributes=True)
                     for check in recent_checks
                 ],
             )
