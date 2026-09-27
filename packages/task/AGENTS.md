@@ -130,7 +130,8 @@ TTL: задача, не взятая в работу (`claim_next`) до ист�
 - `heartbeat(task_id, worker_id, lease_duration)` — обёртка над `TaskRepository.heartbeat`,
   продлевает `lease_expires_at`, пока воркер обрабатывает задачу.
 - `reclaim_expired_leases()` — обёртка над `TaskRepository.reclaim_expired_leases`, вызывается
-  снаружи периодически (планировщиком).
+  снаружи периодически (`TASK_LEASE_RECLAIM_SWEEP`, `apps/api/src/jobs/task_lease_reclaim_sweep.py`,
+  `config.TASK.LEASE_RECLAIM_SWEEP_INTERVAL_SECONDS` — см. [`packages/cron/AGENTS.md`](../cron/AGENTS.md)).
 - `get_task_by_id(task_id)` — без проверки `user_id` (в отличие от `get_task_status`); внутренний
   вызов воркера для кооперативной проверки `PAUSED`/`CANCELLED` между страницами/батчами, не
   REST-контракт.

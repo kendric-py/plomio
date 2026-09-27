@@ -3,7 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from apps.api.src.container import DependencyContainer
 from apps.api.src.routers.auth.dependencies import get_client_ip
-from apps.api.src.routers.auth.schema import LoginRequest, RegisterRequest, StatusResponse, TokenResponse
+from apps.api.src.routers.auth.schema import (
+    LoginRequest,
+    RegisterRequest,
+    StatusResponse,
+    TokenResponse,
+)
 from packages.auth.src.exceptions import InvalidCredentialsError, UserAlreadyExistsError
 from packages.auth.src.security import create_access_token
 from packages.auth.src.service import AuthService

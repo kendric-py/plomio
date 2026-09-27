@@ -54,6 +54,9 @@ class TaskConfig(BaseSettings):
 
     # Как часто сканируем QUEUED-задачи с истёкшим queue_expires_at и переводим их в EXPIRED.
     EXPIRY_SWEEP_INTERVAL_SECONDS: float = Field(default=30.0)
+    # Как часто сканируем RUNNING-задачи с истёкшей арендой (lease_expires_at) и возвращаем их в
+    # QUEUED — детект упавшего/зависшего воркера (см. packages/task/AGENTS.md, "Lease/heartbeat").
+    LEASE_RECLAIM_SWEEP_INTERVAL_SECONDS: float = Field(default=30.0)
 
 
 class AutomationConfig(BaseSettings):

@@ -12,6 +12,7 @@ from apps.api.src.jobs.automation_history_retention_sweep import (
 )
 from apps.api.src.jobs.automation_result_sweep import build_automation_result_sweep_job
 from apps.api.src.jobs.task_expiry_sweep import build_task_expiry_sweep_job
+from apps.api.src.jobs.task_lease_reclaim_sweep import build_task_lease_reclaim_sweep_job
 from apps.api.src.jobs.worker_heartbeat_sweep import build_sweep_job
 from apps.api.src.routers.router import api_router
 from packages.cron.src.enums import CronJobName
@@ -46,6 +47,18 @@ def configure_rest_server() -> FastAPI:
                 job=CronJobName.TASK_EXPIRY_SWEEP,
                 interval_seconds=config.TASK.EXPIRY_SWEEP_INTERVAL_SECONDS,
                 func=task_expiry_job,
+                cron_job_service=container.cron_job_service(),
+            ),
+        )
+
+        task_lease_reclaim_job = build_task_lease_reclaim_sweep_job(
+            task_service=container.task_service(),
+        )
+        task_lease_reclaim_task = asyncio.create_task(
+            run_periodic(
+                job=CronJobName.TASK_LEASE_RECLAIM_SWEEP,
+                interval_seconds=config.TASK.LEASE_RECLAIM_SWEEP_INTERVAL_SECONDS,
+                func=task_lease_reclaim_job,
                 cron_job_service=container.cron_job_service(),
             ),
         )
@@ -93,12 +106,14 @@ def configure_rest_server() -> FastAPI:
         yield
         sweep_task.cancel()
         task_expiry_task.cancel()
+        task_lease_reclaim_task.cancel()
         automation_dispatch_task.cancel()
         automation_result_sweep_task.cancel()
         automation_history_retention_sweep_task.cancel()
         await asyncio.gather(
             sweep_task,
             task_expiry_task,
+            task_lease_reclaim_task,
             automation_dispatch_task,
             automation_result_sweep_task,
             automation_history_retention_sweep_task,

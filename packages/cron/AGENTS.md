@@ -9,17 +9,25 @@ Generic-обвязка для периодических job'ов, выполн�
 
 ## Почему это домен, а не просто функция в apps/api
 
-В проекте уже есть минимум один документированный, но не подключённый кандидат на периодический
-запуск — `TaskService.reclaim_expired_leases()` (`packages/task/AGENTS.md`, "вызывается снаружи
-периодически (планировщиком)" — такого планировщика не существовало). Heartbeat-проверка
-(`packages/worker_health`) — второй. Раз есть два независимых потребителя одного и того же
-паттерна "выполнить и залогировать запуск", это генерализуется в отдельную область, а не
-дублируется в каждом job'е отдельно.
+В проекте было минимум два независимых потребителя одного и того же паттерна "выполнить и
+залогировать запуск периодического job'а" — heartbeat-проверка (`packages/worker_health`) и
+`TaskService.reclaim_expired_leases()` (`packages/task/AGENTS.md`, "вызывается снаружи периодически
+(планировщиком)"). Это генерализовано в отдельную область, а не продублировано в каждом job'е.
 
-**На эту итерацию подключён только `WORKER_HEARTBEAT_SWEEP`** (`apps/api/src/jobs/
-worker_heartbeat_sweep.py`, запускается через `apps/api/src/server.py` lifespan). Подключение
-`reclaim_expired_leases` через тот же механизм — сознательно оставлено на будущее, не в этой
-итерации.
+Подключены (запускаются через `apps/api/src/server.py` lifespan, `asyncio.create_task` +
+`run_periodic`): `WORKER_HEARTBEAT_SWEEP` (`apps/api/src/jobs/worker_heartbeat_sweep.py`),
+`TASK_EXPIRY_SWEEP` (`apps/api/src/jobs/task_expiry_sweep.py`), `TASK_LEASE_RECLAIM_SWEEP`
+(`apps/api/src/jobs/task_lease_reclaim_sweep.py` → `TaskService.reclaim_expired_leases()`,
+`config.TASK.LEASE_RECLAIM_SWEEP_INTERVAL_SECONDS`), `AUTOMATION_DISPATCH`,
+`AUTOMATION_RESULT_SWEEP`, `AUTOMATION_HISTORY_RETENTION_SWEEP`.
+
+`TASK_LEASE_RECLAIM_SWEEP` было исторически "документировано, но не подключено" — задача, у
+которой воркер упал/потерял heartbeat, зависала в `RUNNING` навсегда (`lease_expires_at` истекал,
+но никто не переводил её обратно в `QUEUED`). Для проверочной задачи автоматизации это дополнительно
+блокировало саму автоматизацию: пока `pending_task_id` указывает на такую зависшую задачу,
+`AutomationRepository.claim_due_for_dispatch` не берёт эту автоматизацию в новый цикл (см.
+[`packages/automation/AGENTS.md`](../automation/AGENTS.md)) — автоматизация молча переставала
+проверяться вовсе, без явной ошибки.
 
 ## Модель `CronJobRun`
 
@@ -49,6 +57,9 @@ await run_periodic(CronJobName.WORKER_HEARTBEAT_SWEEP, interval_seconds, func, c
 крутит свой независимый таск с одинаковым интервалом. Для `WORKER_HEARTBEAT_SWEEP` это безопасно,
 потому что дедупликация самой записи о переходе состояния сделана на уровне
 `WorkerHeartbeatStore` (атомарные Redis `SADD`/`SREM`, см. `packages/worker_health/AGENTS.md`), а
-не на уровне "кто именно выполняет проверку". Job, для которого это не так (например, если бы
-`reclaim_expired_leases` не был идемпотентным на уровне SQL), потребовал бы отдельного анализа
-перед подключением сюда.
+не на уровне "кто именно выполняет проверку". Для `TASK_EXPIRY_SWEEP`/`TASK_LEASE_RECLAIM_SWEEP`
+безопасно по другой причине: `TaskRepository.expire_stale_queued`/`reclaim_expired_leases` — это
+каждый одно `UPDATE ... WHERE status = ... AND <дедлайн> <= now()`, идемпотентное на уровне SQL —
+несколько реплик, выполнившие его одновременно, просто переведут одно и то же (уже
+не удовлетворяющее `WHERE` после первого `UPDATE`) множество строк, без двойной обработки одной
+строки и без гонки за "кто именно выполняет проверку".
