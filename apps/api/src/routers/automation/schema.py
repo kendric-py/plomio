@@ -66,6 +66,17 @@ class AutomationResponse(BaseModel):
     created_at: datetime = Field(description='Время создания автоматизации')
 
 
+class AutomationDetailResponse(AutomationResponse):
+    """GET /api/automations/{id} — та же форма, что AutomationResponse, плюс last_info (не входит
+    в остальные ручки, где отдаётся AutomationResponse: create/list/pause/resume/update_baseline
+    не делают лишний запрос за снимком ради поля, которое там никто не читает)."""
+
+    last_info: dict | None = Field(
+        description='Снимок всех восьми отслеживаемых полей карточки на момент последней '
+        'успешной проверки; null, если ни одна проверка ещё не завершилась успехом',
+    )
+
+
 class AutomationListResponse(BaseModel):
     items: list[AutomationResponse] = Field(description='Автоматизации пользователя на текущей странице')
     meta: PaginationMeta = Field(description='Метаданные пагинации')

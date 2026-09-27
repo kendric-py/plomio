@@ -7,6 +7,7 @@ from apps.api.src.config import config
 from apps.api.src.container import DependencyContainer
 from apps.api.src.routers.auth.dependencies import get_current_user
 from apps.api.src.routers.automation.schema import (
+    AutomationDetailResponse,
     AutomationHistoryListResponse,
     AutomationHistoryResponse,
     AutomationListResponse,
@@ -126,9 +127,9 @@ async def get_automation(
     automation_service: AutomationService = Depends(
         Provide[DependencyContainer.automation_service],
     ),
-) -> AutomationResponse:
+) -> AutomationDetailResponse:
     try:
-        automation = await automation_service.get_automation(
+        automation, last_info = await automation_service.get_automation(
             automation_id=automation_id, user_id=current_user.id,
         )
     except ObjectNotFoundError as error:
@@ -136,7 +137,10 @@ async def get_automation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='Automation not found',
         ) from error
-    return AutomationResponse.model_validate(obj=automation, from_attributes=True)
+    return AutomationDetailResponse(
+        **AutomationResponse.model_validate(obj=automation, from_attributes=True).model_dump(),
+        last_info=last_info,
+    )
 
 
 @router.patch('/{automation_id}/baseline')

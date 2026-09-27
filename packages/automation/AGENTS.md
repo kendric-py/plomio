@@ -252,6 +252,15 @@ tasks (..., automation_id) VALUES (...)`, эта вторая сессия за�
 `GET /api/automations/{id}/history` — все владелец-only (`ObjectNotFoundError` при
 чужой/несуществующей автоматизации, как в `packages/task`).
 
+`GET /api/automations/{id}` (`AutomationDetailResponse` — расширяет `AutomationResponse`
+единственным полем `last_info`) — снимок всех восьми `TRACKED_FIELDS` на момент **последней
+успешной** проверки (`AutomationCheckLogRepository.get_latest_succeeded(automation_id).snapshot`,
+`None` — ни одна проверка ещё не завершилась успехом), в дополнение к скалярным
+`in_stock`/`baseline_*` полям самой `Automation`. Больше нигде не отдаётся — остальные ручки,
+возвращающие `AutomationResponse` (`create`/`list`/`pause`/`resume`/`update_baseline`), не делают
+лишний запрос ради поля, которое там не нужно; за снимками *истории* тиков — `GET /with-history`
+(`snapshot` на каждом из последних 5 тиков) или `GET /{id}/history` (без `snapshot`, см. выше).
+
 `GET /api/automations/with-history` (`AutomationService.list_automations_with_recent_checks`) —
 та же страница, что `GET /api/automations/`, но каждая автоматизация приходит с последними
 `RECENT_CHECKS_LIMIT` (5) строками `AutomationCheckLog`, новые сначала, **включая `snapshot`**

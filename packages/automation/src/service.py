@@ -175,12 +175,32 @@ class AutomationService:
             await transaction.automation_repository.delete(entity_id=automation_id)
             await self.transaction_manager.commit()
 
-    async def get_automation(self, automation_id: UUID, user_id: int) -> AutomationEntity:
-        async with self.transaction_manager(use_automation_repository=True) as transaction:
+    async def get_automation(
+        self,
+        automation_id: UUID,
+        user_id: int,
+    ) -> tuple[AutomationEntity, dict | None]:
+        """Returns the automation alongside `last_info` — the `snapshot` of its last succeeded
+        check (`AutomationCheckLogRepository.get_latest_succeeded`), `None` if no check has
+        succeeded yet. Separate from the automation row itself: `Automation` only carries
+        derived/scalar fields (`in_stock`, baseline_*) updated by `finalize_check`, not the full
+        product-card snapshot — that lives only on `AutomationCheckLog` rows."""
+
+        async with self.transaction_manager(
+            use_automation_repository=True,
+            use_automation_check_log_repository=True,
+        ) as transaction:
             automation = await transaction.automation_repository.get_by_id(entity_id=automation_id)
             if automation.user_id != user_id:
                 raise ObjectNotFoundError
-            return automation
+
+            latest_succeeded = (
+                await transaction.automation_check_log_repository.get_latest_succeeded(
+                    automation_id=automation_id,
+                )
+            )
+        last_info = latest_succeeded.snapshot if latest_succeeded else None
+        return automation, last_info
 
     async def list_automations(
         self,
