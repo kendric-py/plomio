@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import timedelta
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,11 +13,13 @@ from apps.api.src.jobs.automation_history_retention_sweep import (
 )
 from apps.api.src.jobs.automation_result_sweep import build_automation_result_sweep_job
 from apps.api.src.jobs.task_expiry_sweep import build_task_expiry_sweep_job
+from apps.api.src.jobs.notification_delivery_sweep import build_notification_delivery_sweep_job
 from apps.api.src.jobs.task_lease_reclaim_sweep import build_task_lease_reclaim_sweep_job
 from apps.api.src.jobs.worker_heartbeat_sweep import build_sweep_job
 from apps.api.src.routers.router import api_router
 from packages.cron.src.enums import CronJobName
 from packages.cron.src.scheduler import run_periodic
+from packages.notifications.src.telegram_polling import run_telegram_polling
 
 
 def configure_rest_server() -> FastAPI:
@@ -53,6 +56,7 @@ def configure_rest_server() -> FastAPI:
 
         task_lease_reclaim_job = build_task_lease_reclaim_sweep_job(
             task_service=container.task_service(),
+            requeue_ttl=timedelta(seconds=config.TASK.LEASE_RECLAIM_REQUEUE_TTL_SECONDS),
         )
         task_lease_reclaim_task = asyncio.create_task(
             run_periodic(
@@ -103,6 +107,30 @@ def configure_rest_server() -> FastAPI:
                 cron_job_service=container.cron_job_service(),
             ),
         )
+        notification_delivery_sweep_job = build_notification_delivery_sweep_job(
+            notification_service=container.notification_service(),
+            batch_size=config.NOTIFICATIONS.DELIVERY_SWEEP_BATCH_SIZE,
+        )
+        notification_delivery_sweep_task = asyncio.create_task(
+            run_periodic(
+                job=CronJobName.NOTIFICATION_DELIVERY_SWEEP,
+                interval_seconds=config.NOTIFICATIONS.DELIVERY_SWEEP_INTERVAL_SECONDS,
+                func=notification_delivery_sweep_job,
+                cron_job_service=container.cron_job_service(),
+            ),
+        )
+        # Long polling — временное решение (см. packages/notifications/AGENTS.md, "Привязка
+        # Telegram"): безопасно только для одной реплики apps/api, в отличие от cron-джобов выше.
+        # Пустой TELEGRAM_BOT_TOKEN — привязка Telegram выключена, задача не запускается.
+        telegram_polling_task = None
+        if config.TELEGRAM.BOT_TOKEN:
+            telegram_polling_task = asyncio.create_task(
+                run_telegram_polling(
+                    bot_token=config.TELEGRAM.BOT_TOKEN,
+                    notification_service=container.notification_service(),
+                ),
+            )
+
         yield
         sweep_task.cancel()
         task_expiry_task.cancel()
@@ -110,6 +138,9 @@ def configure_rest_server() -> FastAPI:
         automation_dispatch_task.cancel()
         automation_result_sweep_task.cancel()
         automation_history_retention_sweep_task.cancel()
+        notification_delivery_sweep_task.cancel()
+        if telegram_polling_task is not None:
+            telegram_polling_task.cancel()
         await asyncio.gather(
             sweep_task,
             task_expiry_task,
@@ -117,6 +148,8 @@ def configure_rest_server() -> FastAPI:
             automation_dispatch_task,
             automation_result_sweep_task,
             automation_history_retention_sweep_task,
+            notification_delivery_sweep_task,
+            *([telegram_polling_task] if telegram_polling_task is not None else []),
             return_exceptions=True,
         )
 

@@ -11,6 +11,7 @@ from packages.automation.src.exceptions import DuplicateAutomationError, Invalid
 from packages.billing.src.enums import PricingDimension, ReferenceType
 from packages.billing.src.exceptions import InsufficientCreditsError
 from packages.billing.src.service import BillingService
+from packages.notifications.src.formatting import format_changes_text
 from packages.notifications.src.service import NotificationService
 from packages.result.src.entities import ProductPagePayload
 from packages.result.src.service import ResultService
@@ -39,6 +40,21 @@ TRACKED_FIELDS: tuple[tuple[TrackedField, TrackedFieldKind, str | None, str], ..
     (TrackedField.REVIEW_COUNT, TrackedFieldKind.NUMERIC, None, 'review_count'),
     (TrackedField.SELLER_NAME, TrackedFieldKind.TEXT, None, 'seller_name'),
 )
+
+# TrackedField -> the "{name}" prefix used for its {name}_old/{name}_new notification template
+# variables (packages/notifications/src/template_catalog.py::TEMPLATE_VARIABLES for
+# automation.change_detected) — kept alongside TRACKED_FIELDS since it's the same field list, just
+# named for template authors rather than for ProductPagePayload/Automation attribute access.
+TRACKED_FIELD_VARIABLE_NAMES: dict[TrackedField, str] = {
+    TrackedField.PRICE: 'price',
+    TrackedField.DISCOUNTED_PRICE: 'discounted_price',
+    TrackedField.ORIGINAL_PRICE: 'original_price',
+    TrackedField.IN_STOCK: 'in_stock',
+    TrackedField.TITLE: 'title',
+    TrackedField.RATING: 'rating',
+    TrackedField.REVIEW_COUNT: 'review_count',
+    TrackedField.SELLER_NAME: 'seller_name',
+}
 
 DISPATCH_PRIORITY = 5
 DISPATCH_TTL = timedelta(minutes=10)
@@ -287,13 +303,20 @@ class AutomationService:
             )
             await self.transaction_manager.commit()
 
+        # One batched balance lookup for every distinct user in this dispatch batch instead of one
+        # has_positive_balance() round trip per automation — several claimed automations commonly
+        # belong to the same user (multiple monitored products).
+        balances_by_user_id = await self.billing_service.get_balances(
+            user_ids=list({automation.user_id for automation in claimed_automations}),
+        )
+
         dispatched_count = 0
         for automation in claimed_automations:
             # next_check_at was already advanced by claim_due_for_dispatch above regardless of
             # this guard — an automation skipped here for insufficient credits simply sits out
             # this cycle and is reconsidered at its next (already-advanced) next_check_at, not
             # retried immediately; see packages/billing/AGENTS.md.
-            if not await self.billing_service.has_positive_balance(user_id=automation.user_id):
+            if balances_by_user_id.get(automation.user_id, 0) <= 0:
                 async with self.transaction_manager(use_automation_repository=True) as transaction:
                     await transaction.automation_repository.finalize_check(
                         automation_id=automation.id,
@@ -325,6 +348,17 @@ class AutomationService:
         return {'dispatched': dispatched_count}
 
     async def process_pending_results(self, batch_size: int) -> dict:
+        # notify() calls are collected here and only fired after this transaction commits (below,
+        # outside the `async with` block) — see packages/notifications/AGENTS.md, "Кто сейчас
+        # вызывает notify" / packages/automation/AGENTS.md, "Композиция сервисов и транзакции".
+        # Calling notify() from inside _finalize_check while this transaction was still open let a
+        # later automation's failure in the same batch roll back an earlier automation's
+        # AutomationCheckLog write and pending_task_id clearing, while that earlier automation's
+        # NotificationDelivery (written and committed by NotificationService's own, separate
+        # transaction) survived — an orphaned notification for a tick the DB no longer has any
+        # record of, and a duplicate one on the next sweep once pending_task_id never cleared.
+        pending_notifications: list[dict] = []
+
         async with self.transaction_manager(
             use_automation_repository=True,
             use_automation_check_log_repository=True,
@@ -333,11 +367,20 @@ class AutomationService:
                 limit=batch_size,
             )
 
+            # One batched fetch for every pending task in this sweep batch instead of one
+            # get_task_by_id() round trip per automation.
+            tasks_by_id = {
+                task.id: task
+                for task in await self.task_service.get_tasks_by_ids(
+                    task_ids=[automation.pending_task_id for automation in awaiting_automations],
+                )
+            }
+
             processed_count = 0
             changes_detected_count = 0
             for automation in awaiting_automations:
-                task = await self.task_service.get_task_by_id(task_id=automation.pending_task_id)
-                if task.status not in (
+                task = tasks_by_id.get(automation.pending_task_id)
+                if task is None or task.status not in (
                     TaskStatus.SUCCEEDED,
                     TaskStatus.FAILED,
                     TaskStatus.EXPIRED,
@@ -345,11 +388,18 @@ class AutomationService:
                 ):
                     continue
 
-                changes_detected_count += await self._finalize_check(
+                changes_detected, notify_call = await self._finalize_check(
                     transaction=transaction, automation=automation, task_status=task.status,
                 )
+                changes_detected_count += changes_detected
+                if notify_call is not None:
+                    pending_notifications.append(notify_call)
                 processed_count += 1
             await self.transaction_manager.commit()
+
+        for notify_call in pending_notifications:
+            await self.notification_service.notify(**notify_call)
+
         return {'processed': processed_count, 'changes_detected': changes_detected_count}
 
     async def _finalize_check(
@@ -357,17 +407,25 @@ class AutomationService:
         transaction: AsyncTransactionManager,
         automation: AutomationEntity,
         task_status: TaskStatus,
-    ) -> int:
+    ) -> tuple[int, dict | None]:
         """Записывает ровно одну строку AutomationCheckLog на каждый финализируемый тик,
         независимо от исхода (успех/провал/успех без изменений), в отличие от прежнего поведения
         (строка только при успехе с реальным изменением). has_changes считается относительно
         снимка ПРЕДЫДУЩЕГО успешного тика, threshold_breached — относительно baseline на
-        Automation, как раньше (см. AGENTS.md, "Семантика базовой цены")."""
+        Automation, как раньше (см. AGENTS.md, "Семантика базовой цены"). Returns
+        `(changes_detected, notify_call)` — `notify_call` is the `**kwargs` for
+        `NotificationService.notify(...)` if `has_changes or threshold_breached`, else `None`; the
+        caller (`process_pending_results`) is responsible for actually calling `notify()`, and only
+        after its own transaction commits — this method must stay side-effect-free with respect to
+        anything outside `transaction`."""
 
         succeeded = task_status == TaskStatus.SUCCEEDED
         error_message: str | None = None
         last_check_error: str | None = None
         snapshot: dict | None = None
+        previous_snapshot: dict | None = None
+        product_name: str | None = None
+        product_link: str | None = None
         changes: list[dict] = []
         has_changes = False
         threshold_breached = False
@@ -380,17 +438,20 @@ class AutomationService:
             if results:
                 payload = ProductPagePayload.model_validate(results[0].payload)
                 snapshot = self._build_snapshot(payload=payload)
+                product_name = payload.title
+                product_link = payload.product_url
 
                 previous_log = (
                     await transaction.automation_check_log_repository.get_latest_succeeded(
                         automation_id=automation.id,
                     )
                 )
+                previous_snapshot = previous_log.snapshot if previous_log else None
                 changes, threshold_breached, baseline_updates = (
                     self._diff_against_previous_and_baseline(
                         automation=automation,
                         payload=payload,
-                        previous_snapshot=previous_log.snapshot if previous_log else None,
+                        previous_snapshot=previous_snapshot,
                     )
                 )
                 has_changes = bool(changes)
@@ -421,20 +482,33 @@ class AutomationService:
             baseline_updates=baseline_updates,
         )
 
+        notify_call: dict | None = None
         if has_changes or threshold_breached:
-            await self.notification_service.notify(
-                user_id=automation.user_id,
-                event_code='automation.change_detected',
-                payload={
-                    'automation_id': str(automation.id),
-                    'changes': changes,
-                    'has_changes': has_changes,
-                    'threshold_breached': threshold_breached,
-                },
-                changed_fields=[change['field'] for change in changes],
-            )
+            notify_payload = {
+                'automation_id': str(automation.id),
+                'product_name': product_name,
+                'link': product_link,
+                'changes': changes,
+                'changes_text': format_changes_text(changes=changes),
+                'threshold_breached': threshold_breached,
+            }
+            for field, _kind, _baseline_attribute, _payload_attribute in TRACKED_FIELDS:
+                variable_name = TRACKED_FIELD_VARIABLE_NAMES[field]
+                notify_payload[f'{variable_name}_old'] = (
+                    previous_snapshot.get(field.value) if previous_snapshot else None
+                )
+                notify_payload[f'{variable_name}_new'] = (
+                    snapshot.get(field.value) if snapshot else None
+                )
 
-        return 1 if has_changes else 0
+            notify_call = {
+                'user_id': automation.user_id,
+                'event_code': 'automation.change_detected',
+                'payload': notify_payload,
+                'changed_fields': [change['field'] for change in changes],
+            }
+
+        return (1 if has_changes else 0), notify_call
 
     def _build_snapshot(self, payload: ProductPagePayload) -> dict:
         """Снимок всех TrackedField из текущего payload — сохраняется на этой строке лога и

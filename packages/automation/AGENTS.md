@@ -186,9 +186,18 @@ Wildberries `in_stock = totalQuantity > 0` — надёжно работает �
 
    В обоих случаях — `pending_task_id` очищается (`AutomationRepository.finalize_check`, сырой
    `UPDATE`, так как `BaseRepository.update` не умеет обнулять поле через `exclude_none=True`).
-   После записи лога, вне открытой транзакции: если `has_changes or threshold_breached` — один
-   вызов `notification_service.notify(event_code='automation.change_detected', payload={...,
-   'has_changes': ..., 'threshold_breached': ...}, changed_fields=[c['field'] for c in changes])`
+   Если `has_changes or threshold_breached` — `_finalize_check` **не зовёт** `notify()` сам, а
+   возвращает готовый набор `**kwargs` для него; `process_pending_results` копит эти наборы по
+   всем автоматизациям батча и вызывает `notification_service.notify(event_code='automation.
+   change_detected', payload={..., 'threshold_breached': ...}, changed_fields=[c['field'] for c in
+   changes])` для каждого только **после** `await self.transaction_manager.commit()` — то есть вне
+   открытой транзакции, см. "Композиция сервисов и транзакции" ниже. Раньше `_finalize_check` звал
+   `notify()` прямо из середины цикла внутри ещё не закоммиченной транзакции — если `_finalize_
+   check` следующей автоматизации в том же батче падал с исключением, откатывались `AutomationCheckLog`
+   и `finalize_check` уже обработанных автоматизаций этого батча, а их `NotificationDelivery`
+   (записанная отдельной, уже закоммиченной транзакцией `NotificationService`) — нет: уведомление
+   уходило про тик, которого по данным БД не существует, а на следующей развёртке та же
+   автоматизация обрабатывалась заново (`pending_task_id` не очистился) и слала дубль.
    (единый `event_code` на оба случая — `threshold_breached` всегда подразумевает `has_changes`,
    получатель различает их по `payload`/по фильтру полей в своей подписке). См.
    [`packages/notifications/AGENTS.md`](../notifications/AGENTS.md).
@@ -276,10 +285,10 @@ checked_at DESC)`, `WHERE rn <= 5`), а не по отдельному запр�
 
 ## Не входит в эту итерацию
 
-- Реальная отправка уведомлений (Telegram и т.п.) — доменная область `packages/notifications`
-  существует и вызывается отсюда (`notify('automation.change_detected', ...)`), но сама отправка
-  ещё не реализована — только фиксация факта в БД (`NotificationDelivery.status = PENDING`).
-  `User.telegram_id` (`packages/user`) уже предусмотрен под это в модели.
+- Реальная отправка уведомлений — не здесь, `packages/automation` только вызывает `notify
+  ('automation.change_detected', ...)`; отправка в Telegram и перевод `PENDING → SENT/FAILED`
+  реализованы в `packages/notifications` (`NotificationService.dispatch_pending`, см.
+  [`packages/notifications/AGENTS.md`](../notifications/AGENTS.md)).
 - Отслеживание изменений карточки сверх восьми уже перечисленных в `TRACKED_FIELDS` полей
   (например, описания, фото, характеристик). Если появится — добавить в `TRACKED_FIELDS`/
   `TrackedField` по тому же образцу, что `TITLE`/`RATING`/`REVIEW_COUNT`/`SELLER_NAME`.

@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
-from core.configs import PostgresConfig, RedisConfig
+from core.configs import PostgresConfig, RedisConfig, TelegramConfig
 
 # Load this app's .env into the real process environment (not just this module's own
 # settings) — independent of cwd, and before any other module (e.g. packages.auth,
@@ -57,6 +57,12 @@ class TaskConfig(BaseSettings):
     # Как часто сканируем RUNNING-задачи с истёкшей арендой (lease_expires_at) и возвращаем их в
     # QUEUED — детект упавшего/зависшего воркера (см. packages/task/AGENTS.md, "Lease/heartbeat").
     LEASE_RECLAIM_SWEEP_INTERVAL_SECONDS: float = Field(default=30.0)
+    # queue_expires_at пересчитывается на now() + этот TTL при реклейме, тем же приёмом, что
+    # resume_task — задача могла проработать в RUNNING дольше своего исходного queue_expires_at
+    # (выставленного один раз в create_task), и без пересчёта claim_next (WHERE queue_expires_at >
+    # now) никогда не подхватил бы её обратно — ближайший expire_stale_queued() тихо перевёл бы её
+    # в EXPIRED вместо повторной попытки.
+    LEASE_RECLAIM_REQUEUE_TTL_SECONDS: float = Field(default=3600.0)
 
 
 class AutomationConfig(BaseSettings):
@@ -85,13 +91,29 @@ class AutomationConfig(BaseSettings):
     OUT_OF_STOCK_CHECK_FREQUENCY_MINUTES: int = Field(default=5)
 
 
+class NotificationsConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=ENV_FILE,
+        env_file_encoding='utf-8',
+        env_prefix='NOTIFICATIONS_',
+        extra='ignore',
+    )
+
+    # Как часто сканируем PENDING notification_deliveries и пытаемся их отправить.
+    DELIVERY_SWEEP_INTERVAL_SECONDS: float = Field(default=10.0)
+    # Сколько доставок забираем за один проход job'а (см. NotificationDeliveryRepository.claim_pending).
+    DELIVERY_SWEEP_BATCH_SIZE: int = Field(default=50)
+
+
 class Config(BaseSettings):
     REST: RestConfig = Field(default_factory=RestConfig)
     POSTGRES: PostgresConfig = Field(default_factory=PostgresConfig)
     REDIS: RedisConfig = Field(default_factory=RedisConfig)
+    TELEGRAM: TelegramConfig = Field(default_factory=TelegramConfig)
     WORKER_HEALTH: WorkerHealthConfig = Field(default_factory=WorkerHealthConfig)
     TASK: TaskConfig = Field(default_factory=TaskConfig)
     AUTOMATION: AutomationConfig = Field(default_factory=AutomationConfig)
+    NOTIFICATIONS: NotificationsConfig = Field(default_factory=NotificationsConfig)
 
     class Config:
         env_file = ENV_FILE

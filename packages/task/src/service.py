@@ -387,15 +387,25 @@ class TaskService:
             await self.transaction_manager.commit()
         return expired_count
 
-    async def reclaim_expired_leases(self) -> int:
+    async def reclaim_expired_leases(self, requeue_ttl: timedelta) -> int:
         async with self.transaction_manager(use_task_repository=True) as transaction:
-            reclaimed_count = await transaction.task_repository.reclaim_expired_leases()
+            reclaimed_count = await transaction.task_repository.reclaim_expired_leases(
+                requeue_ttl=requeue_ttl,
+            )
             await self.transaction_manager.commit()
         return reclaimed_count
 
     async def get_task_by_id(self, task_id: UUID) -> TaskEntity:
         async with self.transaction_manager(use_task_repository=True) as transaction:
             return await transaction.task_repository.get_by_id(entity_id=task_id)
+
+    async def get_tasks_by_ids(self, task_ids: list[UUID]) -> list[TaskEntity]:
+        """Batched counterpart of `get_task_by_id` — one query for a whole set of task ids instead
+        of one per id (used by `AutomationService.process_pending_results` to avoid an N+1 lookup
+        per awaiting automation in the same result-sweep batch)."""
+
+        async with self.transaction_manager(use_task_repository=True) as transaction:
+            return await transaction.task_repository.get_by_ids(entity_ids=task_ids)
 
     async def get_task_items(self, task_id: UUID) -> list[TaskItemEntity]:
         async with self.transaction_manager(use_task_item_repository=True) as transaction:

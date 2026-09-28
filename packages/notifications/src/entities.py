@@ -6,6 +6,29 @@ from pydantic import BaseModel, Field
 from packages.notifications.src.enums import NotificationChannel, NotificationDeliveryStatus
 
 
+class NotificationTemplateVariableEntity(BaseModel):
+    """Значение одной записи `packages.notifications.src.template_catalog.TEMPLATE_VARIABLES` —
+    не сущность БД (это код-владеемый каталог, не таблица), доменный value object, переиспользуемый
+    и сервисом, и REST-схемой."""
+
+    field: Optional[str] = Field(
+        default=None,
+        description='Имя поля, на которое подписывает использование этой переменной в шаблоне '
+        '(см. NotificationService.notify, "Фильтрация по переменным шаблона"); null — переменная '
+        'контекстная, ни на что не подписывает',
+    )
+    description: str = Field(
+        default='',
+        description='Человекочитаемое описание переменной для UI — что именно она подставляет '
+        '(например, "Цена со скидкой на предыдущей проверке")',
+    )
+    is_money: bool = Field(
+        default=False,
+        description='Значение переменной — сумма в копейках; при рендере в шаблон подставляется '
+        'как рубли (например, 150000 -> "1 500,00 ₽"), а не сырое число копеек',
+    )
+
+
 class NotificationEventEntity(BaseModel):
     event_code: Optional[str] = Field(default=None, description='Код типа события (PK)')
     description: Optional[str] = Field(default=None, description='Описание события для UI')
@@ -31,6 +54,12 @@ class NotificationEventPreference(BaseModel):
         default=None,
         description='Подмножество available_fields события; null/пусто — уведомлять по любому '
         'изменению, иначе только если затронуто хотя бы одно из перечисленных полей',
+    )
+    template: Optional[str] = Field(
+        default=None,
+        description='Пользовательский шаблон текста сообщения ({переменные} из ключей '
+        'NotificationEvent.template_variables); null — использовать встроенный текст по '
+        'умолчанию (packages.notifications.src.formatting)',
     )
 
 

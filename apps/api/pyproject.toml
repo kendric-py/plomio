@@ -8,7 +8,7 @@ package-mode = false
 [tool.poetry.dependencies]
 python = "^3.12"
 fastapi = "^0.141.1"
-pydantic = "^2.13.5"
+pydantic = ">=2.4.1,<2.12"
 pydantic-settings = "^2.15.0"
 uvicorn = "^0.53.0"
 sqlalchemy = "^2.0.54"
@@ -19,6 +19,7 @@ dependency-injector = "^4.49.1"
 asyncpg = "^0.31.0"
 redis = "^5.2.0"
 greenlet = "^3.5.6"
+aiogram = "^3.15.0"
 
 [build-system]
 requires = ["poetry-core"]

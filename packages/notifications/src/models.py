@@ -27,6 +27,13 @@ class NotificationEvent(BaseSQLModel):
     # понятия "поле", фильтр неприменим (task.* события).
     available_fields: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
 
+    # template_variables (какие {name} допустимы в пользовательском шаблоне этого события, и что
+    # каждая значит) НЕ хранится здесь — это код-владеемые метаданные, не БД-конфигурация: новая
+    # переменная в принципе не может появиться без изменения кода домена, который кладёт её в
+    # payload (packages/automation, packages/task), так что живёт как обычный Python-словарь —
+    # packages/notifications/src/template_catalog.py::TEMPLATE_VARIABLES, без миграций на каждое
+    # добавление/переименование. См. AGENTS.md, "Пользовательские шаблоны сообщений".
+
 
 class NotificationSetting(BaseSQLModel):
     """Настройки уведомлений — одна строка на пользователя (PK = user_id, по образцу
@@ -64,8 +71,9 @@ class NotificationSetting(BaseSQLModel):
 
 class NotificationDelivery(BaseSQLModel):
     """Append-only журнал "это уведомление нужно отправить" — тот же принцип, что
-    automation_check_log/credit_transactions. Никогда не обновляется этим доменом в этой итерации
-    (только будущий отправитель будет переводить status в SENT/FAILED)."""
+    automation_check_log/credit_transactions. `notify()` только создаёт строку в PENDING;
+    единственное место, обновляющее status/sent_at/failure_reason — `NotificationService.
+    dispatch_pending` (см. AGENTS.md, "Отправка")."""
 
     __tablename__ = 'notification_deliveries'
     __table_args__ = (

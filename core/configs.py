@@ -64,6 +64,27 @@ class RedisConfig(BaseSettings):
     PASSWORD: Optional[str] = Field(default=None)
 
 
+class TelegramConfig(BaseSettings):
+    """Telegram Bot API credentials — shared infrastructure config (like `RedisConfig`), since a
+    Telegram bot is a piece of deployment infrastructure, not something owned by
+    `packages/notifications` itself. Empty `BOT_TOKEN` (default) means sending is disabled — the
+    caller building the bot client is responsible for treating an empty token as "no-op", the same
+    convention as `LivenessConfig.ENDPOINT_URL`."""
+
+    model_config = SettingsConfigDict(
+        env_file='.env',
+        env_file_encoding='utf-8',
+        env_prefix='TELEGRAM_',
+        extra='ignore',
+    )
+
+    BOT_TOKEN: str = Field(default='')
+    # @username бота (без @) — используется только для сборки deep-link'а
+    # `https://t.me/{BOT_USERNAME}?start=<code>`, не для аутентификации запросов к Bot API.
+    BOT_USERNAME: str = Field(default='')
+    LINK_CODE_TTL_SECONDS: int = Field(default=600)
+
+
 class LivenessConfig(BaseSettings):
     """Process-level HTTP heartbeat config, shared by every worker app (`apps/worker_parser`,
     `apps/worker_sessions`) — was two independently hand-synced copies of the same class before.

@@ -87,9 +87,12 @@
 `packages/notifications` — сквозная доменная область, вызываемая изнутри `apps/api` (не отдельный
 процесс/поток данных): `packages/automation` и `packages/task` зовут её один раз при наступлении
 события (см. [`packages/notifications/AGENTS.md`](../../packages/notifications/AGENTS.md)).
-Зависимость односторонняя — `automation`/`task` → `notifications`, не наоборот. В этой итерации
-результат — запись в PostgreSQL (`notification_deliveries`, статус `PENDING`), без исходящего
-трафика; поток "реальная отправка" (HTTP к Telegram Bot API и т.п.) — будущая работа.
+Зависимость односторонняя — `automation`/`task` → `notifications`, не наоборот. `notify()` пишет
+`notification_deliveries` со статусом `PENDING`; реальная отправка — периодический job
+`NOTIFICATION_DELIVERY_SWEEP` (тот же принцип "тикает на event loop `apps/api`", не отдельный
+воркер/процесс, см. [`packages/cron`](../../packages/cron/AGENTS.md)), который переводит их в
+`SENT`/`FAILED` через Telegram Bot API (`aiogram`). Retry/backoff неудачной отправки — будущая
+работа, сейчас одна попытка на доставку.
 
 ## Роли и доступ
 

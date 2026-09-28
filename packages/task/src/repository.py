@@ -86,7 +86,7 @@ class TaskRepository(BaseRepository[Task, TaskEntity]):
         result = await self.session.execute(statement)
         return result.rowcount
 
-    async def reclaim_expired_leases(self) -> int:
+    async def reclaim_expired_leases(self, requeue_ttl: timedelta) -> int:
         now = datetime.now(tz=timezone.utc)
         statement = (
             update(self.model)
@@ -96,6 +96,12 @@ class TaskRepository(BaseRepository[Task, TaskEntity]):
                 claimed_by=None,
                 claimed_at=None,
                 lease_expires_at=None,
+                # Same reasoning as resume_task's queue_expires_at recompute: a reclaimed task may
+                # well have run past its original queue_expires_at (set once in create_task) before
+                # its worker died, so leaving it untouched would make claim_next never pick it back
+                # up and the next expire_stale_queued() sweep would flip it to EXPIRED instead of
+                # retrying it.
+                queue_expires_at=now + requeue_ttl,
             )
         )
         result = await self.session.execute(statement)
@@ -109,6 +115,14 @@ class TaskRepository(BaseRepository[Task, TaskEntity]):
             .values(lease_expires_at=now + lease_duration)
         )
         await self.session.execute(statement)
+
+    async def get_by_ids(self, entity_ids: list[UUID]) -> list[TaskEntity]:
+        if not entity_ids:
+            return []
+
+        statement = select(self.model).where(self.model.id.in_(entity_ids))
+        database_objects = await self.session.scalars(statement)
+        return self._to_entities(database_objects=database_objects)
 
     async def lock_by_id(self, entity_id: UUID) -> TaskEntity:
         """Row-level lock (`SELECT ... FOR UPDATE`, blocking — not `skip_locked`), held until the

@@ -9,6 +9,8 @@ from packages.automation.src.service import AutomationService
 from packages.billing.src.service import BillingService
 from packages.cron.src.service import CronJobService
 from packages.notifications.src.service import NotificationService
+from packages.notifications.src.telegram_client import build_telegram_notifier
+from packages.notifications.src.telegram_link_store import TelegramLinkStore
 from packages.result.src.service import ResultService
 from packages.sessions.src.redis_store import SessionPoolStore
 from packages.task.src.service import TaskService
@@ -42,9 +44,21 @@ class DependencyContainer(DeclarativeContainer):
         transaction_manager=transaction_manager,
     )
 
+    telegram_notifier = providers.Singleton(
+        build_telegram_notifier,
+        bot_token=config.TELEGRAM.BOT_TOKEN,
+    )
+
+    telegram_link_store = providers.Singleton(
+        TelegramLinkStore,
+        redis_config=config.REDIS,
+    )
+
     notification_service = providers.Factory(
         NotificationService,
         transaction_manager=transaction_manager,
+        telegram_notifier=telegram_notifier,
+        telegram_link_store=telegram_link_store,
     )
 
     task_service = providers.Factory(

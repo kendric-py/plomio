@@ -120,6 +120,14 @@ class BillingService:
     async def has_positive_balance(self, user_id: int) -> bool:
         return await self.get_balance(user_id=user_id) > 0
 
+    async def get_balances(self, user_ids: list[int]) -> dict[int, int]:
+        """Batched counterpart of `get_balance` — see `CreditWalletRepository.get_balances`. A
+        `user_id` absent from the returned dict has no wallet yet, i.e. balance 0 (same convention
+        as `get_balance`); callers should read via `.get(user_id, 0)`."""
+
+        async with self.transaction_manager(use_credit_wallet_repository=True) as transaction:
+            return await transaction.credit_wallet_repository.get_balances(user_ids=user_ids)
+
     async def list_transactions(
         self, user_id: int, limit: int, offset: int,
     ) -> tuple[list[CreditTransactionEntity], int]:

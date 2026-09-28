@@ -164,7 +164,7 @@ CORS настроен максимально открыто (`allow_origins=['*'
 | `display_name` | string | отображаемое имя (сейчас всегда совпадает с `email`) |
 | `email` | string | email |
 | `role` | enum | `client` \| `admin` (нижний регистр) |
-| `telegram_id` | int \| null | Telegram ID; `null` — пока не привязан (реальная привязка/отправка не реализована, поле зарезервировано) |
+| `telegram_id` | int \| null | Telegram ID; `null` — пока не привязан. Привязка — через `POST /api/notifications/telegram/link` (см. раздел `/api/notifications`), не через эту ручку — `PATCH`/`PUT` на `telegram_id` напрямую не существует |
 | `last_active_at` | datetime | время последней активности |
 | `created_at` | datetime | время создания аккаунта |
 
@@ -383,9 +383,10 @@ cancel/pause/resume):
 
 Автоматизация — периодическая проверка карточки товара: пользователь задаёт ссылку/артикул, порог
 падения цены и периодичность, система сама создаёт проверочные `PRODUCT_PAGE`-задачи (скрыты из
-`GET /api/tasks/`) и копит изменения восьми отслеживаемых полей карточки в истории. Реальная отправка
-уведомлений (Telegram и т.п.) в этой итерации не реализована — только фиксация факта в истории и
-журнале уведомлений (`GET /api/notifications/deliveries`, статус всегда `PENDING`).
+`GET /api/tasks/`) и копит изменения восьми отслеживаемых полей карточки в истории. Срабатывание
+записывается в историю и в журнал уведомлений (`GET /api/notifications/deliveries`) — реальная
+отправка в Telegram теперь тоже происходит (см. раздел `/api/notifications`), но требует, чтобы
+пользователь предварительно привязал Telegram и включил канал в настройках.
 
 ### `status` (`AutomationStatus`)
 
@@ -699,16 +700,50 @@ string | float | null`, тип зависит от `field`), `threshold_breached
 Все ручки требуют авторизации, владелец-only, без отдельного admin-роутера — настройки полностью
 принадлежат пользователю. Домен провайдер-агностичный и не привязан к конкретному типу задачи: любое
 событие (изменение карточки товара, завершение задачи) фиксируется здесь по общим правилам подписки
-пользователя. **Реальная отправка (Telegram и т.п.) в этой итерации не реализована** — только фиксация
-факта "уведомление нужно отправить" в журнале доставок (`status` всегда `PENDING`).
+пользователя, и затем реально отправляется в Telegram периодическим фоновым процессом (не мгновенно —
+см. `status` в `GET /api/notifications/deliveries`). Для получения уведомлений в Telegram
+пользователю нужно: 1) привязать Telegram (`POST /api/notifications/telegram/link`, см. ниже),
+2) включить нужные события/каналы в `PUT /api/notifications/preferences`.
 
 ### Каталог типов событий (сиды, `event_code` — первичный ключ)
 
-| `event_code` | Когда создаётся | `available_fields` | `payload` в `GET /api/notifications/deliveries` |
+| `event_code` | Когда создаётся | `available_fields` (фильтр подписки `fields`) | `payload` в `GET /api/notifications/deliveries` |
 |---|---|---|---|
-| `automation.change_detected` | тик проверки автоматизации дал `has_changes` или `threshold_breached` | все восемь значений `TrackedField` (`PRICE`, `DISCOUNTED_PRICE`, `ORIGINAL_PRICE`, `IN_STOCK`, `TITLE`, `RATING`, `REVIEW_COUNT`, `SELLER_NAME`) | `{"automation_id": ..., "changes": [...], "has_changes": ..., "threshold_breached": ...}` |
+| `automation.change_detected` | тик проверки автоматизации дал `has_changes` или `threshold_breached` | все восемь значений `TrackedField` (`PRICE`, `DISCOUNTED_PRICE`, `ORIGINAL_PRICE`, `IN_STOCK`, `TITLE`, `RATING`, `REVIEW_COUNT`, `SELLER_NAME`) | см. ниже |
 | `task.completed` | обычная (не проверочная) задача пользователя завершилась успехом | `null` (у задач нет понятия "поле") | `{"task_id": ..., "error_reason": null}` |
 | `task.failed` | обычная задача пользователя завершилась провалом | `null` | `{"task_id": ..., "error_reason": "item_failed"}` |
+
+`payload` события `automation.change_detected`:
+
+```json
+{
+  "automation_id": "...",
+  "product_name": "Наушники XYZ",
+  "link": "https://www.ozon.ru/product/...",
+  "changes": [{ "field": "DISCOUNTED_PRICE", "old_value": 150000, "new_value": 140000, "threshold_breached": true }],
+  "changes_text": "DISCOUNTED_PRICE: 1 500,00 ₽ → 1 400,00 ₽",
+  "threshold_breached": true,
+  "price_old": 160000, "price_new": 160000,
+  "discounted_price_old": 150000, "discounted_price_new": 140000,
+  "original_price_old": 170000, "original_price_new": 170000,
+  "in_stock_old": true, "in_stock_new": true,
+  "title_old": "Наушники XYZ", "title_new": "Наушники XYZ",
+  "rating_old": 4.5, "rating_new": 4.5,
+  "review_count_old": 120, "review_count_new": 120,
+  "seller_name_old": "ACME", "seller_name_new": "ACME"
+}
+```
+
+`{field}_old`/`{field}_new` присутствуют **всегда**, для всех восьми полей, даже если сработавшее
+изменение затронуло только одно из них (`_old` — значение на предыдущей успешной проверке, `null`
+на самом первом успешном тике автоматизации; `_new` — значение на этой проверке). **Цены в
+`payload` — в копейках, как и везде в API** (`price_old`/`price_new`/`discounted_price_old`/...),
+без конвертации; но при подстановке в `template` (см. ниже) или в `changes_text` они уже
+показываются в рублях (`"1 500,00 ₽"`, не `"150000"`) — конвертация происходит на бэкенде при
+рендере текста для Telegram, а не в самом `payload`. `changes_text` — уже готовая многострочная
+строка вида `"PRICE: 1 500,00 ₽ → 1 400,00 ₽\nRATING: 4.5 → 4.8"` (цены — в рублях, остальные поля
+— как есть), по одной строке на реально изменившееся поле (сырой `changes` для подстановки прямо в
+текстовый шаблон не годится — это структура, не текст, см. `template` ниже).
 
 Проверочные задачи автоматизаций (`Task.automation_id != null`) не порождают отдельных `task.*`
 событий — их завершение уже покрыто `automation.change_detected` того же тика, чтобы не дублировать
@@ -716,10 +751,16 @@ string | float | null`, тип зависит от `field`), `threshold_breached
 
 ### `NotificationChannel` / `NotificationDeliveryStatus`
 
-- `NotificationChannel` — сейчас единственное значение `TELEGRAM`. Реальная отправка не реализована,
-  канал существует только как значение в подписке/`payload`.
-- `NotificationDeliveryStatus` — `PENDING` \| `SENT` \| `FAILED`. В этой итерации создаются только
-  `PENDING`-записи, переход в `SENT`/`FAILED` не реализован.
+- `NotificationChannel` — сейчас единственное значение `TELEGRAM`.
+- `NotificationDeliveryStatus` — `PENDING` (создана, ждёт отправки) → `SENT` (успешно отправлена,
+  `sent_at` заполнен) \| `FAILED` (отправка не удалась, `failure_reason` заполнен — например,
+  `"telegram_id не привязан"`, если пользователь включил канал `TELEGRAM`, но так и не привязал
+  Telegram). Отправка происходит периодическим фоновым процессом с задержкой в несколько секунд
+  после создания записи — не мгновенно и не в рамках HTTP-запроса, породившего событие. **Одна
+  попытка на доставку** — `FAILED`-запись не переигрывается повторно (retry/backoff не реализован в
+  этой итерации). Текст сообщения (в т.ч. `template`, если задан) рендерится на момент фактической
+  отправки, а не на момент постановки в очередь — если пользователь поменяет `template` через
+  `PUT /preferences`, пока доставка ещё `PENDING`, отправится уже новый текст.
 
 ### `GET /api/notifications/events` — каталог активных типов событий
 
@@ -728,8 +769,42 @@ string | float | null`, тип зависит от `field`), `threshold_breached
 **Ответ `200`** (`NotificationEventListResponse`, без `meta`): `{ "items": [ /* NotificationEventResponse */ ] }`.
 
 `NotificationEventResponse`: `event_code` (string), `description` (string, для UI), `available_fields`
-(`string[] | null` — поля, по которым можно фильтровать подписку; `null`/пусто — у события нет понятия
-"поле"). Возвращает нужный набор для построения формы настроек без хардкода списка событий на клиенте.
+(`string[] | null` — поля, по которым можно фильтровать подписку через `fields`; `null`/пусто — у
+события нет понятия "поле"), `template_variables` (`dict[string, TemplateVariableResponse] | null`
+— карта `{переменная: {field, description, is_money}}`, допустимые `{переменные}` в
+пользовательском шаблоне этого события, см. `template` ниже; `null`/пусто целиком — у события нет
+переменных). `TemplateVariableResponse`: `field` (string \| null — непусто означает, что
+использование этой переменной в шаблоне подписывает уведомление именно на изменения этого поля, см.
+"Фильтрация по переменным шаблона" под `template` ниже; `null` — переменная контекстная, ни на что
+не подписывает), `description` (string — человекочитаемое объяснение для UI, что именно переменная
+показывает; **это готовый текст подсказки, показывать его пользователю рядом с полем ввода
+шаблона, не выдумывать свой**), `is_money` (bool — `true` значит, что в `payload` эта переменная —
+копейки, но в самом отправленном сообщении она уже подставится как рубли, например `"1 500,00 ₽"`;
+незачем показывать пользователю "копейки" в подсказке для такой переменной — он увидит и введёт её
+именно как цену). Например, для `automation.change_detected`:
+
+```json
+{
+  "product_name": { "field": null, "description": "Название товара на момент этой проверки", "is_money": false },
+  "link": { "field": null, "description": "Ссылка на карточку товара", "is_money": false },
+  "discounted_price_old": {
+    "field": "DISCOUNTED_PRICE",
+    "description": "Цена со скидкой на предыдущей успешной проверке",
+    "is_money": true
+  },
+  "discounted_price_new": {
+    "field": "DISCOUNTED_PRICE",
+    "description": "Цена со скидкой на этой проверке",
+    "is_money": true
+  }
+}
+```
+
+(полный список переменных `automation.change_detected` — в таблице `payload` события выше: то же
+множество ключей, только там значения — пример данных, а здесь — метаданные для формы настройки).
+
+Возвращает нужный набор для построения формы настроек без хардкода списка событий на клиенте — в
+т.ч. подсказку "доступные переменные" (`description` каждой) рядом с полем ввода шаблона.
 
 ### `GET /api/notifications/preferences` — текущие настройки пользователя
 
@@ -740,15 +815,21 @@ string | float | null`, тип зависит от `field`), `threshold_breached
 ```json
 {
   "preferences": {
-    "automation.change_detected": { "channels": ["TELEGRAM"], "fields": ["PRICE", "DISCOUNTED_PRICE"] },
-    "task.failed": { "channels": ["TELEGRAM"], "fields": null }
+    "automation.change_detected": {
+      "channels": ["TELEGRAM"],
+      "fields": null,
+      "template": "{product_name}\n\nЦена была: {discounted_price_old}\nЦена стала: {discounted_price_new}\n\nСсылка на товар: {link}"
+    },
+    "task.failed": { "channels": ["TELEGRAM"], "fields": null, "template": null }
   },
   "updated_at": "2026-09-20T10:00:00Z"
 }
 ```
 
-`preferences` — карта `{event_code: {channels, fields}}`. У нового пользователя карта пустая — это
-безопасный дефолт: без явной настройки уведомления по любому событию выключены.
+`preferences` — карта `{event_code: {channels, fields, template}}`. У нового пользователя карта
+пустая — это безопасный дефолт: без явной настройки уведомления по любому событию выключены.
+`template: null` — используется встроенный текст сообщения по умолчанию (см. таблицу каталога
+событий выше за примером готового текста для каждого `event_code`).
 
 ### `PUT /api/notifications/preferences` — полностью заменить настройки
 
@@ -759,18 +840,54 @@ string | float | null`, тип зависит от `field`), `threshold_breached
 
 | Поле | Тип | Обязательное | Описание |
 |---|---|---|---|
-| `preferences` | `dict[string, NotificationEventPreferenceItem]` | да | карта `{event_code: {channels, fields}}` |
+| `preferences` | `dict[string, NotificationEventPreferenceItem]` | да | карта `{event_code: {channels, fields, template}}` |
 
 `NotificationEventPreferenceItem`: `channels` (`NotificationChannel[]`, обязательное — пустой список
 = выключено для этого события), `fields` (`string[] | null`, опционально — подмножество
 `available_fields` события; `null`/пусто = уведомлять по любому срабатыванию, непустой список =
-только если оно затронуло хотя бы одно из перечисленных полей).
+только если оно затронуло хотя бы одно из перечисленных полей — **игнорируется, если задан
+`template`**, см. ниже), `template` (string \| null, опционально — свой текст сообщения; синтаксис
+`{name}` — подставляется значение переменной из `payload`, никаких `{name.attr}`/`{name[0]}`/
+`{name!r}`/форматирования, только плоская подстановка; допустимые имена — ключи `template_variables`
+этого события из `GET /api/notifications/events`; `null` = использовать встроенный текст по
+умолчанию).
+
+**Сообщения в Telegram отправляются с `parse_mode=HTML` (всегда, не настраивается).** Это значит,
+что **в тексте шаблона можно использовать HTML-теги Telegram** — `<b>жирный</b>`,
+`<i>курсив</i>`, `<a href="URL">текст ссылки</a>`, `<code>моноширинный</code>` и т.д. (полный
+список — [HTML-style в документации Bot API](https://core.telegram.org/bots/api#html-style)).
+Теги пишутся прямо в тексте шаблона, вокруг `{переменных}` или отдельно:
+`"<b>{product_name}</b>\nЦена: {discounted_price_new}"`. **Подставляемые значения переменных
+экранируются автоматически** — если название товара содержит символы `<`, `>` или `&`, они
+превратятся в тексте сообщения в `&lt;`/`&gt;`/`&amp;` и останутся видимым текстом, а не будут
+считаны как разметка; специально экранировать значения самостоятельно не нужно и не даст эффекта
+(экранирование бэкенд делает после подстановки, до отправки). Если в HTML-разметке шаблона
+допущена ошибка (например, незакрытый тег) — Telegram Bot API отклонит сообщение, и доставка
+получит `status: FAILED` с текстом ошибки парсинга в `failure_reason`.
+
+**Если `template` задан, он определяет и фильтр постановки в очередь — `fields` в этом случае не
+учитывается вовсе.** Эффективный фильтр — поля, на которые ссылаются реально использованные в
+шаблоне переменные (по карте `template_variables` события): доставка создаётся, только если
+сработавшее изменение затронуло хотя бы одно из них. Если ни одна использованная переменная не
+привязана к полю (например, шаблон использует только `{product_name}`/`{link}`) — фильтра нет
+вообще, уведомление приходит на любое срабатывание события, как и при `fields: null`. Пример: у
+события `automation.change_detected` шаблон `"{product_name}\n\nЦена была: {discounted_price_old}\n
+Цена стала: {discounted_price_new}"` использует `discounted_price_old`/`discounted_price_new`
+(→ `DISCOUNTED_PRICE`) и `product_name` (не привязан к полю) — уведомление придёт только когда
+сработавшее изменение включает `DISCOUNTED_PRICE`, даже если в `fields` этого же `preference`
+исторически осталось что-то другое (например `["RATING"]`, если такое значение задавали раньше) —
+оно в этом случае не используется.
 
 **Ответ `200`** — `NotificationPreferencesResponse` (новое актуальное состояние).
 
 - `422` — неизвестный или неактивный `event_code` в карте: `{"detail": "Unknown or inactive event_code in preferences"}`.
 - `422` — `fields` содержит значение вне `available_fields` этого события (или `fields` задан у
   события без `available_fields`): `{"detail": "fields must be a subset of the event's available_fields"}`.
+- `422` — `template` использует `{переменную}`, не входящую в ключи `template_variables` этого
+  события: `{"detail": "template variables must be a subset of the event's template_variables"}`.
+  Валидация — только по **именам** переменных, извлечённым из `{name}`, не по остальному тексту:
+  одиночная `{` без закрывающей или `{` перед не-идентификатором не считается переменной и не
+  отклоняется на сохранении — просто останется как есть в итоговом тексте при отправке.
 
 ### `GET /api/notifications/deliveries` — журнал поставленных в очередь уведомлений (постранично)
 
@@ -780,9 +897,35 @@ string | float | null`, тип зависит от `field`), `threshold_breached
 **Ответ `200`** (`NotificationDeliveryListResponse`): `{ "items": [ /* NotificationDeliveryResponse */ ], "meta": { ... } }`.
 
 `NotificationDeliveryResponse`: `id` (int), `event_code` (string), `channel` (enum
-`NotificationChannel`), `status` (enum `NotificationDeliveryStatus`, всегда `PENDING` в этой
-итерации), `payload` (dict, см. таблицу каталога событий выше), `created_at` (datetime, момент
+`NotificationChannel`), `status` (enum `NotificationDeliveryStatus`), `payload` (dict, см. таблицу
+каталога событий выше), `failure_reason` (string \| null, заполнен только при `status: FAILED`),
+`sent_at` (datetime \| null, заполнен только при `status: SENT`), `created_at` (datetime, момент
 постановки в очередь).
+
+### `POST /api/notifications/telegram/link` — сгенерировать ссылку для привязки Telegram
+
+Требует авторизации. Без тела запроса.
+
+**Ответ `200`** (`CreateTelegramLinkResponse`):
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `deep_link` | string | `https://t.me/<bot>?start=<code>` — открыть в браузере/приложении, ведёт прямо в чат с ботом |
+| `expires_in_seconds` | int | через сколько секунд код станет недействителен (по умолчанию 600) |
+
+**Флоу для UI**: показать пользователю кнопку/ссылку `deep_link` (или QR-код с этим URL). После
+перехода пользователь нажимает "Start" в Telegram — бот присылает подтверждение прямо в чат
+(текстом, не через API). **Отдельной ручки "проверить, привязался ли Telegram" нет** — фронту нужно
+поллить `GET /api/user/me` и следить за `telegram_id` (стал не `null`), либо просто попросить
+пользователя обновить страницу после подтверждения в Telegram.
+
+Код одноразовый и живёт `expires_in_seconds` — повторный вызов этой ручки выдаёт новый код (старый,
+если не был использован, просто протухнет по TTL, отдельно инвалидировать его не нужно). Если код уже
+устарел или пользователь кликнул старую ссылку — бот в Telegram ответит текстом об ошибке, HTTP здесь
+ни при чём (сама привязка происходит не через REST-запрос от фронта, а через сообщение боту).
+
+**Важно:** если этот Telegram-аккаунт уже привязан к **другому** пользователю SMPCrawl — бот в
+Telegram сообщит об этом и ничего не изменит; текущая привязка (если есть) не будет пересоздана.
 
 ---
 
@@ -876,9 +1019,19 @@ heartbeat-ручек воркеров).
   эту ручку.
 - **Отмена/пауза задач — не мгновенны по факту, только по статусу.** Планировать UI (спиннеры/дизейбл
   кнопок) с расчётом на секундную задержку.
-- **Реальная отправка уведомлений не реализована** — `GET /api/notifications/deliveries` всегда
-  показывает `status: PENDING`, ни Telegram, ни любая другая доставка не происходит. Строить на фронте
-  "непрочитанные уведомления" можно только поллингом этой ручки или `GET /api/automations/{id}/history`.
+- **Ретрая неудачной отправки нет** — `status: FAILED` в `GET /api/notifications/deliveries`
+  окончательный, повторной попытки не будет (например, если пользователь включил канал `TELEGRAM`, не
+  привязав Telegram, — доставка так и останется `FAILED` с этой причиной, пока он не привяжет Telegram
+  и не дождётся следующего события).
+- **Нет пуш/realtime-уведомлений на фронте** — только Telegram. Строить на фронте "непрочитанные
+  уведомления" можно только поллингом `GET /api/notifications/deliveries` или
+  `GET /api/automations/{id}/history`.
+- **Привязка Telegram — не REST-флоу целиком**: `POST /api/notifications/telegram/link` только
+  выдаёт ссылку, само подтверждение происходит в Telegram (сообщением от бота), не отдельным вызовом
+  API. Проверить, привязался ли Telegram, можно только по `telegram_id` в `GET /api/user/me`.
+  Привязка Telegram сейчас работает через long polling на бэкенде (не webhook) — задержка между
+  нажатием "Start" в Telegram и ответом бота обычно доли секунды, но при недоступности бэкенда
+  сообщения не выстроятся в очередь и потеряются, а не будут доставлены позже.
 - **Квот на количество/частоту задач и автоматизаций по пользователю нет** — только кредитный баланс
   (`GET /api/billing/balance`), любые лимиты сверх него сейчас не выражены в API и не проверяются.
 - **`GET /api/worker-health/*` и `GET /api/sessions/pool`** не привязаны к текущему пользователю — это

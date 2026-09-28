@@ -100,6 +100,23 @@ class CreditWalletRepository(BaseRepository[CreditWallet, CreditWalletEntity]):
             await self.session.flush()
         return self._to_entity(database_object=database_object)
 
+    async def get_balances(self, user_ids: list[int]) -> dict[int, int]:
+        """Batched counterpart of `get_by_id`/`BillingService.get_balance` — one query for a whole
+        set of users instead of one `SELECT` per user (used by `AutomationService.
+        dispatch_due_checks` to avoid an N+1 balance check per claimed automation in the same
+        dispatch batch). A `user_id` with no wallet row yet is simply absent from the returned
+        dict — same "no wallet = balance 0" semantics as `get_balance`, left to the caller via
+        `.get(user_id, 0)`."""
+
+        if not user_ids:
+            return {}
+
+        statement = select(self.model.user_id, self.model.balance).where(
+            self.model.user_id.in_(user_ids),
+        )
+        rows = await self.session.execute(statement)
+        return {row.user_id: row.balance for row in rows}
+
     async def adjust_balance(self, user_id: int, delta: int) -> int:
         """Applies `delta` to the wallet balance and returns the new balance. Caller must already
         hold the row lock from `lock_or_create` in the same transaction — this only applies the

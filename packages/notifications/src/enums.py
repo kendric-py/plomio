@@ -10,9 +10,19 @@ class NotificationChannel(str, Enum):
 
 
 class NotificationDeliveryStatus(str, Enum):
-    """Жизненный цикл поставленного в очередь уведомления. В этой итерации создаются только
-    PENDING — реальный отправитель (будущая работа) будет переводить строки в SENT/FAILED."""
+    """Жизненный цикл поставленного в очередь уведомления. `notify()` создаёт только PENDING;
+    `NotificationService.dispatch_pending` переводит строки в SENT/FAILED."""
 
     PENDING = 'PENDING'
     SENT = 'SENT'
     FAILED = 'FAILED'
+
+
+class TelegramLinkOutcome(str, Enum):
+    """Результат `NotificationService.confirm_telegram_link` — определяет, каким текстом бот
+    отвечает пользователю в Telegram (см. `packages.notifications.src.telegram_polling`)."""
+
+    LINKED = 'LINKED'
+    ALREADY_LINKED_SAME = 'ALREADY_LINKED_SAME'
+    ALREADY_LINKED_OTHER = 'ALREADY_LINKED_OTHER'
+    INVALID_CODE = 'INVALID_CODE'
