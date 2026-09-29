@@ -181,7 +181,12 @@ poll-лупом, вызывающим `TaskService.claim_next`; собствен
 — см. докстринг `build_services`) и передаёт их в `TaskService`. `NotificationService` нужен
 `TaskService.complete_item`, чтобы завершение задачи могло породить `task.completed`/`task.failed`
 уведомление (см. [`packages/task/AGENTS.md`](../../packages/task/AGENTS.md), "Уведомления") — воркер
-сам его не вызывает, только конструирует и передаёт. Воркер сам не вызывает `BillingService`
+сам его не вызывает, только конструирует и передаёт. `build_services` также передаёт
+`frontend_base_url=config.FRONTEND_BASE_URL` (`apps/worker_parser/src/config.py::Config`, `.env`:
+`FRONTEND_BASE_URL`) — **этот воркер, не `apps/api`, реально вызывает `complete_item`** для обычных
+(не проверочных) задач, поэтому `task_link` в payload `task.completed`/`task.failed` строится именно
+здесь, из своего собственного `.env`, а не из `apps/api`'s `REST_FRONTEND_BASE_URL` — два раздельных
+процесса/деплоймента, значение нужно задавать в обоих. Воркер сам не вызывает `BillingService`
 напрямую —
 списание за сохранённые результаты происходит внутри `TaskService.record_item_progress` (см.
 [`packages/task/AGENTS.md`](../../packages/task/AGENTS.md), "Тарификация"), воркер просто продолжает

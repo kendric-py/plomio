@@ -18,14 +18,18 @@ def verify_password(password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(user_id: int) -> str:
-    expires_at = datetime.now(tz=timezone.utc) + timedelta(minutes=auth_config.ACCESS_TOKEN_EXPIRE_MINUTES)
+    expires_at = datetime.now(tz=timezone.utc) + timedelta(
+        minutes=auth_config.ACCESS_TOKEN_EXPIRE_MINUTES,
+    )
     payload = {'sub': str(user_id), 'exp': expires_at}
     return jwt.encode(payload=payload, key=auth_config.SECRET_KEY, algorithm=auth_config.ALGORITHM)
 
 
 def decode_access_token(token: str) -> int:
     try:
-        payload = jwt.decode(jwt=token, key=auth_config.SECRET_KEY, algorithms=[auth_config.ALGORITHM])
+        payload = jwt.decode(
+            jwt=token, key=auth_config.SECRET_KEY, algorithms=[auth_config.ALGORITHM],
+        )
     except jwt.PyJWTError as error:
         raise InvalidTokenError from error
     return int(payload['sub'])

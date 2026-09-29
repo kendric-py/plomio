@@ -50,9 +50,9 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
         that locks them (`FOR UPDATE SKIP LOCKED`) — this is the whole claim, `pending_task_id` is
         set later by `set_pending_task`, in a separate transaction, once the check `Task` actually
         exists. The caller MUST commit right after this call, before creating any `Task` — holding
-        this row lock across that cross-session INSERT would deadlock against `tasks.automation_id`'s
-        FK, which needs to lock the very same automation row to validate its reference (see
-        packages/automation/AGENTS.md).
+        this row lock across that cross-session INSERT would deadlock against
+        `tasks.automation_id`'s FK, which needs to lock the very same automation row to validate
+        its reference (see packages/automation/AGENTS.md).
 
         An automation whose last check found the product out of stock (`in_stock = false`) is
         rescheduled after `out_of_stock_check_frequency_minutes` instead of its own

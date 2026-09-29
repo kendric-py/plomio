@@ -211,7 +211,13 @@ TTL: задача, не взятая в работу (`claim_next`) до ист�
 коммита транзакции (вне блока `async with`, отдельная сессия — тот же принцип, что описан в
 [`packages/automation/AGENTS.md`](../automation/AGENTS.md#композиция-сервисов-и-транзакции)) зовёт
 `notification_service.notify(event_code='task.completed'|'task.failed', payload={'task_id': ...,
-'error_reason': ...})`.
+'error_reason': ..., 'task_link': ..., 'result_count': ...})`. `task_link` — ссылка на страницу
+задачи в веб-интерфейсе (`{frontend_base_url}/tasks/{task_id}`, `TaskService.frontend_base_url`);
+`None`, если не задан. `result_count` — `sum(item.result_count for item in items)` по уже
+прочитанным (для проверки терминальности) сиблингам, тот же агрегат, что в `get_progress`.
+**Важно**: обычные задачи завершает `apps/worker_parser`, не `apps/api` — значение приходит из
+**его собственного** `.env` (`FRONTEND_BASE_URL`, не `apps/api`'s `REST_FRONTEND_BASE_URL`), см.
+[`packages/notifications/AGENTS.md`](../notifications/AGENTS.md#базовый-url-фронтенда).
 
 **Пропускается, если `Task.automation_id is not None`** — это внутренняя проверочная задача
 автоматизации (см. "`Task.automation_id`" в [`packages/automation/AGENTS.md`](../automation/AGENTS.md)),

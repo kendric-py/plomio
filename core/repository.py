@@ -47,7 +47,9 @@ class BaseRepository(
     BaseRepositoryInterface[EntityObject],
     Generic[DataBaseObject, EntityObject],
 ):
-    def __init__(self, model: type[DataBaseObject], entity_object: type[EntityObject], session: AsyncSession):
+    def __init__(
+        self, model: type[DataBaseObject], entity_object: type[EntityObject], session: AsyncSession,
+    ):
         self.model = model
         self.entity_object = entity_object
         self.session = session
@@ -100,7 +102,11 @@ class BaseRepository(
         return self._to_entity(database_object=database_object)
 
     async def retrieve_all_by_filter(self, entity: EntityObject) -> list[EntityObject]:
-        statement = select(self.model).filter_by(**entity.model_dump(exclude_none=True)).order_by(self.model.id)
+        statement = (
+            select(self.model)
+            .filter_by(**entity.model_dump(exclude_none=True))
+            .order_by(self.model.id)
+        )
         database_objects = await self.session.scalars(statement)
         return self._to_entities(database_objects=database_objects)
 

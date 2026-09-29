@@ -28,10 +28,12 @@ class TaskService:
         transaction_manager: AsyncTransactionManager,
         billing_service: BillingService,
         notification_service: NotificationService,
+        frontend_base_url: str = '',
     ):
         self.transaction_manager = transaction_manager
         self.billing_service = billing_service
         self.notification_service = notification_service
+        self.frontend_base_url = frontend_base_url
 
     async def create_task(
         self,
@@ -317,6 +319,11 @@ class TaskService:
                 payload={
                     'task_id': str(completed_item.task_id),
                     'error_reason': 'item_failed' if has_failed_items else None,
+                    'task_link': (
+                        f'{self.frontend_base_url}/tasks/{completed_item.task_id}'
+                        if self.frontend_base_url else None
+                    ),
+                    'result_count': sum(sibling.result_count or 0 for sibling in items),
                 },
             )
 

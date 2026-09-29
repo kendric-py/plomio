@@ -51,11 +51,14 @@ async def run_telegram_polling(bot_token: str, notification_service: Notificatio
 
     # handle_signals=False — this loop runs as one asyncio task inside apps/api's own process;
     # letting aiogram install its own SIGINT/SIGTERM handlers would fight uvicorn's, which already
-    # owns process-level shutdown (the lifespan cancels this task instead, see apps/api/src/server.py).
+    # owns process-level shutdown (the lifespan cancels this task instead, see
+    # apps/api/src/server.py).
     # parse_mode=HTML — same bot-wide default as TelegramNotifier (telegram_client.py), so the
     # link-confirmation replies below are parsed the same way; they're static strings with no
     # `<`/`&`, so no escaping is needed for them specifically.
     bot = Bot(
         token=bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    await dispatcher.start_polling(bot, notification_service=notification_service, handle_signals=False)
+    await dispatcher.start_polling(
+        bot, notification_service=notification_service, handle_signals=False,
+    )

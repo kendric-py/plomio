@@ -27,6 +27,7 @@ class RestConfig(BaseSettings):
     APP_PORT: int = Field(default=None)
     APP_TITLE: str = Field(default=None)
     PUBLIC_BASE_URL: str = Field(default_factory=str)
+    FRONTEND_BASE_URL: str = Field(default_factory=str)
 
 
 class WorkerHealthConfig(BaseSettings):
@@ -101,7 +102,8 @@ class NotificationsConfig(BaseSettings):
 
     # Как часто сканируем PENDING notification_deliveries и пытаемся их отправить.
     DELIVERY_SWEEP_INTERVAL_SECONDS: float = Field(default=10.0)
-    # Сколько доставок забираем за один проход job'а (см. NotificationDeliveryRepository.claim_pending).
+    # Сколько доставок забираем за один проход job'а
+    # (см. NotificationDeliveryRepository.claim_pending).
     DELIVERY_SWEEP_BATCH_SIZE: int = Field(default=50)
 
 

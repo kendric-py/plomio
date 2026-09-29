@@ -70,12 +70,14 @@ class AutomationService:
         result_service: ResultService,
         billing_service: BillingService,
         notification_service: NotificationService,
+        frontend_base_url: str = '',
     ):
         self.transaction_manager = transaction_manager
         self.task_service = task_service
         self.result_service = result_service
         self.billing_service = billing_service
         self.notification_service = notification_service
+        self.frontend_base_url = frontend_base_url
 
     async def create_automation(
         self,
@@ -488,6 +490,10 @@ class AutomationService:
                 'automation_id': str(automation.id),
                 'product_name': product_name,
                 'link': product_link,
+                'automation_link': (
+                    f'{self.frontend_base_url}/automations/{automation.id}'
+                    if self.frontend_base_url else None
+                ),
                 'changes': changes,
                 'changes_text': format_changes_text(changes=changes),
                 'threshold_breached': threshold_breached,

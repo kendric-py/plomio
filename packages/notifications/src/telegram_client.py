@@ -10,9 +10,9 @@ class TelegramNotifier:
 
     `parse_mode=HTML` is set once here as a bot-wide default (`DefaultBotProperties`), not passed
     per `send_message` call — every message this bot sends is parsed as HTML, letting a user's own
-    template contain `<b>`/`<i>`/`<a href=...>` markup. `formatting.py::render_template` HTML-escapes
-    every substituted value for exactly this reason — a product title containing `<`/`&` must not
-    be interpreted as markup or break the message's HTML structure."""
+    template contain `<b>`/`<i>`/`<a href=...>` markup. `formatting.py::render_template`
+    HTML-escapes every substituted value for exactly this reason — a product title containing
+    `<`/`&` must not be interpreted as markup or break the message's HTML structure."""
 
     def __init__(self, bot_token: str):
         self._bot = Bot(

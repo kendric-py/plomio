@@ -66,6 +66,7 @@ class DependencyContainer(DeclarativeContainer):
         transaction_manager=transaction_manager,
         billing_service=billing_service,
         notification_service=notification_service,
+        frontend_base_url=config.REST.FRONTEND_BASE_URL,
     )
 
     result_service = providers.Factory(
@@ -100,4 +101,5 @@ class DependencyContainer(DeclarativeContainer):
         result_service=result_service,
         billing_service=billing_service,
         notification_service=notification_service,
+        frontend_base_url=config.REST.FRONTEND_BASE_URL,
     )

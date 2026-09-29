@@ -202,7 +202,10 @@ class NotificationService:
             )
 
             for delivery in claimed_deliveries:
-                if delivery.channel != NotificationChannel.TELEGRAM or self.telegram_notifier is None:
+                if (
+                    delivery.channel != NotificationChannel.TELEGRAM
+                    or self.telegram_notifier is None
+                ):
                     skipped_count += 1
                     continue
 

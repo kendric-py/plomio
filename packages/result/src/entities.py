@@ -64,7 +64,8 @@ class ProductPagePayload(BaseModel):
     )
     price_kopecks: int | None = Field(default=None, description='Цена без скидки в копейках')
     original_price_kopecks: int | None = Field(
-        default=None, description='Оригинальная перечёркнутая цена в копейках (цена до скидки продавца)',
+        default=None,
+        description='Оригинальная перечёркнутая цена в копейках (цена до скидки продавца)',
     )
     rating: float | None = Field(default=None, description='Рейтинг товара')
     review_count: int | None = Field(default=None, description='Количество отзывов')

@@ -13,5 +13,7 @@ class UserEntity(BaseModel):
     hashed_password: Optional[str] = Field(default=None, description='Хэш пароля')
     role: Optional[UserRole] = Field(default=None, description='Роль пользователя')
     telegram_id: Optional[int] = Field(default=None, description='Telegram ID пользователя')
-    last_active_at: Optional[datetime] = Field(default=None, description='Время последней активности')
+    last_active_at: Optional[datetime] = Field(
+        default=None, description='Время последней активности',
+    )
     created_at: Optional[datetime] = Field(default=None, description='Время создания')

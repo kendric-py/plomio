@@ -73,10 +73,12 @@
   [`packages/automation/AGENTS.md`](../automation/AGENTS.md)) — после записи тика в
   `automation_check_log`, один вызов при `has_changes or threshold_breached`:
   `event_code='automation.change_detected'`, `payload={'automation_id': ..., 'product_name': ...,
-  'link': ..., 'changes': [...], 'changes_text': format_changes_text(changes),
-  'threshold_breached': ..., 'price_old': ..., 'price_new': ..., ...}` (плюс `{field}_old`/
-  `{field}_new` на каждое из восьми отслеживаемых полей — см. "Переменные `automation.change_
-  detected`" ниже), `changed_fields=[c['field'] for c in changes]`.
+  'link': ..., 'automation_link': ..., 'changes': [...], 'changes_text':
+  format_changes_text(changes), 'threshold_breached': ..., 'price_old': ..., 'price_new': ...,
+  ...}` (плюс `{field}_old`/`{field}_new` на каждое из восьми отслеживаемых полей — см.
+  "Переменные `automation.change_detected`" ниже), `changed_fields=[c['field'] for c in changes]`.
+  `automation_link` — ссылка на страницу автоматизации в веб-интерфейсе (`{FRONTEND_BASE_URL}
+  /automations/{automation_id}`), не путать с `link` (ссылка на карточку товара на маркетплейсе).
   Один `event_code` на оба случая — `threshold_breached` всегда подразумевает `has_changes`
   (поле, пробившее порог, всё равно попадает в `changes`), различать их отдельными событиями
   избыточно; получатель уведомления сам смотрит на `payload.threshold_breached`, если ему это
@@ -84,10 +86,15 @@
   подписки — например, подписаться только на `PRICE`/`DISCOUNTED_PRICE`. См.
   [`packages/automation/AGENTS.md`](../automation/AGENTS.md).
 - **`packages/task`** (`TaskService.complete_item`) — при переходе задачи в терминальный статус:
-  `event_code='task.completed'`/`'task.failed'`, `payload={'task_id': ..., 'error_reason': ...}`.
-  **Пропускается**, если `Task.automation_id is not None` — это внутренняя проверочная задача
-  автоматизации, её завершение уже обрабатывается событиями `automation.*` для того же тика,
-  повторное `task.*`-уведомление было бы дублем. См. [`packages/task/AGENTS.md`](../task/AGENTS.md).
+  `event_code='task.completed'`/`'task.failed'`, `payload={'task_id': ..., 'error_reason': ...,
+  'task_link': ..., 'result_count': ...}`. `task_link` — ссылка на страницу задачи в веб-интерфейсе
+  (`{FRONTEND_BASE_URL}/tasks/{task_id}`). `result_count` — суммарное количество собранных
+  результатов по всем `TaskItem` задачи на момент завершения (`sum(item.result_count for item in
+  items)`, тот же агрегат, что `TaskService.get_progress`, посчитанный на уже прочитанных сиблингах,
+  без дополнительного запроса). **Пропускается**, если `Task.automation_id is not None`
+  — это внутренняя проверочная задача автоматизации, её завершение уже обрабатывается событиями
+  `automation.*` для того же тика, повторное `task.*`-уведомление было бы дублем. См.
+  [`packages/task/AGENTS.md`](../task/AGENTS.md).
 
 Оба вызова — вне открытого `async with self.transaction_manager(...)`-блока вызывающего домена
 (после коммита его собственной транзакции), тот же принцип "композиции сервисов", что описан в
@@ -101,6 +108,32 @@
 подключаются в [`core.transaction_manager.AsyncTransactionManager`](../../core/transaction_manager.py)
 через `use_notification_event_repository=True`/`use_notification_setting_repository=True`/
 `use_notification_delivery_repository=True`.
+
+## Базовый URL фронтенда
+
+Базовый URL фронтенда, без завершающего `/`; фронтенд не живёт в этом репозитории, поэтому значение
+приходит только из конфига. Инжектируется как обычная строка (не `Config`-объект — домен не должен
+знать про REST-конфиг apps/api, тот же принцип, что у `telegram_notifier`/`telegram_link_store` в
+`NotificationService`), отдельно для каждого места, которое реально строит ссылку — **два разных
+процесса, два разных `.env`, значение нужно задать в обоих**:
+
+- `AutomationService.frontend_base_url` ← `config.REST.FRONTEND_BASE_URL`
+  (`apps/api/src/config.py::RestConfig`, `.env`: `REST_FRONTEND_BASE_URL`) — `AutomationService`
+  живёт только в `apps/api` (`AUTOMATION_RESULT_SWEEP` тикает на его event loop), поэтому для
+  `automation_link` этого единственного источника достаточно.
+- `TaskService.frontend_base_url` — **не всегда `apps/api`**: обычные (не проверочные) задачи
+  завершает `apps/worker_parser` (`TaskService.complete_item`, вызывается из `runner.py`, не из
+  `apps/api`), у него свой процесс и свой `.env` (`apps/worker_parser/src/config.py::Config.
+  FRONTEND_BASE_URL`, без REST-префикса — свой конфиг, не переиспользует `RestConfig`), собственный
+  от `apps/api`'s `REST_FRONTEND_BASE_URL`. `runner.py::build_services` передаёт его в
+  `TaskService` тем же способом, что `apps/api/src/container.py` — своей строкой, не объектом
+  конфига. Если задать `REST_FRONTEND_BASE_URL` только в `apps/api/.env`, `task_link` для обычных
+  задач всё равно останется `None` — нужно продублировать значение в `apps/worker_parser/.env`
+  (`FRONTEND_BASE_URL`). См. [`apps/worker_parser/AGENTS.md`](../../apps/worker_parser/AGENTS.md).
+
+Оба конструируют `task_link`/`automation_link` перед вызовом `notify()` — см.
+`TaskService.complete_item` и `AutomationService._finalize_check`. Пустая строка (не задан в `.env`)
+→ оба поля `None` в `payload`, а не URL с пустым хостом.
 
 ## REST
 
@@ -178,6 +211,9 @@ template`, часть той же карты `preferences`, что `channels`/`f
 - `product_name`, `link` — заголовок и ссылка карточки на момент **этого** тика
   (`ProductPagePayload.title`/`.product_url`), не привязаны ни к какому `TrackedField` — чисто
   контекст для текста сообщения, использование не подписывает ни на что.
+- `automation_link` — ссылка на страницу автоматизации в веб-интерфейсе (`{FRONTEND_BASE_URL}
+  /automations/{automation_id}`, см. "Базовый URL фронтенда" ниже), тоже не привязана ни к какому
+  `TrackedField`. `None`, если `FRONTEND_BASE_URL` не задан (рендерится как пустая строка).
 - **`{field}_old`/`{field}_new`** на каждое из восьми отслеживаемых полей (`price_old`/
   `price_new`, `discounted_price_old`/`discounted_price_new`, `original_price_old`/
   `original_price_new`, `in_stock_old`/`in_stock_new`, `title_old`/`title_new`, `rating_old`/

@@ -53,7 +53,9 @@ class NotificationSettingRepository(BaseRepository[NotificationSetting, Notifica
             await self.session.flush()
         return self._to_entity(database_object=database_object)
 
-    async def update_preferences(self, user_id: int, preferences: dict) -> NotificationSettingEntity:
+    async def update_preferences(
+        self, user_id: int, preferences: dict,
+    ) -> NotificationSettingEntity:
         database_object = await self.session.get(entity=self.model, ident=user_id)
         if database_object is None:
             database_object = self.model(user_id=user_id, preferences=preferences)

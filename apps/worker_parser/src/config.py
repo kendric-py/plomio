@@ -76,6 +76,12 @@ class Config(BaseSettings):
     )
 
     DEBUG: bool = Field(default=False)
+    # Базовый URL фронтенда (без завершающего /) — используется TaskService.complete_item, чтобы
+    # положить ссылку на страницу завершённой задачи в payload уведомления (см.
+    # packages/notifications/AGENTS.md, "Базовый URL фронтенда"). Тот же смысл, что
+    # apps.api.src.config.RestConfig.FRONTEND_BASE_URL — раздельные настройки, так как это отдельный
+    # процесс/деплоймент со своим .env, не общий конфиг с apps/api.
+    FRONTEND_BASE_URL: str = Field(default_factory=str)
 
     REDIS: RedisConfig = Field(default_factory=RedisConfig)
     POSTGRES: PostgresConfig = Field(default_factory=PostgresConfig)

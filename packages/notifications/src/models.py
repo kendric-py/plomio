@@ -86,7 +86,9 @@ class NotificationDelivery(BaseSQLModel):
     event_code: Mapped[str] = mapped_column(
         ForeignKey('notification_events.event_code', ondelete='CASCADE'), nullable=False,
     )
-    channel: Mapped[NotificationChannel] = mapped_column(SqlEnum(NotificationChannel), nullable=False)
+    channel: Mapped[NotificationChannel] = mapped_column(
+        SqlEnum(NotificationChannel), nullable=False,
+    )
     status: Mapped[NotificationDeliveryStatus] = mapped_column(
         SqlEnum(NotificationDeliveryStatus),
         nullable=False,

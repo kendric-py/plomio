@@ -78,7 +78,9 @@ class AutomationDetailResponse(AutomationResponse):
 
 
 class AutomationListResponse(BaseModel):
-    items: list[AutomationResponse] = Field(description='Автоматизации пользователя на текущей странице')
+    items: list[AutomationResponse] = Field(
+        description='Автоматизации пользователя на текущей странице',
+    )
     meta: PaginationMeta = Field(description='Метаданные пагинации')
 
 
@@ -104,7 +106,9 @@ class AutomationHistoryResponse(BaseModel):
     changes: list[TrackedFieldChangeItem] = Field(
         description='Поля, изменившиеся относительно предыдущего успешного тика',
     )
-    has_changes: bool = Field(description='Хотя бы одно поле изменилось относительно предыдущего тика')
+    has_changes: bool = Field(
+        description='Хотя бы одно поле изменилось относительно предыдущего тика',
+    )
     threshold_breached: bool = Field(
         description='Достигнут порог падения цены относительно базовой хотя бы по одному изменению',
     )

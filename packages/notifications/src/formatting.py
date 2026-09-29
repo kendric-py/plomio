@@ -138,18 +138,30 @@ def format_automation_change_detected(payload: dict) -> str:
     changes_text = payload.get('changes_text') or format_changes_text(payload.get('changes') or [])
     if changes_text:
         lines.append(_escape(changes_text))
+    if payload.get('automation_link'):
+        lines.append(_escape(payload['automation_link']))
     return '\n'.join(lines)
 
 
 def format_task_completed(payload: dict) -> str:
-    return f"✅ Задача {_escape(payload.get('task_id'))} завершена"
+    lines = [f"✅ Задача {_escape(payload.get('task_id'))} завершена"]
+    if payload.get('result_count') is not None:
+        lines.append(f"Результатов: {_escape(payload['result_count'])}")
+    if payload.get('task_link'):
+        lines.append(_escape(payload['task_link']))
+    return '\n'.join(lines)
 
 
 def format_task_failed(payload: dict) -> str:
-    return (
+    lines = [
         f"❌ Задача {_escape(payload.get('task_id'))} завершилась с ошибкой: "
-        f"{_escape(payload.get('error_reason'))}"
-    )
+        f"{_escape(payload.get('error_reason'))}",
+    ]
+    if payload.get('result_count') is not None:
+        lines.append(f"Результатов: {_escape(payload['result_count'])}")
+    if payload.get('task_link'):
+        lines.append(_escape(payload['task_link']))
+    return '\n'.join(lines)
 
 
 MESSAGE_FORMATTERS: dict[str, Callable[[dict], str]] = {

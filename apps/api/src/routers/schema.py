@@ -5,8 +5,8 @@ from pydantic import BaseModel, Field
 
 
 class PaginationMeta(BaseModel):
-    """Метаданные пагинации. Используется как последнее поле (`meta`) в любом постраничном REST-ответе
-    — сейчас в `TaskListResponse`/`TaskResultsResponse` (`routers/task/schema.py`) и
+    """Метаданные пагинации. Используется как последнее поле (`meta`) в любом постраничном
+    REST-ответе — сейчас в `TaskListResponse`/`TaskResultsResponse` (`routers/task/schema.py`) и
     `AutomationListResponse`/`AutomationHistoryListResponse` (`routers/automation/schema.py`)."""
 
     total: int = Field(description='Общее количество элементов')

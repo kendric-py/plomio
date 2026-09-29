@@ -116,7 +116,9 @@ class NotificationPreferencesResponse(BaseModel):
 class NotificationDeliveryListResponse(BaseModel):
     """Ответ GET /api/notifications/deliveries."""
 
-    items: list[NotificationDeliveryResponse] = Field(description='Записи журнала на текущей странице')
+    items: list[NotificationDeliveryResponse] = Field(
+        description='Записи журнала на текущей странице',
+    )
     meta: PaginationMeta = Field(description='Метаданные пагинации')
 
 

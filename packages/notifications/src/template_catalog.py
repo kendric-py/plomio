@@ -47,6 +47,9 @@ TEMPLATE_VARIABLES: dict[str, dict[str, NotificationTemplateVariableEntity]] = {
             description='Название товара',
         ),
         'link': NotificationTemplateVariableEntity(description='Ссылка на карточку товара'),
+        'automation_link': NotificationTemplateVariableEntity(
+            description='Ссылка на страницу автоматизации в веб-интерфейсе',
+        ),
         'changes_text': NotificationTemplateVariableEntity(
             description='Список всех изменившихся полей',
         ),
@@ -59,10 +62,22 @@ TEMPLATE_VARIABLES: dict[str, dict[str, NotificationTemplateVariableEntity]] = {
         'task_id': NotificationTemplateVariableEntity(
             description='Идентификатор завершённой задачи',
         ),
+        'task_link': NotificationTemplateVariableEntity(
+            description='Ссылка на страницу задачи в веб-интерфейсе',
+        ),
+        'result_count': NotificationTemplateVariableEntity(
+            description='Количество собранных результатов',
+        ),
     },
     'task.failed': {
         'task_id': NotificationTemplateVariableEntity(description='Идентификатор задачи'),
         'error_reason': NotificationTemplateVariableEntity(description='Причина ошибки задачи'),
+        'task_link': NotificationTemplateVariableEntity(
+            description='Ссылка на страницу задачи в веб-интерфейсе',
+        ),
+        'result_count': NotificationTemplateVariableEntity(
+            description='Количество собранных результатов',
+        ),
     },
 }
 

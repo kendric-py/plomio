@@ -189,8 +189,9 @@ Wildberries `in_stock = totalQuantity > 0` — надёжно работает �
    Если `has_changes or threshold_breached` — `_finalize_check` **не зовёт** `notify()` сам, а
    возвращает готовый набор `**kwargs` для него; `process_pending_results` копит эти наборы по
    всем автоматизациям батча и вызывает `notification_service.notify(event_code='automation.
-   change_detected', payload={..., 'threshold_breached': ...}, changed_fields=[c['field'] for c in
-   changes])` для каждого только **после** `await self.transaction_manager.commit()` — то есть вне
+   change_detected', payload={..., 'automation_link': ..., 'threshold_breached': ...},
+   changed_fields=[c['field'] for c in changes])` для каждого только **после**
+   `await self.transaction_manager.commit()` — то есть вне
    открытой транзакции, см. "Композиция сервисов и транзакции" ниже. Раньше `_finalize_check` звал
    `notify()` прямо из середины цикла внутри ещё не закоммиченной транзакции — если `_finalize_
    check` следующей автоматизации в том же батче падал с исключением, откатывались `AutomationCheckLog`
@@ -199,8 +200,11 @@ Wildberries `in_stock = totalQuantity > 0` — надёжно работает �
    уходило про тик, которого по данным БД не существует, а на следующей развёртке та же
    автоматизация обрабатывалась заново (`pending_task_id` не очистился) и слала дубль.
    (единый `event_code` на оба случая — `threshold_breached` всегда подразумевает `has_changes`,
-   получатель различает их по `payload`/по фильтру полей в своей подписке). См.
-   [`packages/notifications/AGENTS.md`](../notifications/AGENTS.md).
+   получатель различает их по `payload`/по фильтру полей в своей подписке). `automation_link` —
+   ссылка на страницу автоматизации в веб-интерфейсе (`{config.REST.FRONTEND_BASE_URL}
+   /automations/{automation_id}`, `AutomationService.frontend_base_url`, см.
+   [`packages/notifications/AGENTS.md`](../notifications/AGENTS.md#базовый-url-фронтенда)); `None`,
+   если `FRONTEND_BASE_URL` не задан. См. [`packages/notifications/AGENTS.md`](../notifications/AGENTS.md).
 4. **`AUTOMATION_HISTORY_RETENTION_SWEEP`** (`AutomationService.sweep_history_retention`) — раз в
    `config.AUTOMATION.HISTORY_RETENTION_SWEEP_INTERVAL_SECONDS`: удаляет строки
    `automation_check_log` старше `history_retention_days` **своей** автоматизации — один
