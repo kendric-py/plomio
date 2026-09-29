@@ -1,5 +1,3 @@
-from enum import Enum
-
 OZON_BASE_URL = 'https://www.ozon.ru'
 OZON_SEARCH_API = 'https://www.ozon.ru/api/entrypoint-api.bx/page/json/v2'
 OZON_RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({408, 425, 429, 500, 502, 503, 504})
@@ -19,7 +17,9 @@ OZON_FALLBACK_MANIFEST_VERSION = (
 )
 
 
-class OzonReviewSortOrder(str, Enum):
-    PUBLISHED_AT_DESC = 'published_at_desc'
-    SCORE_DESC = 'score_desc'
-    SCORE_ASC = 'score_asc'
+# Сортировки, реально применяемые Ozon на `{product}/reviews/`; `published_at_desc` Ozon молча
+# заменяет на `usefulness_desc` (проверено на живых ответах), поэтому его здесь нет. Первая — по
+# умолчанию, остальные — для обхода потолка страниц на одну сортировку.
+OZON_REVIEW_SORT_ORDERS: tuple[str, ...] = ('usefulness_desc', 'score_desc', 'score_asc')
+OZON_LISTING_HTTP_RETRIES = 2
+OZON_LISTING_BASE_DELAY = 0.5

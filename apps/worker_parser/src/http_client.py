@@ -13,6 +13,10 @@ from apps.worker_parser.src.exceptions import BlockedError, RequestError
 
 logger = logging.getLogger(__name__)
 
+# Сколько символов тела смотрим на признаки блокировки и кладём в `BlockedError`/текст ошибки.
+BODY_PREFIX_LENGTH = 8000
+ERROR_TEXT_LENGTH = 300
+
 
 async def execute_request(
     session: AsyncSession,
@@ -38,7 +42,7 @@ async def execute_request(
                 timeout=timeout, allow_redirects=True,
             )
             content_type = response.headers.get('content-type', '')
-            raw_body_prefix = response.text[:8000]
+            raw_body_prefix = response.text[:BODY_PREFIX_LENGTH]
             body_prefix = raw_body_prefix.lower()
             if is_blocked and is_blocked(response.status_code, content_type, body_prefix):
                 raise BlockedError(
@@ -59,7 +63,7 @@ async def execute_request(
                 continue
             if response.status_code >= 400:
                 raise RequestError(
-                    f'HTTP {response.status_code}: {response.text[:300]}',
+                    f'HTTP {response.status_code}: {response.text[:ERROR_TEXT_LENGTH]}',
                     status_code=response.status_code,
                     url=url,
                 )

@@ -1,11 +1,14 @@
 from datetime import datetime
 from urllib.parse import parse_qs, quote_plus, urlparse
 
-from curl_cffi.requests import AsyncSession
-
-from apps.worker_parser.src.entities import SessionMessage, WildberriesPaginationCursor
-from apps.worker_parser.src.exceptions import InputResolutionError, UpstreamDataError
-from apps.worker_parser.src.http_client import execute_request
+from apps.worker_parser.src.entities import Page, WbReviewCursor, WildberriesPaginationCursor
+from apps.worker_parser.src.exceptions import (
+    EmptyPageUnconfirmedError,
+    InputResolutionError,
+    SuspiciousThinResultError,
+    UpstreamDataError,
+)
+from apps.worker_parser.src.fetch_context import FetchContext
 from apps.worker_parser.src.marketplaces.wb.constants import (
     WB_BASE_URL,
     WB_CARD_API,
@@ -15,6 +18,7 @@ from apps.worker_parser.src.marketplaces.wb.constants import (
     WB_PAGE_SIZE,
     WB_RETRYABLE_STATUS_CODES,
     WB_SEARCH_API,
+    WB_SEARCH_PAGE_LIMIT_ERROR,
     WB_SEARCH_PARAMS_BASE,
     WB_SELLER_API,
     WB_SELLER_FILTERS_API,
@@ -40,6 +44,7 @@ from apps.worker_parser.src.marketplaces.wb.utils import (
     extract_wb_supplier_id_from_url,
     get_raw_wb_products,
     get_wb_card_json_url,
+    is_degraded_wb_listing,
     is_wb_blocked_response,
 )
 from core.enums import Marketplace
@@ -52,34 +57,50 @@ from packages.result.src.entities import (
 )
 
 
-async def _wb_warmup(http_session: AsyncSession, session_message: SessionMessage) -> None:
-    await execute_request(
-        http_session,
+async def _wb_warmup(ctx: FetchContext) -> None:
+    await ctx.request(
         'GET',
         WB_BASE_URL + '/',
-        extra_headers={**build_wb_navigation_headers(session_message), 'sec-fetch-site': 'none'},
+        extra_headers={
+            **build_wb_navigation_headers(ctx.session_message), 'sec-fetch-site': 'none',
+        },
         retryable_status_codes=WB_RETRYABLE_STATUS_CODES,
         is_blocked=is_wb_blocked_response,
     )
 
 
+def _guard_listing_payload(payload: dict, ctx: FetchContext, what: str) -> None:
+    """Сбои страницы выдачи WB (поиск, категория, продавец) — не конец выдачи:
+    - деградировавший ответ сессии (1 посторонний товар) → смена сессии и повтор страницы;
+    - первая пустая страница → проверка на другой сессии (`confirm_empty_page`); пустота и там —
+      настоящий конец. Повторы на той же сессии не помогают (проверено на живых ответах)."""
+    if is_degraded_wb_listing(payload):
+        raise SuspiciousThinResultError(f'degraded WB {what} response')
+    if 'products' in payload and not payload['products'] and not ctx.confirm_empty_page:
+        raise EmptyPageUnconfirmedError(f'empty WB {what} page, needs confirmation')
+
+
+def _end_of_search_or_fail(payload: dict, query: str) -> Page[ProductPayload]:
+    """Ответ-ошибка на страницу больше лимита WB — конец выдачи. Любая другая ошибка в теле
+    (HTTP при этом 200) — не конец, а сбой: молча оборвать выдачу нельзя."""
+    if WB_SEARCH_PAGE_LIMIT_ERROR in str(payload.get('error')):
+        return Page(items=[])
+    raise UpstreamDataError(f'WB search returned error for {query!r}: {payload.get("error")}')
+
+
 async def fetch_wb_search_page(
     query: str,
     cursor: WildberriesPaginationCursor | None,
-    limit: int | None,
-    seen_ids: set[int],
-    http_session: AsyncSession,
-    session_message: SessionMessage,
-) -> tuple[list[ProductPayload], WildberriesPaginationCursor | None]:
+    ctx: FetchContext,
+) -> Page[ProductPayload]:
     search_page_url = f'{WB_BASE_URL}/catalog/0/search.aspx?search={quote_plus(query)}'
     if cursor is None:
-        await _wb_warmup(http_session, session_message)
-        await execute_request(
-            http_session,
+        await _wb_warmup(ctx)
+        await ctx.request(
             'GET',
             search_page_url,
             extra_headers={
-                **build_wb_navigation_headers(session_message),
+                **build_wb_navigation_headers(ctx.session_message),
                 'referer': WB_BASE_URL + '/',
                 'sec-fetch-site': 'same-origin',
             },
@@ -90,54 +111,54 @@ async def fetch_wb_search_page(
 
     page_num = cursor.page_num + 1
     params = {**WB_SEARCH_PARAMS_BASE, 'query': query, 'page': str(page_num)}
-    response = await execute_request(
-        http_session,
+    response = await ctx.request(
         'GET',
         WB_SEARCH_API,
         params=params,
-        extra_headers=build_wb_api_headers(session_message, search_page_url),
+        extra_headers=build_wb_api_headers(ctx.session_message, search_page_url),
         retryable_status_codes=WB_RETRYABLE_STATUS_CODES,
         is_blocked=is_wb_blocked_response,
     )
     payload = response.json()
-    products = extract_wb_product_list(payload, limit, seen_ids)
-    raw_products = get_raw_wb_products(payload)
+    if 'error' in payload:
+        return _end_of_search_or_fail(payload, query)
+    _guard_listing_payload(payload, ctx, 'search')
+    products = extract_wb_product_list(payload, ctx.limit, ctx.seen_keys)
 
-    if not raw_products or len(raw_products) < WB_PAGE_SIZE:
-        return products, None
-    if limit is not None and len(products) >= limit:
-        return products, None
-    return products, WildberriesPaginationCursor(
-        marketplace=Marketplace.WILDBERRIES, page_num=page_num,
+    if not get_raw_wb_products(payload):
+        return Page(items=products)
+    if ctx.limit is not None and len(products) >= ctx.limit:
+        return Page(items=products)
+    return Page(
+        items=products,
+        next_cursor=WildberriesPaginationCursor(
+            marketplace=Marketplace.WILDBERRIES, page_num=page_num,
+        ),
     )
 
 
 async def fetch_wb_category_page(
     category_url: str,
     cursor: WildberriesPaginationCursor | None,
-    limit: int | None,
-    seen_ids: set[int],
-    http_session: AsyncSession,
-    session_message: SessionMessage,
-) -> tuple[list[ProductPayload], WildberriesPaginationCursor | None]:
+    ctx: FetchContext,
+) -> Page[ProductPayload]:
     parsed = urlparse(category_url)
     path = parsed.path.rstrip('/')
     url_params = {key: value[0] for key, value in parse_qs(parsed.query).items() if key != 'page'}
     base_category_url = WB_BASE_URL + path
 
     if cursor is None:
-        menu_queries = await load_wb_menu_search_queries(http_session, session_message)
+        menu_queries = await load_wb_menu_search_queries(ctx.http_session, ctx.session_message)
         search_query = menu_queries.get(path)
         if not search_query:
             raise InputResolutionError(f'Category not found in WB menu: {path}')
 
-        await _wb_warmup(http_session, session_message)
-        await execute_request(
-            http_session,
+        await _wb_warmup(ctx)
+        await ctx.request(
             'GET',
             base_category_url,
             extra_headers={
-                **build_wb_navigation_headers(session_message),
+                **build_wb_navigation_headers(ctx.session_message),
                 'referer': WB_BASE_URL + '/',
                 'sec-fetch-site': 'same-origin',
             },
@@ -145,12 +166,11 @@ async def fetch_wb_category_page(
             is_blocked=is_wb_blocked_response,
         )
         if url_params:
-            await execute_request(
-                http_session,
+            await ctx.request(
                 'GET',
                 category_url,
                 extra_headers={
-                    **build_wb_navigation_headers(session_message),
+                    **build_wb_navigation_headers(ctx.session_message),
                     'referer': base_category_url,
                     'sec-fetch-site': 'same-origin',
                 },
@@ -159,56 +179,55 @@ async def fetch_wb_category_page(
             )
         cursor = WildberriesPaginationCursor(marketplace=Marketplace.WILDBERRIES, page_num=0)
     else:
-        menu_queries = await load_wb_menu_search_queries(http_session, session_message)
+        menu_queries = await load_wb_menu_search_queries(ctx.http_session, ctx.session_message)
         search_query = menu_queries.get(path)
         if not search_query:
             raise InputResolutionError(f'Category not found in WB menu: {path}')
 
     page_num = cursor.page_num + 1
     params = {**WB_CATEGORY_PARAMS_BASE, **url_params, 'query': search_query, 'page': str(page_num)}
-    response = await execute_request(
-        http_session,
+    response = await ctx.request(
         'GET',
         WB_SEARCH_API,
         params=params,
-        extra_headers=build_wb_api_headers(session_message, category_url),
+        extra_headers=build_wb_api_headers(ctx.session_message, category_url),
         retryable_status_codes=WB_RETRYABLE_STATUS_CODES,
         is_blocked=is_wb_blocked_response,
     )
     payload = response.json()
-    products = extract_wb_product_list(payload, limit, seen_ids)
+    _guard_listing_payload(payload, ctx, 'category')
+    products = extract_wb_product_list(payload, ctx.limit, ctx.seen_keys)
     raw_products = get_raw_wb_products(payload)
 
     if not raw_products or len(raw_products) < WB_PAGE_SIZE:
-        return products, None
-    if limit is not None and len(products) >= limit:
-        return products, None
-    return products, WildberriesPaginationCursor(
-        marketplace=Marketplace.WILDBERRIES, page_num=page_num,
+        return Page(items=products)
+    if ctx.limit is not None and len(products) >= ctx.limit:
+        return Page(items=products)
+    return Page(
+        items=products,
+        next_cursor=WildberriesPaginationCursor(
+            marketplace=Marketplace.WILDBERRIES, page_num=page_num,
+        ),
     )
 
 
 async def fetch_wb_seller_page(
     seller_url: str,
     cursor: WildberriesPaginationCursor | None,
-    limit: int | None,
-    seen_ids: set[int],
-    http_session: AsyncSession,
-    session_message: SessionMessage,
-) -> tuple[list[ProductPayload], WildberriesPaginationCursor | None]:
+    ctx: FetchContext,
+) -> Page[ProductPayload]:
     supplier_id = extract_wb_supplier_id_from_url(seller_url)
     if supplier_id is None:
         raise InputResolutionError(f'Cannot extract supplier_id from URL: {seller_url!r}')
     seller_page_url = f'{WB_BASE_URL}/seller/{supplier_id}'
 
     if cursor is None:
-        await _wb_warmup(http_session, session_message)
-        await execute_request(
-            http_session,
+        await _wb_warmup(ctx)
+        await ctx.request(
             'GET',
             seller_page_url,
             extra_headers={
-                **build_wb_navigation_headers(session_message),
+                **build_wb_navigation_headers(ctx.session_message),
                 'referer': WB_BASE_URL + '/',
                 'sec-fetch-site': 'same-origin',
             },
@@ -221,61 +240,62 @@ async def fetch_wb_seller_page(
 
     page_num = cursor.page_num + 1
     params = {**WB_SELLER_PARAMS_BASE, 'supplier': str(supplier_id), 'page': str(page_num)}
-    response = await execute_request(
-        http_session,
+    response = await ctx.request(
         'GET',
         WB_SELLER_API,
         params=params,
-        extra_headers=build_wb_api_headers(session_message, seller_page_url),
+        extra_headers=build_wb_api_headers(ctx.session_message, seller_page_url),
         retryable_status_codes=WB_RETRYABLE_STATUS_CODES,
         is_blocked=is_wb_blocked_response,
     )
     payload = response.json()
+    _guard_listing_payload(payload, ctx, 'seller')
     total_on_site = payload.get('total', 0) if page_num == 1 else (cursor.total_on_site or 0)
-    products = extract_wb_product_list(payload, limit, seen_ids)
+    products = extract_wb_product_list(payload, ctx.limit, ctx.seen_keys)
     raw_products = get_raw_wb_products(payload)
     collected_so_far = (cursor.collected_so_far or 0) + len(products)
 
     if not raw_products or len(raw_products) < WB_PAGE_SIZE or collected_so_far >= total_on_site:
-        return products, None
-    if limit is not None and len(products) >= limit:
-        return products, None
-    return products, WildberriesPaginationCursor(
-        marketplace=Marketplace.WILDBERRIES,
-        page_num=page_num,
-        total_on_site=total_on_site,
-        collected_so_far=collected_so_far,
+        return Page(items=products)
+    if ctx.limit is not None and len(products) >= ctx.limit:
+        return Page(items=products)
+    return Page(
+        items=products,
+        next_cursor=WildberriesPaginationCursor(
+            marketplace=Marketplace.WILDBERRIES,
+            page_num=page_num,
+            total_on_site=total_on_site,
+            collected_so_far=collected_so_far,
+        ),
     )
 
 
 async def fetch_wb_product_page(
     product_url: str,
-    http_session: AsyncSession,
-    session_message: SessionMessage,
-) -> ProductPagePayload:
+    cursor: None,
+    ctx: FetchContext,
+) -> Page[ProductPagePayload]:
     nm_id = extract_wb_nm_id_from_url(product_url)
     if nm_id is None:
         raise InputResolutionError(f'cannot extract nm_id from {product_url!r}')
     size_option_id = extract_wb_size_option_id_from_url(product_url)
 
-    await execute_request(
-        http_session,
+    await ctx.request(
         'GET',
         product_url,
         extra_headers={
-            **build_wb_navigation_headers(session_message),
+            **build_wb_navigation_headers(ctx.session_message),
             'referer': WB_BASE_URL + '/',
             'sec-fetch-site': 'same-origin',
         },
         retryable_status_codes=WB_RETRYABLE_STATUS_CODES,
         is_blocked=is_wb_blocked_response,
     )
-    card_api_response = await execute_request(
-        http_session,
+    card_api_response = await ctx.request(
         'GET',
         WB_CARD_API,
         params={**WB_CARD_PARAMS, 'nm': str(nm_id)},
-        extra_headers=build_wb_api_headers(session_message, product_url),
+        extra_headers=build_wb_api_headers(ctx.session_message, product_url),
         retryable_status_codes=WB_RETRYABLE_STATUS_CODES,
         is_blocked=is_wb_blocked_response,
     )
@@ -286,23 +306,23 @@ async def fetch_wb_product_page(
     card_api_product = products[0]
 
     card_json_url = get_wb_card_json_url(nm_id)
-    card_json_response = await execute_request(
-        http_session,
+    card_json_response = await ctx.request(
         'GET',
         card_json_url,
-        extra_headers=build_wb_cdn_headers(session_message, product_url),
+        extra_headers=build_wb_cdn_headers(ctx.session_message, product_url),
         retryable_status_codes=WB_RETRYABLE_STATUS_CODES,
         is_blocked=is_wb_blocked_response,
     )
     card_data = card_json_response.json()
 
-    return extract_wb_product_page(card_data, card_api_product, nm_id, size_option_id)
+    return Page(
+        items=[extract_wb_product_page(card_data, card_api_product, nm_id, size_option_id)],
+    )
 
 
 async def fetch_wb_seller_profile(
     seller_url: str,
-    http_session: AsyncSession,
-    session_message: SessionMessage,
+    ctx: FetchContext,
 ) -> SellerProfilePayload:
     supplier_id = extract_wb_supplier_id_from_url(seller_url)
     if supplier_id is None:
@@ -310,34 +330,31 @@ async def fetch_wb_seller_profile(
     seller_page_url = f'{WB_BASE_URL}/seller/{supplier_id}'
 
     cdn_url = WB_SUPPLIER_CDN_URL.format(supplier_id=supplier_id)
-    cdn_response = await execute_request(
-        http_session,
+    cdn_response = await ctx.request(
         'GET',
         cdn_url,
-        extra_headers=build_wb_cdn_headers(session_message, seller_page_url),
+        extra_headers=build_wb_cdn_headers(ctx.session_message, seller_page_url),
         retryable_status_codes=WB_RETRYABLE_STATUS_CODES,
     )
     cdn_data = cdn_response.json()
 
     metrics_url = WB_SUPPLIER_METRICS_API.format(supplier_id=supplier_id)
-    metrics_response = await execute_request(
-        http_session,
+    metrics_response = await ctx.request(
         'GET',
         metrics_url,
         params={'curr': 'RUB'},
         extra_headers={
-            **build_wb_cdn_headers(session_message, seller_page_url), 'x-client-name': 'site',
+            **build_wb_cdn_headers(ctx.session_message, seller_page_url), 'x-client-name': 'site',
         },
         retryable_status_codes=WB_RETRYABLE_STATUS_CODES,
     )
     metrics_data = metrics_response.json()
 
-    filters_response = await execute_request(
-        http_session,
+    filters_response = await ctx.request(
         'GET',
         WB_SELLER_FILTERS_API,
         params={**WB_SELLER_FILTERS_PARAMS_BASE, 'supplier': str(supplier_id)},
-        extra_headers=build_wb_api_headers(session_message, seller_page_url),
+        extra_headers=build_wb_api_headers(ctx.session_message, seller_page_url),
         retryable_status_codes=WB_RETRYABLE_STATUS_CODES,
         is_blocked=is_wb_blocked_response,
     )
@@ -387,22 +404,20 @@ async def fetch_wb_seller_profile(
     )
 
 
-async def fetch_wb_review_page(
+async def _resolve_wb_review_source(
     product_url: str,
-    http_session: AsyncSession,
-    session_message: SessionMessage,
-) -> list[ReviewPayload]:
+    ctx: FetchContext,
+) -> tuple[int, str]:
     nm_id = extract_wb_nm_id_from_url(product_url)
     if nm_id is None:
         raise InputResolutionError(f'cannot extract nm_id from {product_url!r}')
 
-    await _wb_warmup(http_session, session_message)
-    await execute_request(
-        http_session,
+    await _wb_warmup(ctx)
+    await ctx.request(
         'GET',
         product_url,
         extra_headers={
-            **build_wb_navigation_headers(session_message),
+            **build_wb_navigation_headers(ctx.session_message),
             'referer': WB_BASE_URL + '/',
             'sec-fetch-site': 'same-origin',
         },
@@ -410,12 +425,11 @@ async def fetch_wb_review_page(
         is_blocked=is_wb_blocked_response,
     )
 
-    card_response = await execute_request(
-        http_session,
+    card_response = await ctx.request(
         'GET',
         WB_CARD_API,
         params={**WB_CARD_PARAMS, 'nm': str(nm_id)},
-        extra_headers=build_wb_api_headers(session_message, product_url),
+        extra_headers=build_wb_api_headers(ctx.session_message, product_url),
         retryable_status_codes=WB_RETRYABLE_STATUS_CODES,
         is_blocked=is_wb_blocked_response,
     )
@@ -424,30 +438,65 @@ async def fetch_wb_review_page(
         raise UpstreamDataError(f'card API returned no products for nm_id={nm_id}')
     root_id = int(products[0]['root'])
 
-    feedback_host_response = await execute_request(
-        http_session,
+    feedback_host_response = await ctx.request(
         'GET',
         WB_FEEDBACK_HOST_API,
         params={'imt': str(root_id)},
-        extra_headers=build_wb_cdn_headers(session_message, product_url),
+        extra_headers=build_wb_cdn_headers(ctx.session_message, product_url),
         retryable_status_codes=WB_RETRYABLE_STATUS_CODES,
         is_blocked=is_wb_blocked_response,
     )
     hosts: list[str] = feedback_host_response.json()
     if not hosts:
         raise UpstreamDataError(f'feedback host API returned empty list for root_id={root_id}')
-    feedback_host = hosts[0]
+    return root_id, hosts[0]
 
-    feedback_url = f'{feedback_host}/feedbacks/v2/{root_id}'
-    feedback_response = await execute_request(
-        http_session,
+
+def _guard_reviews_payload(payload: dict) -> None:
+    """Ответ без списка отзывов или пустой список при ненулевом `feedbackCount` — сбой сессии, а не
+    «отзывов нет»: смена сессии и повтор. Товар без отзывов (`feedbackCount == 0`) — норма."""
+    if 'feedbacks' not in payload or (payload.get('feedbackCount') and not payload['feedbacks']):
+        raise SuspiciousThinResultError('degraded WB reviews response')
+
+
+async def fetch_wb_review_page(
+    product_url: str,
+    cursor: WbReviewCursor | None,
+    ctx: FetchContext,
+) -> Page[ReviewPayload]:
+    """WB отдаёт все отзывы товара одним ответом, поэтому «страница» — срез результата.
+    `review_page_size=None` (режим задач) — все отзывы разом. Со страницей (direct) `root_id` и
+    хост фидбеков едут в курсоре: первая страница платит за прогрев и их определение, следующие
+    — один запрос."""
+    if cursor is None:
+        root_id, feedback_host = await _resolve_wb_review_source(product_url, ctx)
+        offset = 0
+    else:
+        root_id, feedback_host, offset = cursor.root_id, cursor.feedback_host, cursor.offset
+
+    feedback_response = await ctx.request(
         'GET',
-        feedback_url,
-        extra_headers=build_wb_cdn_headers(session_message, product_url),
+        f'{feedback_host}/feedbacks/v2/{root_id}',
+        extra_headers=build_wb_cdn_headers(ctx.session_message, product_url),
         retryable_status_codes=WB_RETRYABLE_STATUS_CODES,
         is_blocked=is_wb_blocked_response,
     )
-    payload = feedback_response.json()
-    seen_uuids: set[str] = set()
-    reviews, _ = extract_wb_review_list(payload, seen_uuids)
-    return reviews
+    feedback_payload = feedback_response.json()
+    _guard_reviews_payload(feedback_payload)
+    reviews, _ = extract_wb_review_list(feedback_payload, set())
+
+    if ctx.review_page_size is None:
+        return Page(items=reviews)
+    page_items = reviews[offset:offset + ctx.review_page_size]
+    next_offset = offset + len(page_items)
+    if not page_items or next_offset >= len(reviews):
+        return Page(items=page_items)
+    return Page(
+        items=page_items,
+        next_cursor=WbReviewCursor(
+            marketplace=Marketplace.WILDBERRIES,
+            offset=next_offset,
+            root_id=root_id,
+            feedback_host=feedback_host,
+        ),
+    )

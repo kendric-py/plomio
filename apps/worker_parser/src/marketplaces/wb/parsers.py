@@ -42,16 +42,16 @@ def _format_wb_discount(basic: int | None, product: int | None) -> str | None:
 def extract_wb_product_list(
     payload: dict[str, Any],
     limit: int | None,
-    seen_ids: set[int],
+    seen_keys: set[str],
 ) -> list[ProductPayload]:
     result: list[ProductPayload] = []
     for item in get_raw_wb_products(payload):
         if not isinstance(item, dict):
             continue
         nm_id: int | None = item.get('id')
-        if nm_id is None or nm_id in seen_ids:
+        if nm_id is None or str(nm_id) in seen_keys:
             continue
-        seen_ids.add(nm_id)
+        seen_keys.add(str(nm_id))
         name: str = item.get('name') or ''
         if not name:
             continue

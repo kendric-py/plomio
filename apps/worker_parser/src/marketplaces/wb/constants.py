@@ -17,6 +17,11 @@ WB_SELLER_FILTERS_API = 'https://www.wildberries.ru/__internal/u-catalog/sellers
 WB_RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({408, 425, 429, 500, 502, 503, 504})
 WB_PAGE_SIZE = 100
 
+# Поиск WB отдаёт максимум 60 страниц на запрос; дальше — HTTP 200 с телом
+# `{"error": "binding request: page param malformed", "code": 500}` (проверено на живых ответах,
+# воспроизводится на любой сессии) — это единственный надёжный признак конца выдачи.
+WB_SEARCH_PAGE_LIMIT_ERROR = 'page param malformed'
+
 WB_SEARCH_PARAMS_BASE: dict[str, Any] = {
     'ab_testing': 'false',
     'appType': '1',
@@ -129,4 +134,5 @@ WB_BASKET_RANGES: list[tuple[int, int, str]] = [
     (11910, 12677, 'basket-44.wbbasket.ru'),
     (12678, 13445, 'basket-45.wbbasket.ru'),
     (13446, 14213, 'basket-46.wbbasket.ru'),
+    (14214, 14981, 'basket-47.wbbasket.ru'),
 ]

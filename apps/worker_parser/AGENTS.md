@@ -9,7 +9,9 @@
 
 Плоская, по образцу `apps/api/src/` (и `apps/worker_sessions/src/`): точка входа — `src/__main__.py`
 напрямую в `src/`, остальные модули (`config.py`, `enums.py`, `exceptions.py`, `entities.py`,
-`http_client.py`, `retry_policy.py`, `runner.py`) — тоже прямо в `src/`. Пул сессий (потребление из
+`http_client.py`, `retry_policy.py`, `error_classifier.py`, `registry.py`, `fetch_context.py`,
+`session_provider.py`, `execution.py`, `services.py`, `task_runner.py`, `runner.py` — только `run_main`) — тоже
+прямо в `src/`. Пул сессий (потребление из
 Redis) и liveness-heartbeat — не здесь, а в
 [`packages/sessions`](../../packages/sessions/AGENTS.md)/[`packages/worker_health`](../../packages/worker_health/AGENTS.md),
 общих с `apps/worker_sessions`. Единственная дополнительная вложенность — `marketplaces/{ozon,wb}/`
@@ -41,12 +43,56 @@ apps.worker_parser.src` (см. корневой `Makefile`, идентично `
 | `PRODUCT_PAGE` | `null` (без пагинации) | `null` |
 | `SEARCH_QUERY`/`CATEGORY` | `{"marketplace":"ozon","next_url":"...\|null","referer":"...","prev_request_id":"...\|null"}` | `{"marketplace":"wildberries","page_num":N}` |
 | `SELLER` | как `SEARCH_QUERY`/`CATEGORY` | `{"marketplace":"wildberries","page_num":N,"total_on_site":N,"collected_so_far":N}` |
-| `REVIEWS` | `{"marketplace":"ozon","product_path":"...","start_page_id":"...","sort_order":"...","next_url":"...\|null","referer":"...","prev_request_id":"...\|null","seen_uuids":[...]}` | `{"marketplace":"wildberries","nm_id":N,"root_id":N\|null,"feedback_host":"...\|null"}` |
+| `REVIEWS` | `{"marketplace":"ozon","sort_order":"usefulness_desc","next_params":"?page=2&page_key=...\|null","seen_uuids":[...]}` | `{"marketplace":"wildberries","offset":N,"root_id":N,"feedback_host":"..."}` (в режиме задач курсора нет — все отзывы одной страницей) |
 
 Ozon-пагинация: `next_url == null` = исчерпано. WB-пагинация: исчерпание определяется по короткой
 странице (`< 100` элементов, `WB_PAGE_SIZE`) или `collected_so_far >= total_on_site` (seller), не
-по полю курсора. Wildberries-отзывы получаются одним запросом (WB отдаёт все фидбеки в одном
-payload) — курсор им не нужен, `record_item_progress(cursor=None, ...)` вызывается один раз.
+по полю курсора. Единая операция — `fetch_page(input_value, cursor, ctx: FetchContext) -> Page(items, next_cursor)`
+для каждой пары (маркетплейс, `ParseType`); реестр — `registry.OPERATIONS` (фетчер + модель курсора),
+`FetchContext` (`fetch_context.py`) несёт HTTP-сессию, `SessionMessage`, лимит, лимит HTTP-ретраев и
+дедлайн (`ctx.request` подставляет их в `execute_request`). Карточка — страница с `next_cursor=None`.
+
+**Поиск WB** (`fetch_wb_search_page`) — конец выдачи определяется не по размеру страницы, а по ответу WB:
+- HTTP 200 с телом `{"error": "binding request: page param malformed", "code": 500}` — страница больше
+  лимита WB (60 страниц, ~6000 позиций на запрос; воспроизводится на любой сессии) — конец. Любая
+  другая `error` в теле — сбой (`UpstreamDataError`), а не конец.
+- Ответ без товаров (форма «ничего не найдено» или пустой `products`) — конец. Короткая страница концом
+  не считается.
+- Смена набора (`metadata.catalog_type`: `merger` — точные совпадения → `preset` — подмешанный WB набор по
+  упрощённому запросу) ничего не отбрасывает и конца не означает: `preset`-товары входят в результат.
+  Клиент/потребитель, которому нужны только точные совпадения, отличает их по составу выдачи сам.
+- Категории и продавцы WB конец по `error` не используют (по-прежнему короткая или пустая страница), но
+  разделяют с поиском защиту от сбоев сессии (ниже).
+
+**Сбои сессии WB** (выдачи поиска, категории и продавца, отзывы; карточка товара не затронута):
+- **Деградировавший ответ** — нет `products` верхнего уровня, вместо него `data`/`state`/`version` с одним
+  посторонним товаром (`wb.utils.is_degraded_wb_listing`) — сессия деградирует после 11–34 страниц. Фетчер
+  бросает `SuspiciousThinResultError`: политика — `REINIT_SESSION`, страница повторяется на новой сессии, а
+  посторонний товар в результат не попадает (раньше его принимали за короткую последнюю страницу и обход
+  обрывался: в задачах категорий — 601 и 1601 товар вместо ~3400). HTTP 498 (антибот) — уже `BlockedError`
+  с той же политикой.
+- **Первая пустая страница** (`products: []` в нормальной форме) — не конец: `EmptyPageUnconfirmedError`,
+  `PageExecutor` повторяет вызов на другой сессии с `FetchContext.confirm_empty_page=True`; пусто и там —
+  настоящий конец (потолок выдачи), иначе берутся данные новой сессии. Цена: на естественном конце выдачи
+  расходуется одна сессия. Ответ без ключа `products` («ничего не найдено») конец без подтверждения.
+- **Повторы на той же сессии не делаются** — на живых ответах они не помогали (0 из 12), а смена сессии
+  лечила деградацию и 498 с первой попытки.
+- **Отзывы:** ответ без `feedbacks` или пустой список при `feedbackCount > 0` — тот же сбой сессии
+  (`SuspiciousThinResultError`); товар без отзывов (`feedbackCount == 0`) — норма.
+- Потолок выдачи плавает во времени: поиск — 60 страниц, категория в живых прогонах — от 26 до 35.
+
+**Отзывы Ozon** — `{product}/reviews/?...` через `entrypoint-api`, 30 отзывов на страницу, один запрос
+на страницу без прогрева. Следующая страница берётся из `paging.nextButton` виджета `webListReviews`
+(содержит `page_key`) — голый `?page=N` без `page_key` глубже ~5-й страницы отдаёт повторы (проверено на
+живых ответах). Потолок Ozon — около 33 страниц (~990 отзывов) на одну сортировку; режим задач
+(`FetchContext.walk_all_review_sorts`) обходит `usefulness_desc` → `score_desc` → `score_asc` с
+дедупликацией по `uuid` (на товаре с 3368 отзывами: ~1690 уникальных против 258 у прежнего обхода
+через `reviewshelfpaginator`). `published_at_desc` Ozon молча заменяет на `usefulness_desc`, поэтому
+его в обходе нет.
+
+**Отзывы WB** — WB отдаёт все отзывы одним ответом, поэтому страница — срез результата
+(`FetchContext.review_page_size`); `None` (режим задач) — все отзывы одной страницей. Курсор несёт
+`root_id`/`feedback_host`, следующая страница — один запрос без прогрева и определения хоста.
 
 Каждый cursor несёт `"marketplace"` как защитную сверку (не используется активно в v1, но формат
 зарезервирован под неё при появлении расхождений в резюме).
@@ -74,11 +120,72 @@ group), а у стрима нет собственного TTL — потреб�
 push-модель, если она когда-нибудь понадобится — этот воркер тянет сессию по запросу в момент
 захвата задачи, а не подписывается на уведомления.
 
+## Единый цикл выполнения
+
+`execution.PageExecutor` — единственное место цикла «взять сессию → выполнить → ретрай по
+`retry_policy`», для одного элемента задачи или (в режиме direct) одного запроса. Различия режимов
+задаются `ExecutionOptions` (потолок попыток `max_attempts`, `deadline` в `time.monotonic()`,
+`http_retries`, размер страницы WB-отзывов, обход сортировок Ozon-отзывов), а не копиями цикла:
+
+- **`SessionProvider`** (`session_provider.py`) — откуда берётся сессия: `PoolSessionProvider` (режим
+  задач) берёт её из Redis-пула через `ZPOPMIN` и возвращает в пул в `release` (только если сессии
+  доверяем; `discard` — не возвращает). Провайдер отдаёт `SessionHandle` — сессию вместе с HTTP-клиентом,
+  клиент закрывается при `release`/`discard`.
+- **Классификатор** (`error_classifier.classify_error`) — одна классификация на два потребителя:
+  `RetryPolicy` (цикл выполнения) и `ErrorOutcome` (`INVALID_INPUT`/`NOT_FOUND`/`UNAVAILABLE`/`ERROR` —
+  статус ответа direct). `RequestError` с 404 → `NOT_FOUND`, `InputResolutionError` → `INVALID_INPUT`,
+  дедлайн/нет сессии → `UNAVAILABLE`.
+- **Исчерпание попыток** — `FetchFailedError` с исходной ошибкой и классификацией; вызывающий сам решает,
+  завершить элемент задачи (`task_runner.process_item_pages`) или ответить клиенту.
+- **Дедлайн** — `asyncio.wait_for` вокруг операции плюс `FetchContext.request` не отправляет запрос
+  после дедлайна и обрезает таймаут по остатку (`DeadlineExceededError`).
+- **Сессия при неожиданном сбое** (не `ParserError`: БД, баг) в пул не возвращается —
+  `handle_task_item` вызывает `discard_session()`.
+- Профиль продавца (`SELLER`) выполняется через `executor.run(..., retry=False)` — одна попытка, при
+  ошибке сессия выбрасывается, элемент всё равно завершается успешно.
+
+## Режимы: `WORKER_MODE=tasks|direct`
+
+Один процесс — один режим (`WorkerMode`, по умолчанию `tasks`; выбор в `runner.run_main`).
+
+- **`tasks`** — описано выше: очередь Postgres, `PoolSessionProvider`.
+- **`direct`** — синхронные запросы клиента из Redis (см. [`packages/direct`](../../packages/direct/AGENTS.md)).
+  Подключение к Postgres не открывается. `direct_runner.py`: читает `XREADGROUP` группой
+  `direct-workers` (`BLOCK`), свободных слотов = `DIRECT_MAX_CONCURRENT_REQUESTS - running`
+  (если 0 — `asyncio.wait(FIRST_COMPLETED)`, иначе `consume(count=free)`), каждый запрос — отдельная
+  `asyncio.Task`. Запрос: разбор входа (артикул → ссылка) и курсора → тот же `PageExecutor` с
+  `ExecutionOptions(max_attempts=DIRECT_MAX_ATTEMPTS, deadline=...)` → `DirectReply`. Liveness-статус
+  `READY`/`WORKING`. Новый тип direct-запроса = запись в `registry.OPERATIONS` + маппинг в
+  `direct_runner.PARSE_TYPE_BY_REQUEST_TYPE`, а не новый цикл.
+
+Конфиг `DIRECT_*` (`config.DirectConfig`, `.env.example`): `CONSUMER_NAME`, `MAX_CONCURRENT_REQUESTS`,
+`BLOCK_MS`, `MAX_ATTEMPTS`, `HOT_SESSION_MAX_AGE_SECONDS`, `SESSION_WAIT_SECONDS`, `MARKETPLACES`,
+`REVIEWS_WB_PAGE_SIZE`.
+
+### Горячая сессия (`hot_session.py::HotSessionSlot`) — второй `SessionProvider`
+
+По одной на маркетплейс. Берётся из пула при старте (прогрев) и **не возвращается** в пул между
+запросами — следующий запрос не платит за `ZPOPMIN` и новый HTTP-клиент, keep-alive соединение живёт
+(в логе `session_ms=0`). Одна сессия делится между конкурентными запросами процесса; выбор/ротация —
+под `asyncio.Lock`.
+
+- **Ротация:** по возрасту (`HOT_SESSION_MAX_AGE_SECONDS`, 120 с; сессия возвращается в пул) или при
+  `discard` (ошибка с политикой `REINIT_SESSION`; в пул не возвращается). Ротируемую сессию нельзя
+  закрывать под ногами запросов, которые её ещё используют, поэтому освобождение откладывается до
+  ухода последнего.
+- **Ловушка:** порог остаточного TTL при `acquire_session` — обычный
+  `SESSION_POOL_MIN_TTL_MARGIN_SECONDS` (30 с). **Нельзя** добавлять к нему возраст ротации: TTL
+  сессий у `worker_sessions` (`GENERATION_TTL_MS`) — 7 минут, и большой порог заставит
+  `acquire_session` выбрасывать из пула все живые сессии (покрыто тестом).
+- Сессии нет — ждём не дольше `min(SESSION_WAIT_SECONDS, остаток дедлайна)`, затем `unavailable`.
+- Пул сессий общий с режимом задач (известное ограничение, изоляция не делалась).
+
 ## Retry/эскалация — упрощена до одного уровня
 
 `retry_policy.py`: `BlockedError`/`SuspiciousThinResultError`/`RequestError` → до 3 попыток,
 `REINIT_SESSION` (забрать новую сессию из Redis-пула); `UpstreamDataError` → 1 попытка, `KEEP`
-(та же сессия); `InputResolutionError`/`BrowserInitError` → 0 попыток, fail fast.
+(та же сессия); `InputResolutionError`/`BrowserInitError` → 0 попыток, fail fast; `RequestError` с HTTP 404 (не блокировка)
+→ 0 попыток, `KEEP` — «такого нет» окончательно, смена сессии не поможет.
 
 В референсном `marketplace-parser` эскалация на "отдельную сессию" была отдельным (третьим) ярусом
 поверх retry с той же сессией — нужна была, чтобы не терять `resume_state`, привязанный к
@@ -111,7 +218,7 @@ push-модель, если она когда-нибудь понадобитс�
 ## Модель конкурентности
 
 До нескольких `Task` в обработке на процесс одновременно (`POLL_MAX_CONCURRENT_TASKS`, по
-умолчанию 3) — каждая как независимый `asyncio.Task` (`run_claimed_task` в `runner.py`), со своим
+умолчанию 3) — каждая как независимый `asyncio.Task` (`run_claimed_task` в `task_runner.py`), со своим
 lease-heartbeat-лупом. Внутри одной задачи `TaskItem`-элементы тоже обрабатываются конкурентно, до
 `POLL_MAX_CONCURRENT_ITEMS_PER_TASK` (по умолчанию 5) одновременно — `process_claimed_task`
 запускает их через `asyncio.gather` за общим `asyncio.Semaphore`, не последовательным циклом.
@@ -137,7 +244,7 @@ race, которой не было при строго последовател�
   вызовы не выдадут одну и ту же сессию дважды;
 - Каждая независимо запланированная конкурентная корутина (каждая claimed-задача, её
   heartbeat-луп, каждый конкурентно обрабатываемый `TaskItem`) получает **свою собственную пару**
-  `TaskService`/`ResultService` через `runner.build_services(session_factory)`, а не общие на
+  `TaskService`/`ResultService` через `services.build_services(session_factory)`, а не общие на
   процесс — `AsyncTransactionManager` хранит активную сессию/репозитории как мутируемые атрибуты
   самого себя (`self.session`, выставляется в `__aenter__`), а не per-call-локальное состояние.
   Он безопасен при **последовательном** переиспользовании, но если два `asyncio.gather`/
@@ -164,7 +271,7 @@ Liveness-статус (`WorkerParserStatus`) остаётся общим на п
 как HTTP-клиент (нативно асинхронный, без обёртки в thread-pool).
 
 **Переосмыслено**: fetch-функции для пагинируемых типов разбиты на однострочные (single-page)
-вызовы вместо внутреннего `while`-цикла до исчерпания/исключения — так обработчик в `runner.py`
+вызовы вместо внутреннего `while`-цикла до исчерпания/исключения — так обработчик в `task_runner.py`
 может персистировать курсор/результаты после каждой страницы, а не только по завершении всего
 входа. 3-уровневая retry-лестница референса сведена к одному уровню (см. выше). `resume_state`,
 передаваемый через `PartialResultError`, заменён персистентным `TaskItem.cursor`.
@@ -176,7 +283,7 @@ poll-лупом, вызывающим `TaskService.claim_next`; собствен
 
 ## Тарификация — `packages/billing`
 
-`runner.build_services` теперь дополнительно строит `BillingService`/`NotificationService` (каждый
+`services.build_services` теперь дополнительно строит `BillingService`/`NotificationService` (каждый
 со своим отдельным `AsyncTransactionManager`, тем же принципом, что и `TaskService`/`ResultService`
 — см. докстринг `build_services`) и передаёт их в `TaskService`. `NotificationService` нужен
 `TaskService.complete_item`, чтобы завершение задачи могло породить `task.completed`/`task.failed`
@@ -190,7 +297,7 @@ poll-лупом, вызывающим `TaskService.claim_next`; собствен
 напрямую —
 списание за сохранённые результаты происходит внутри `TaskService.record_item_progress` (см.
 [`packages/task/AGENTS.md`](../../packages/task/AGENTS.md), "Тарификация"), воркер просто продолжает
-звать этот метод как раньше, без изменений в `runner.py` за пределами `build_services`. Если баланс
+звать этот метод как раньше, без изменений в `task_runner.py`. Если баланс
 пользователя уходит в минус — задача переходит в `PAUSED`, что воркер обнаружит стандартной
 кооперативной проверкой статуса перед следующим элементом/страницей (см. "Модель конкурентности" —
 `RUNNING` перепроверяется перед стартом каждого элемента).
@@ -205,5 +312,5 @@ poll-лупом, вызывающим `TaskService.claim_next`; собствен
 ## Зависимости
 
 `core.configs.RedisConfig`/`PostgresConfig` переиспользуются (не дублируются). Без
-`dependency_injector`: одна точка входа (`run_main` в `runner.py`), один долгоживущий набор
+`dependency_injector`: одна точка входа (`run_main` в `runner.py`, вся логика задач — `task_runner.py`), один долгоживущий набор
 зависимостей, без per-request-скоупинга — как и в `apps/worker_sessions`.

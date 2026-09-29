@@ -16,6 +16,10 @@ curl-cffi = ">=0.7"
 sqlalchemy = "^2.0.54"
 asyncpg = "^0.31.0"
 
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.0"
+pytest-asyncio = "^0.24.0"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

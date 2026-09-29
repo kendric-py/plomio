@@ -48,3 +48,13 @@ class InputResolutionError(ParserError):
 
 class BrowserInitError(ParserError):
     """Could not obtain a usable session from Redis in time — never retried in place."""
+
+
+class DeadlineExceededError(ParserError):
+    """Общий дедлайн запроса исчерпан до отправки очередного HTTP-запроса — не ретраится."""
+
+
+class EmptyPageUnconfirmedError(ParserError):
+    """Первая пустая страница выдачи на этой сессии: конец это или сбой сессии, неизвестно.
+    Executor повторяет вызов на другой сессии с `confirm_empty_page=True` — пустота и там означает
+    конец выдачи."""

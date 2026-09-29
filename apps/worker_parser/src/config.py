@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from apps.worker_parser.src.enums import WorkerMode
 from core.configs import LivenessConfig, PostgresConfig, RedisConfig
 
 # Load this app's .env into the real process environment, independent of cwd — mirrors
@@ -44,17 +45,6 @@ class SessionPoolConfig(BaseSettings):
     EMPTY_POOL_BACKOFF_SECONDS: float = Field(default=5.0)
 
 
-class RetryConfig(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=ENV_FILE,
-        env_file_encoding='utf-8',
-        env_prefix='RETRY_',
-        extra='ignore',
-    )
-
-    MAX_ATTEMPTS_SAME_SESSION: int = Field(default=3)
-
-
 class HttpConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
@@ -68,6 +58,29 @@ class HttpConfig(BaseSettings):
     BASE_DELAY_SECONDS: float = Field(default=1.5)
 
 
+class DirectConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=ENV_FILE,
+        env_file_encoding='utf-8',
+        env_prefix='DIRECT_',
+        extra='ignore',
+    )
+
+    CONSUMER_NAME: str = Field(default='direct-1')
+    MAX_CONCURRENT_REQUESTS: int = Field(default=20)
+    BLOCK_MS: int = Field(default=2000)
+    # Общее число попыток на один запрос (смена сессии между ними), в пределах его дедлайна.
+    MAX_ATTEMPTS: int = Field(default=2)
+    # Возраст горячей сессии, после которого она возвращается в пул и берётся новая. Не добавляется
+    # к SESSION_POOL_MIN_TTL_MARGIN_SECONDS: TTL сессий у worker_sessions — 7 минут, и большой порог
+    # заставил бы acquire_session выбрасывать из пула все живые сессии.
+    HOT_SESSION_MAX_AGE_SECONDS: float = Field(default=120.0)
+    SESSION_WAIT_SECONDS: float = Field(default=3.0)
+    # Через запятую; пусто — все маркетплейсы.
+    MARKETPLACES: str = Field(default='')
+    REVIEWS_WB_PAGE_SIZE: int = Field(default=30)
+
+
 class Config(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
@@ -75,7 +88,7 @@ class Config(BaseSettings):
         extra='ignore',
     )
 
-    DEBUG: bool = Field(default=False)
+    WORKER_MODE: WorkerMode = Field(default=WorkerMode.DIRECT)
     # Базовый URL фронтенда (без завершающего /) — используется TaskService.complete_item, чтобы
     # положить ссылку на страницу завершённой задачи в payload уведомления (см.
     # packages/notifications/AGENTS.md, "Базовый URL фронтенда"). Тот же смысл, что
@@ -87,8 +100,8 @@ class Config(BaseSettings):
     POSTGRES: PostgresConfig = Field(default_factory=PostgresConfig)
     POLL: PollConfig = Field(default_factory=PollConfig)
     SESSION_POOL: SessionPoolConfig = Field(default_factory=SessionPoolConfig)
-    RETRY: RetryConfig = Field(default_factory=RetryConfig)
     HTTP: HttpConfig = Field(default_factory=HttpConfig)
+    DIRECT: DirectConfig = Field(default_factory=DirectConfig)
     LIVENESS: LivenessConfig = Field(default_factory=LivenessConfig)
 
 

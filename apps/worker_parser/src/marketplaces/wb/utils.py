@@ -50,6 +50,15 @@ def is_wb_blocked_response(status: int, content_type: str, body_prefix: str) -> 
     return any(marker in body_prefix for marker in markers)
 
 
+def is_degraded_wb_listing(payload: dict[str, Any]) -> bool:
+    """Деградировавший ответ сессии: нет `products` верхнего уровня, вместо него `data`/`state`/
+    `version` с одним посторонним товаром (проверено на живых ответах; лечится сменой сессии).
+    Нормальные ответы выдач (поиск, категория, продавец) всегда несут `products` наверху."""
+    return (
+        'products' not in payload and isinstance(payload.get('data'), dict) and 'state' in payload
+    )
+
+
 def get_raw_wb_products(payload: dict[str, Any]) -> list[Any]:
     top = payload.get('products')
     if top:

@@ -12,7 +12,7 @@ def extract_ozon_product_path_from_url(url: str) -> str:
 
 
 def extract_ozon_product_id_from_path(path: str) -> str:
-    match = re.search(r'-(\d+)/?$', path)
+    match = re.search(r'(?:-|/product/)(\d+)/?$', path)
     return match.group(1) if match else 'unknown'
 
 
