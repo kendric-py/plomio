@@ -32,12 +32,27 @@ PARSE_TYPE_BY_REQUEST_TYPE = {
     DirectRequestType.PRODUCT_PAGE: ParseType.PRODUCT_PAGE,
     DirectRequestType.REVIEWS: ParseType.REVIEWS,
     DirectRequestType.SEARCH: ParseType.SEARCH_QUERY,
+    DirectRequestType.CATEGORY: ParseType.CATEGORY,
+    DirectRequestType.SELLER: ParseType.SELLER,
 }
 
 # Числовой артикул → ссылка на карточку. Ozon принимает путь только с артикулом (проверено).
 PRODUCT_URL_BY_MARKETPLACE = {
     Marketplace.WILDBERRIES: 'https://www.wildberries.ru/catalog/{article}/detail.aspx',
     Marketplace.OZON: 'https://www.ozon.ru/product/{article}/',
+}
+
+# Ссылку воркер запрашивает своей сессией (куки маркетплейса), поэтому принимаются только ссылки
+# самого маркетплейса: иначе клиент мог бы направить запрос с чужой сессией на произвольный хост.
+HOSTS_BY_MARKETPLACE = {
+    Marketplace.WILDBERRIES: frozenset({'www.wildberries.ru', 'wildberries.ru'}),
+    Marketplace.OZON: frozenset({'www.ozon.ru', 'ozon.ru'}),
+}
+
+# Числовой id продавца → ссылка на его витрину; у Ozon ссылка требует «слаг», по одному id её не
+# построить — там принимается только ссылка.
+SELLER_URL_BY_MARKETPLACE = {
+    Marketplace.WILDBERRIES: 'https://www.wildberries.ru/seller/{seller_id}',
 }
 
 STATUS_BY_OUTCOME = {
@@ -50,22 +65,43 @@ STATUS_BY_OUTCOME = {
 REASON_LOG_LIMIT = 300
 
 
+def resolve_marketplace_url(request: DirectRequest, value: str) -> str:
+    parsed = urlparse(value)
+    if parsed.scheme not in {'http', 'https'} or parsed.hostname not in (
+        HOSTS_BY_MARKETPLACE[request.marketplace]
+    ):
+        raise InputResolutionError(f'not a {request.marketplace.value} link: {value[:80]!r}')
+    return value
+
+
 def resolve_input_value(request: DirectRequest) -> str:
-    """Карточка и отзывы принимают артикул или ссылку; нечисловой ввод, не являющийся ссылкой,
-    — `invalid_input`. Поиск принимает текст как есть."""
+    """Поиск принимает текст как есть; остальные типы — артикул/id или ссылку самого маркетплейса.
+    Всё, что не разбирается, — `invalid_input`."""
     value = request.input_value.strip()
     if request.request_type == DirectRequestType.SEARCH:
         return value
+    if request.request_type == DirectRequestType.CATEGORY:
+        return resolve_marketplace_url(request, value)
+    if request.request_type == DirectRequestType.SELLER:
+        return resolve_seller_input(request, value)
     if value.isdigit():
         return PRODUCT_URL_BY_MARKETPLACE[request.marketplace].format(article=value)
-    if urlparse(value).scheme not in {'http', 'https'}:
-        raise InputResolutionError(f'not an article or a link: {value[:50]!r}')
+    value = resolve_marketplace_url(request, value)
     if (
         request.marketplace == Marketplace.OZON
         and extract_ozon_product_id_from_path(urlparse(value).path.rstrip('/') + '/') == 'unknown'
     ):
         raise InputResolutionError('cannot extract article from the link')
     return value
+
+
+def resolve_seller_input(request: DirectRequest, value: str) -> str:
+    if value.isdigit():
+        template = SELLER_URL_BY_MARKETPLACE.get(request.marketplace)
+        if template is None:
+            raise InputResolutionError('seller id alone is not enough, a link is required')
+        return template.format(seller_id=value)
+    return resolve_marketplace_url(request, value)
 
 
 def restore_cursor(operation: PageOperation, raw_cursor: dict | None) -> Cursor | None:

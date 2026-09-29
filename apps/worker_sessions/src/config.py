@@ -40,7 +40,7 @@ class GenerationConfig(BaseSettings):
 
     CONCURRENCY_PER_MARKETPLACE: int = Field(default=1)
     MAX_SESSIONS_PER_PROXY: int = Field(default=20)
-    TARGET_POOL_DEPTH: int = Field(default=10)
+    TARGET_POOL_DEPTH: int = Field(default=20)
     # False only for local dev, where there's no proxy API yet (see ProxyApiConfig) — generates
     # sessions with a direct connection instead of blocking forever on WAITING_FOR_PROXY.
     # Must stay True anywhere real, since marketplaces ban IPs generating sessions without proxies.

@@ -194,3 +194,44 @@ async def test_empty_page_never_carries_next_cursor(monkeypatch):
 
     assert reply.status == DirectStatus.OK
     assert reply.next_cursor is None
+
+
+@pytest.mark.parametrize('request_type, marketplace, value', [
+    (DirectRequestType.CATEGORY, Marketplace.WILDBERRIES,
+     'https://www.wildberries.ru/catalog/obuv/muzhskaya/botinki-i-polubotinki'),
+    (DirectRequestType.CATEGORY, Marketplace.OZON, 'https://www.ozon.ru/category/smartfony-15502/'),
+    (DirectRequestType.SELLER, Marketplace.WILDBERRIES, 'https://www.wildberries.ru/seller/92684'),
+    (DirectRequestType.SELLER, Marketplace.OZON, 'https://www.ozon.ru/seller/mvideo-7/'),
+])
+def test_marketplace_links_are_accepted(request_type, marketplace, value):
+    request = make_request(request_type, marketplace, value)
+    assert direct_runner.resolve_input_value(request) == value
+
+
+@pytest.mark.parametrize('request_type', [
+    DirectRequestType.CATEGORY, DirectRequestType.SELLER,
+    DirectRequestType.PRODUCT_PAGE, DirectRequestType.REVIEWS,
+])
+@pytest.mark.parametrize('value', [
+    'https://evil.example/catalog/1/', 'https://www.wildberries.ru.evil.example/catalog/1/',
+    'http://169.254.169.254/latest', 'ftp://www.wildberries.ru/x', 'not-a-link',
+])
+def test_foreign_or_broken_links_are_rejected(request_type, value):
+    """Воркер запрашивает ссылку своей сессией: чужой хост недопустим ни для одного типа."""
+    request = make_request(request_type, Marketplace.WILDBERRIES, value)
+    with pytest.raises(InputResolutionError):
+        direct_runner.resolve_input_value(request)
+
+
+def test_seller_id_becomes_a_link_only_for_wildberries():
+    wb = make_request(DirectRequestType.SELLER, Marketplace.WILDBERRIES, '92684')
+    assert direct_runner.resolve_input_value(wb) == 'https://www.wildberries.ru/seller/92684'
+    ozon = make_request(DirectRequestType.SELLER, Marketplace.OZON, '92684')
+    with pytest.raises(InputResolutionError):
+        direct_runner.resolve_input_value(ozon)
+
+
+def test_category_and_seller_map_to_parse_types():
+    mapping = direct_runner.PARSE_TYPE_BY_REQUEST_TYPE
+    assert mapping[DirectRequestType.CATEGORY] == ParseType.CATEGORY
+    assert mapping[DirectRequestType.SELLER] == ParseType.SELLER

@@ -8,6 +8,7 @@ from packages.auth.src.service import AuthService
 from packages.automation.src.service import AutomationService
 from packages.billing.src.service import BillingService
 from packages.cron.src.service import CronJobService
+from packages.direct.src.redis_bus import DirectBus
 from packages.notifications.src.service import NotificationService
 from packages.notifications.src.telegram_client import build_telegram_notifier
 from packages.notifications.src.telegram_link_store import TelegramLinkStore
@@ -72,6 +73,11 @@ class DependencyContainer(DeclarativeContainer):
     result_service = providers.Factory(
         ResultService,
         transaction_manager=transaction_manager,
+    )
+
+    direct_bus = providers.Singleton(
+        DirectBus,
+        redis_config=config.REDIS,
     )
 
     worker_heartbeat_store = providers.Singleton(

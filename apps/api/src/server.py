@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from datetime import timedelta
 
@@ -23,6 +24,11 @@ from packages.notifications.src.telegram_polling import run_telegram_polling
 
 
 def configure_rest_server() -> FastAPI:
+    # Без этого INFO-логи приложения (`[direct_api]` и др.) не выводятся: у root-логгера уровень
+    # по умолчанию WARNING.
+    logging.basicConfig(
+        level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s',
+    )
     container = DependencyContainer()
 
     @asynccontextmanager
@@ -166,6 +172,8 @@ def configure_rest_server() -> FastAPI:
             'apps.api.src.routers.billing.dependencies',
             'apps.api.src.routers.billing.endpoints',
             'apps.api.src.routers.notifications.endpoints',
+            'apps.api.src.routers.direct.dependencies',
+            'apps.api.src.routers.direct.endpoints',
         ],
     )
     app.add_middleware(

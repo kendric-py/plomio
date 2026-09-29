@@ -122,10 +122,10 @@
   живёт только в `apps/api` (`AUTOMATION_RESULT_SWEEP` тикает на его event loop), поэтому для
   `automation_link` этого единственного источника достаточно.
 - `TaskService.frontend_base_url` — **не всегда `apps/api`**: обычные (не проверочные) задачи
-  завершает `apps/worker_parser` (`TaskService.complete_item`, вызывается из `runner.py`, не из
+  завершает `apps/worker_parser` (`TaskService.complete_item`, вызывается из `task_runner.py`, не из
   `apps/api`), у него свой процесс и свой `.env` (`apps/worker_parser/src/config.py::Config.
   FRONTEND_BASE_URL`, без REST-префикса — свой конфиг, не переиспользует `RestConfig`), собственный
-  от `apps/api`'s `REST_FRONTEND_BASE_URL`. `runner.py::build_services` передаёт его в
+  от `apps/api`'s `REST_FRONTEND_BASE_URL`. `services.py::build_services` передаёт его в
   `TaskService` тем же способом, что `apps/api/src/container.py` — своей строкой, не объектом
   конфига. Если задать `REST_FRONTEND_BASE_URL` только в `apps/api/.env`, `task_link` для обычных
   задач всё равно останется `None` — нужно продублировать значение в `apps/worker_parser/.env`

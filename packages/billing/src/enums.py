@@ -6,6 +6,7 @@ class ReferenceType(str, Enum):
 
     TASK = 'task'
     AUTOMATION = 'automation'
+    DIRECT = 'direct'
 
 
 class PricingDimension(str, Enum):

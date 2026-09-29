@@ -112,6 +112,20 @@ REST API. Точка входа для клиентов (фронтенд, вн�
   → `UnknownNotificationEventError` → `422`), `GET /deliveries` (read-only постраничный журнал —
   доставки создаются только доменом, не пользователем).
 
+- `routers/direct/{endpoints,dependencies,schema,errors}.py` (`endpoints.py` — только обработчики;
+  обмен с воркером, `page_key`, проверка баланса и списание — в `dependencies.py`) (`/api/marketplace`, tag `Marketplace`, всё с
+  `Depends(get_current_user)`; см. [`packages/direct/AGENTS.md`](../../packages/direct/AGENTS.md)):
+  `GET /{marketplace}/product/{article}` (карточка), `GET /{marketplace}/product/{article}/reviews`
+  `GET /{marketplace}/search?query=`, `GET /{marketplace}/category?url=` и
+  `GET /{marketplace}/seller?seller=` (числовой id — только Wildberries, либо ссылка; все постраничные: `?page_key=`, в ответе `next_page_key`).
+  Запрос уходит воркеру через `DirectBus` (Redis), `api` ждёт ответ до
+  `DIRECT_REQUEST_TIMEOUT_SECONDS`. `page_key` формирует и проверяет только этот роутер.
+  **Клиенту не отдаются ошибки маркетплейсов/парсера/инфраструктуры — только фиксированные
+  сообщения из `errors.py`**; новые статусы обязаны идти через него. Тарификация: проверка баланса
+  до запроса (402), списание через `BillingService.charge` только за успешный ответ, сбой
+  проверки/списания → 503 (см. [`packages/direct/AGENTS.md`](../../packages/direct/AGENTS.md#тарификация-packagesbilling)). Провайдер `direct_bus`
+  (`providers.Singleton(DirectBus)`) — в `container.py`.
+
 Новый роутер домена: создать `routers/<domain>/endpoints.py` с `router = APIRouter(prefix='/<domain>',
 tags=[...])`, подключить в `routers/router.py` через `api_router.include_router(router=...)`. Если
 роутер использует `@inject`/`Provide[...]` (напрямую или через зависимость вроде `get_current_user`,
@@ -170,7 +184,9 @@ Swagger UI (`/docs`) появляется кнопка **Authorize**, куда �
 `src/config.py::Config` — `REST` (host/port/title) и `POSTGRES` (`core.configs.PostgresConfig`).
 Значения из `.env` (см. `.env.example`): `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`,
 `POSTGRES_USER`, `POSTGRES_PASSWORD`, `AUTH_SECRET_KEY`, `AUTH_ALGORITHM`,
-`AUTH_ACCESS_TOKEN_EXPIRE_MINUTES`.
+`AUTH_ACCESS_TOKEN_EXPIRE_MINUTES`, `DIRECT_REQUEST_TIMEOUT_SECONDS` (20.0 — ожидание ответа воркера,
+он же `deadline_at` запроса), `DIRECT_PAGE_KEY_TTL_SECONDS` (900.0). `configure_rest_server` настраивает
+`logging.basicConfig(level=INFO)` — иначе INFO-логи приложения не выводятся.
 
 `.env` резолвится по абсолютному пути (`config.py::ENV_FILE = Path(__file__).resolve().parent.parent
 / '.env'`), а не относительно cwd — иначе `Config()`/`PostgresConfig()` ищут `.env` там, откуда

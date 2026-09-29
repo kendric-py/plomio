@@ -107,6 +107,21 @@ class NotificationsConfig(BaseSettings):
     DELIVERY_SWEEP_BATCH_SIZE: int = Field(default=50)
 
 
+class DirectConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=ENV_FILE,
+        env_file_encoding='utf-8',
+        env_prefix='DIRECT_',
+        extra='ignore',
+    )
+
+    # Сколько api ждёт ответ воркера; он же `deadline_at` запроса — по его истечении воркер
+    # запрос отбрасывает.
+    REQUEST_TIMEOUT_SECONDS: float = Field(default=20.0)
+    # Срок годности `page_key`, которым клиент листает страницы.
+    PAGE_KEY_TTL_SECONDS: float = Field(default=900.0)
+
+
 class Config(BaseSettings):
     REST: RestConfig = Field(default_factory=RestConfig)
     POSTGRES: PostgresConfig = Field(default_factory=PostgresConfig)
@@ -116,6 +131,7 @@ class Config(BaseSettings):
     TASK: TaskConfig = Field(default_factory=TaskConfig)
     AUTOMATION: AutomationConfig = Field(default_factory=AutomationConfig)
     NOTIFICATIONS: NotificationsConfig = Field(default_factory=NotificationsConfig)
+    DIRECT: DirectConfig = Field(default_factory=DirectConfig)
 
     class Config:
         env_file = ENV_FILE

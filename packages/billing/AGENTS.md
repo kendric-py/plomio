@@ -84,6 +84,11 @@ quantity)` — округление вверх, чтобы дробный мно
   диспатчем — при `<= 0` проверка этого цикла пропускается (без отмены самой автоматизации),
   `Automation.last_check_error = "insufficient_credits"`.
 
+- **`direct.<DirectRequestType>`** — direct-запросы ([`packages/direct`](../direct/AGENTS.md)),
+  списываются в `apps/api/src/routers/direct/dependencies.py` (`charge_direct_request`) после успешного ответа,
+  `quantity` = число возвращённых элементов, `reference_type=DIRECT`, `reference_id=request_id`.
+  Баланс `<= 0` проверяется до запроса (402).
+
 ## Блокировка при недостатке кредитов
 
 Пока баланс пользователя `<= 0`: `POST /api/tasks/`/`POST /api/automations/` отвечают `402`
