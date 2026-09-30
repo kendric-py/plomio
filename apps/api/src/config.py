@@ -122,6 +122,18 @@ class DirectConfig(BaseSettings):
     PAGE_KEY_TTL_SECONDS: float = Field(default=900.0)
 
 
+class BillingConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=ENV_FILE,
+        env_file_encoding='utf-8',
+        env_prefix='BILLING_',
+        extra='ignore',
+    )
+
+    # Сколько кредитов начисляется новому пользователю при регистрации; 0 — не начислять.
+    SIGNUP_BONUS_CREDITS: int = Field(default=10000, ge=0)
+
+
 class Config(BaseSettings):
     REST: RestConfig = Field(default_factory=RestConfig)
     POSTGRES: PostgresConfig = Field(default_factory=PostgresConfig)
@@ -132,6 +144,7 @@ class Config(BaseSettings):
     AUTOMATION: AutomationConfig = Field(default_factory=AutomationConfig)
     NOTIFICATIONS: NotificationsConfig = Field(default_factory=NotificationsConfig)
     DIRECT: DirectConfig = Field(default_factory=DirectConfig)
+    BILLING: BillingConfig = Field(default_factory=BillingConfig)
 
     class Config:
         env_file = ENV_FILE

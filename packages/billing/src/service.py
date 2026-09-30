@@ -88,8 +88,10 @@ class BillingService:
         return created_transaction
 
     async def grant(
-        self, user_id: int, amount: int, admin_id: int, comment: str | None,
+        self, user_id: int, amount: int, admin_id: int | None, comment: str | None,
     ) -> CreditTransactionEntity:
+        """`admin_id=None` — начисление не администратором (например, бонус при регистрации)."""
+
         async with self.transaction_manager(
             use_credit_wallet_repository=True,
             use_credit_transaction_repository=True,

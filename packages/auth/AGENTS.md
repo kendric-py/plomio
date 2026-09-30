@@ -25,6 +25,12 @@
     (`user_repository.exists()`) и `create` — в одной транзакции, но **не race-safe** при
     одновременной регистрации на пустой таблице (два параллельных запроса оба могут стать ADMIN) —
     приемлемо для одноразового bootstrap-действия, не для обычного потока регистрации.
+  - **Бонус при регистрации.** `AuthService(transaction_manager, billing_service,
+    signup_bonus_credits)`: после коммита пользователя и записи audit (`> 0`) зовёт
+    `BillingService.grant(admin_id=None, comment='signup_bonus')` в отдельной транзакции биллинга.
+    Сбой начисления только логируется (`logger.exception`) и не отменяет регистрацию — бонус тогда
+    выдаётся вручную. Размер — `BILLING_SIGNUP_BONUS_CREDITS` (`apps/api/src/config.py::BillingConfig`,
+    по умолчанию `0` — не начислять); получает и первый пользователь (ADMIN).
   - `authenticate_user` — проверяет email/пароль, обновляет `last_active_at`, кидает
     `InvalidCredentialsError` при неверных данных.
   - `has_users` — есть ли хотя бы один пользователь (`user_repository.exists()`). Нужен фронту, чтобы

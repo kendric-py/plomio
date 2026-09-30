@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 
 from core.exceptions import DuplicatedObjectError
@@ -7,15 +8,25 @@ from packages.audit_log.src.enums import AuditAction, AuditActionType, AuditStat
 from packages.audit_log.src.utils import build_create_fields
 from packages.auth.src.exceptions import InvalidCredentialsError, UserAlreadyExistsError
 from packages.auth.src.security import hash_password, verify_password
+from packages.billing.src.service import BillingService
 from packages.user.src.entities import UserEntity
 from packages.user.src.enums import UserRole
+
+logger = logging.getLogger(__name__)
 
 TARGET_TYPE_USER = 'User'
 
 
 class AuthService:
-    def __init__(self, transaction_manager: AsyncTransactionManager):
+    def __init__(
+        self,
+        transaction_manager: AsyncTransactionManager,
+        billing_service: BillingService,
+        signup_bonus_credits: int = 0,
+    ):
         self.transaction_manager = transaction_manager
+        self.billing_service = billing_service
+        self.signup_bonus_credits = signup_bonus_credits
 
     async def register_user(
         self,
@@ -70,7 +81,23 @@ class AuthService:
             details={'fields': build_create_fields(created_user)},
             ip_address=ip_address,
         )
+        await self._grant_signup_bonus(user_id=created_user.id)
         return created_user
+
+    async def _grant_signup_bonus(self, user_id: int) -> None:
+        # После коммита пользователя и в отдельной транзакции биллинга: сбой начисления не должен
+        # отменять уже успешную регистрацию — он только логируется, бонус можно выдать вручную.
+        if self.signup_bonus_credits <= 0:
+            return
+        try:
+            await self.billing_service.grant(
+                user_id=user_id,
+                amount=self.signup_bonus_credits,
+                admin_id=None,
+                comment='signup_bonus',
+            )
+        except Exception:
+            logger.exception('Failed to grant signup bonus to user %s', user_id)
 
     async def authenticate_user(
         self,

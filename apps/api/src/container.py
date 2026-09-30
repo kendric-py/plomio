@@ -35,14 +35,16 @@ class DependencyContainer(DeclarativeContainer):
         transaction_manager=transaction_manager,
     )
 
-    auth_service = providers.Factory(
-        AuthService,
-        transaction_manager=transaction_manager,
-    )
-
     billing_service = providers.Factory(
         BillingService,
         transaction_manager=transaction_manager,
+    )
+
+    auth_service = providers.Factory(
+        AuthService,
+        transaction_manager=transaction_manager,
+        billing_service=billing_service,
+        signup_bonus_credits=config.BILLING.SIGNUP_BONUS_CREDITS,
     )
 
     telegram_notifier = providers.Singleton(
