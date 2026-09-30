@@ -92,7 +92,8 @@ REST API. Точка входа для клиентов (фронтенд, вн�
 
 - `routers/billing/endpoints.py` + `routers/billing/schema.py` — два роутера в одном файле:
   `router` (`/api/billing`, owner-only, `Depends(get_current_user)`) — `GET /balance`,
-  `GET /transactions` (пагинированный журнал трат, `PaginationMeta`); `admin_router`
+  `GET /transactions/by-reference` (траты, сгруппированные по `reference_type`+`reference_id`,
+  `PaginationMeta`; плоского списка транзакций нет); `admin_router`
   (`/api/admin/billing`, `Depends(get_current_admin_user)`) — CRUD над каталогом действий
   (`GET`/`PATCH /actions/{action_code}`) и правилами множителей (`GET`/`POST /pricing-rules`,
   `DELETE /pricing-rules/{rule_id}`), `POST /users/{user_id}/grant` — ручное начисление кредитов.

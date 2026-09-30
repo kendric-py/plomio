@@ -6,6 +6,7 @@ from core.transaction_manager import AsyncTransactionManager
 from packages.billing.src.entities import (
     BillingActionEntity,
     CreditTransactionEntity,
+    CreditTransactionGroupEntity,
     PricingMultiplierRuleEntity,
 )
 from packages.billing.src.enums import ReferenceType
@@ -128,18 +129,17 @@ class BillingService:
         async with self.transaction_manager(use_credit_wallet_repository=True) as transaction:
             return await transaction.credit_wallet_repository.get_balances(user_ids=user_ids)
 
-    async def list_transactions(
+    async def list_transactions_grouped_by_reference(
         self, user_id: int, limit: int, offset: int,
-    ) -> tuple[list[CreditTransactionEntity], int]:
+    ) -> tuple[list[CreditTransactionGroupEntity], int]:
         async with self.transaction_manager(use_credit_transaction_repository=True) as transaction:
-            items = await transaction.credit_transaction_repository.get_by_user_id(
+            items = await transaction.credit_transaction_repository.get_grouped_by_reference(
                 user_id=user_id, limit=limit, offset=offset,
             )
-            total = await transaction.credit_transaction_repository.count_by_user_id(
+            total = await transaction.credit_transaction_repository.count_reference_groups(
                 user_id=user_id,
             )
         return items, total
-
     async def list_actions(self) -> list[BillingActionEntity]:
         async with self.transaction_manager(use_billing_action_repository=True) as transaction:
             return await transaction.billing_action_repository.retrieve_all()

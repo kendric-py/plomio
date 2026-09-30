@@ -57,8 +57,9 @@ quantity)` — округление вверх, чтобы дробный мно
   кошелька.
 - **`get_balance(user_id)`** / **`has_positive_balance(user_id)`** — используются как guard перед
   созданием новых задач/автоматизаций и перед диспатчем существующих (см. ниже).
-- **`list_transactions(user_id, limit, offset)`** — пагинированный журнал трат для анализа
-  расходов пользователем.
+- **`list_transactions_grouped_by_reference(user_id, limit, offset)`** — пагинированные траты,
+  сгруппированные по (`reference_type`, `reference_id`): сумма, число транзакций, первая/последняя
+  дата. Строки без источника (ручное начисление) не входят. Плоского списка транзакций в сервисе нет.
 - **`list_actions`/`update_action_cost`/`list_pricing_rules`/`create_pricing_rule`/
   `delete_pricing_rule`** — админский CRUD над каталогом/правилами (без REST-специфики — схемы и
   auth-guard в `apps/api/src/routers/billing/`).

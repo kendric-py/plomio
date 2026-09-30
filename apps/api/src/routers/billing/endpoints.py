@@ -9,7 +9,8 @@ from apps.api.src.routers.billing.schema import (
     BillingActionListResponse,
     BillingActionResponse,
     CreatePricingRuleRequest,
-    CreditTransactionListResponse,
+    CreditTransactionGroupListResponse,
+    CreditTransactionGroupResponse,
     CreditTransactionResponse,
     GrantCreditsRequest,
     PricingMultiplierRuleListResponse,
@@ -36,20 +37,20 @@ async def get_balance(
     return BalanceResponse(balance=balance)
 
 
-@router.get('/transactions')
+@router.get('/transactions/by-reference')
 @inject
-async def list_transactions(
+async def list_transactions_by_reference(
     limit: int = Query(default=100, ge=1, le=500, description='Размер страницы'),
     offset: int = Query(default=0, ge=0, description='Смещение страницы'),
     current_user: UserEntity = Depends(get_current_user),
     billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
-) -> CreditTransactionListResponse:
-    items, total = await billing_service.list_transactions(
+) -> CreditTransactionGroupListResponse:
+    items, total = await billing_service.list_transactions_grouped_by_reference(
         user_id=current_user.id, limit=limit, offset=offset,
     )
-    return CreditTransactionListResponse(
+    return CreditTransactionGroupListResponse(
         items=[
-            CreditTransactionResponse.model_validate(obj=item, from_attributes=True)
+            CreditTransactionGroupResponse.model_validate(obj=item, from_attributes=True)
             for item in items
         ],
         meta=PaginationMeta(total=total, limit=limit, offset=offset),

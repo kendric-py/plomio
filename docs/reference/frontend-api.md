@@ -65,7 +65,7 @@ CORS настроен максимально открыто (`allow_origins=['*'
 
 Все постраничные ответы (`GET /api/tasks/`, `GET /api/tasks/{id}/results`, `GET /api/automations/`,
 `GET /api/automations/with-history`, `GET /api/automations/{id}/history`,
-`GET /api/billing/transactions`, `GET /api/notifications/deliveries`) имеют одну и ту же форму:
+`GET /api/billing/transactions/by-reference`, `GET /api/notifications/deliveries`) имеют одну и ту же форму:
 
 ```json
 { "items": [ /* ... */ ], "meta": { "total": 0, "limit": 100, "offset": 0 } }
@@ -621,24 +621,24 @@ string | float | null`, тип зависит от `field`), `threshold_breached
 **Ответ `200`** (`BalanceResponse`): `{ "balance": 0 }` (`balance`: int, текущий баланс кредитов
 пользователя).
 
-### `GET /api/billing/transactions` — журнал списаний/начислений (постранично)
+### `GET /api/billing/transactions/by-reference` — траты, сгруппированные по источнику (постранично)
 
 Требует авторизации. Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по умолчанию 0).
+Группировка — по паре `reference_type` + `reference_id`; строки без источника (ручное начисление
+админом) в выдачу не входят. Порядок — по `last_at` (новые сверху). Плоского списка транзакций нет.
 
-**Ответ `200`** (`CreditTransactionListResponse`): `{ "items": [ /* CreditTransactionResponse */ ], "meta": { ... } }`.
+**Ответ `200`** (`CreditTransactionGroupListResponse`): `{ "items": [ /* CreditTransactionGroupResponse */ ], "meta": { ... } }`.
 
-`CreditTransactionResponse`:
+`CreditTransactionGroupResponse`:
 
 | Поле | Тип | Описание |
 |---|---|---|
-| `id` | int | идентификатор строки журнала |
-| `amount` | int | сумма транзакции: отрицательная — списание, положительная — начисление |
-| `balance_after` | int | баланс пользователя сразу после этой транзакции |
-| `action_code` | string \| null | код тарифицированного действия; `null` для ручного начисления админом |
-| `reference_type` | enum \| null | `task` \| `automation` (нижний регистр) — тип сущности, породившей списание |
-| `reference_id` | string \| null | идентификатор сущности-источника |
-| `transaction_metadata` | dict \| null | расшифровка расчёта либо комментарий (например, комментарий админа при ручной выдаче) |
-| `created_at` | datetime | время создания транзакции |
+| `reference_type` | enum | `task` \| `automation` \| `direct` (нижний регистр) — тип сущности, породившей списания |
+| `reference_id` | string | идентификатор сущности-источника (id задачи/автоматизации, `request_id` direct-запроса) |
+| `total_amount` | int | сумма транзакций группы; списания — отрицательные |
+| `transactions_count` | int | число транзакций в группе |
+| `first_at` | datetime | время первой транзакции группы |
+| `last_at` | datetime | время последней транзакции группы |
 
 ### `GET /api/admin/billing/actions` — каталог тарифицируемых действий
 

@@ -31,8 +31,7 @@ class PricingMultiplierRuleResponse(BaseModel):
 
 
 class CreditTransactionResponse(BaseModel):
-    """Одна строка журнала списаний/начислений. Вложен в `CreditTransactionListResponse.items`
-    (`GET /api/billing/transactions`)."""
+    """Строка журнала списаний/начислений — ответ `POST /api/admin/billing/users/{user_id}/grant`."""
 
     id: int = Field(description='Идентификатор строки журнала')
     amount: int = Field(
@@ -43,11 +42,25 @@ class CreditTransactionResponse(BaseModel):
         description='Код тарифицированного действия; null для ручного начисления админом',
     )
     reference_type: ReferenceType | None = Field(
-        description='Тип сущности, породившей списание (task/automation)',
+        description='Тип сущности, породившей списание (task/automation/direct)',
     )
     reference_id: str | None = Field(description='Идентификатор сущности-источника')
     transaction_metadata: dict | None = Field(description='Расшифровка расчёта либо комментарий')
     created_at: datetime = Field(description='Время создания транзакции')
+
+
+class CreditTransactionGroupResponse(BaseModel):
+    """Списания по одной сущности-источнику. Вложен в `CreditTransactionGroupListResponse.items`
+    (`GET /api/billing/transactions/by-reference`)."""
+
+    reference_type: ReferenceType = Field(
+        description='Тип сущности, породившей списания (task/automation/direct)',
+    )
+    reference_id: str = Field(description='Идентификатор сущности-источника')
+    total_amount: int = Field(description='Сумма транзакций группы; списания — отрицательные')
+    transactions_count: int = Field(description='Число транзакций в группе')
+    first_at: datetime = Field(description='Время первой транзакции группы')
+    last_at: datetime = Field(description='Время последней транзакции группы')
 
 
 # --- Запросы ---
@@ -96,8 +109,9 @@ class BalanceResponse(BaseModel):
     balance: int = Field(description='Текущий баланс кредитов пользователя')
 
 
-class CreditTransactionListResponse(BaseModel):
-    """Ответ `GET /api/billing/transactions` — постраничный журнал трат пользователя."""
+class CreditTransactionGroupListResponse(BaseModel):
+    """Ответ `GET /api/billing/transactions/by-reference` — постраничные траты пользователя,
+    сгруппированные по сущности-источнику."""
 
-    items: list[CreditTransactionResponse] = Field(description='Транзакции на текущей странице')
+    items: list[CreditTransactionGroupResponse] = Field(description='Группы на текущей странице')
     meta: PaginationMeta = Field(description='Метаданные пагинации')

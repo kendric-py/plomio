@@ -6,6 +6,7 @@ from core.repository import BaseRepository
 from packages.billing.src.entities import (
     BillingActionEntity,
     CreditTransactionEntity,
+    CreditTransactionGroupEntity,
     CreditWalletEntity,
     PricingMultiplierRuleEntity,
 )
@@ -140,19 +141,46 @@ class CreditTransactionRepository(BaseRepository[CreditTransaction, CreditTransa
             session=session,
         )
 
-    async def get_by_user_id(
+    async def get_grouped_by_reference(
         self, user_id: int, limit: int, offset: int,
-    ) -> list[CreditTransactionEntity]:
+    ) -> list[CreditTransactionGroupEntity]:
+        """Списания пользователя, сгруппированные по (`reference_type`, `reference_id`); строки без
+        источника (ручное начисление админом) не входят. Порядок — по последней транзакции группы."""
+
+        last_at = func.max(self.model.created_at)
         statement = (
-            select(self.model)
-            .where(self.model.user_id == user_id)
-            .order_by(self.model.created_at.desc())
+            select(
+                self.model.reference_type,
+                self.model.reference_id,
+                func.sum(self.model.amount).label('total_amount'),
+                func.count(self.model.id).label('transactions_count'),
+                func.min(self.model.created_at).label('first_at'),
+                last_at.label('last_at'),
+            )
+            .where(self.model.user_id == user_id, self.model.reference_id.is_not(None))
+            .group_by(self.model.reference_type, self.model.reference_id)
+            .order_by(last_at.desc())
             .limit(limit)
             .offset(offset)
         )
-        database_objects = await self.session.scalars(statement)
-        return self._to_entities(database_objects=database_objects)
+        rows = await self.session.execute(statement)
+        return [
+            CreditTransactionGroupEntity(
+                reference_type=row.reference_type,
+                reference_id=row.reference_id,
+                total_amount=row.total_amount,
+                transactions_count=row.transactions_count,
+                first_at=row.first_at,
+                last_at=row.last_at,
+            )
+            for row in rows
+        ]
 
-    async def count_by_user_id(self, user_id: int) -> int:
-        statement = select(func.count(self.model.id)).where(self.model.user_id == user_id)
-        return await self.session.scalar(statement)
+    async def count_reference_groups(self, user_id: int) -> int:
+        groups = (
+            select(self.model.reference_type, self.model.reference_id)
+            .where(self.model.user_id == user_id, self.model.reference_id.is_not(None))
+            .group_by(self.model.reference_type, self.model.reference_id)
+            .subquery()
+        )
+        return await self.session.scalar(select(func.count()).select_from(groups))

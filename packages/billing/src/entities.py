@@ -89,3 +89,14 @@ class CreditTransactionEntity(BaseModel):
         description='Идентификатор администратора, выдавшего начисление вручную',
     )
     created_at: Optional[datetime] = Field(default=None, description='Время создания транзакции')
+
+
+class CreditTransactionGroupEntity(BaseModel):
+    """Агрегат списаний по одной сущности-источнику (`reference_type` + `reference_id`)."""
+
+    reference_type: ReferenceType = Field(description='Тип сущности, породившей списания')
+    reference_id: str = Field(description='Идентификатор сущности-источника')
+    total_amount: int = Field(description='Сумма всех транзакций группы (списания — отрицательные)')
+    transactions_count: int = Field(description='Число транзакций в группе')
+    first_at: datetime = Field(description='Время первой транзакции группы')
+    last_at: datetime = Field(description='Время последней транзакции группы')
