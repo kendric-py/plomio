@@ -427,6 +427,8 @@ class TaskService:
         offset: int,
         status: Optional[TaskStatus] = None,
         include_automation_tasks: bool = False,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
     ) -> tuple[list[dict], int]:
         async with self.transaction_manager(
             use_task_repository=True,
@@ -438,9 +440,15 @@ class TaskService:
                 offset=offset,
                 status=status,
                 include_automation_tasks=include_automation_tasks,
+                date_from=date_from,
+                date_to=date_to,
             )
             total = await transaction.task_repository.count_by_user_id(
-                user_id=user_id, status=status, include_automation_tasks=include_automation_tasks,
+                user_id=user_id,
+                status=status,
+                include_automation_tasks=include_automation_tasks,
+                date_from=date_from,
+                date_to=date_to,
             )
             progress_by_task_id = await transaction.task_item_repository.get_progress_by_task_ids(
                 task_ids=[task.id for task in tasks],

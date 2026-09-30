@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import case, func, select, update
+from sqlalchemy import Select, case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.exceptions import ObjectNotFoundError
@@ -25,12 +25,17 @@ class TaskRepository(BaseRepository[Task, TaskEntity]):
         offset: int,
         status: Optional[TaskStatus] = None,
         include_automation_tasks: bool = False,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
     ) -> list[TaskEntity]:
-        statement = select(self.model).where(self.model.user_id == user_id)
-        if status is not None:
-            statement = statement.where(self.model.status == status)
-        if not include_automation_tasks:
-            statement = statement.where(self.model.automation_id.is_(None))
+        statement = self._apply_user_filters(
+            statement=select(self.model),
+            user_id=user_id,
+            status=status,
+            include_automation_tasks=include_automation_tasks,
+            date_from=date_from,
+            date_to=date_to,
+        )
         statement = (
             statement.order_by(self.model.created_at.desc()).limit(limit).offset(offset)
         )
@@ -42,13 +47,40 @@ class TaskRepository(BaseRepository[Task, TaskEntity]):
         user_id: int,
         status: Optional[TaskStatus] = None,
         include_automation_tasks: bool = False,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
     ) -> int:
-        statement = select(func.count(self.model.id)).where(self.model.user_id == user_id)
+        statement = self._apply_user_filters(
+            statement=select(func.count(self.model.id)),
+            user_id=user_id,
+            status=status,
+            include_automation_tasks=include_automation_tasks,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        return await self.session.scalar(statement)
+
+    def _apply_user_filters(
+        self,
+        statement: Select,
+        user_id: int,
+        status: Optional[TaskStatus],
+        include_automation_tasks: bool,
+        date_from: Optional[datetime],
+        date_to: Optional[datetime],
+    ) -> Select:
+        """Общие фильтры списка задач пользователя — для выборки и count, чтобы не разъезжались.
+        Период фильтрует `created_at`."""
+        statement = statement.where(self.model.user_id == user_id)
         if status is not None:
             statement = statement.where(self.model.status == status)
         if not include_automation_tasks:
             statement = statement.where(self.model.automation_id.is_(None))
-        return await self.session.scalar(statement)
+        if date_from is not None:
+            statement = statement.where(self.model.created_at >= date_from)
+        if date_to is not None:
+            statement = statement.where(self.model.created_at <= date_to)
+        return statement
 
     async def claim_next(
         self,

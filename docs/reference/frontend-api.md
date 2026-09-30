@@ -80,6 +80,15 @@ CORS настроен максимально открыто (`allow_origins=['*'
 `GET /api/notifications/events`, `GET /api/worker-health/workers` (поле называется `workers`),
 `GET /api/sessions/pool` (поле называется `marketplaces`).
 
+## Фильтр по датам
+
+Опциональный общий фильтр, подключён не ко всем ручкам — сейчас `GET /api/tasks/`, `GET /api/automations/` и
+`GET /api/automations/with-history`. Query-параметры
+`date_from` и `date_to` (ISO8601, оба необязательны, можно указать один). Границы включительные;
+значение без часового пояса трактуется как UTC, с поясом — приводится к UTC. `date_from` позже
+`date_to` → `422`. Какое именно поле времени фильтруется, определяет ручка (указано в её описании).
+`meta.total` считается с учётом фильтра.
+
 ## Важно про регистр значений enum'ов
 
 `marketplace` в JSON — **нижний регистр** (`"ozon"`, `"wildberries"`), `role` пользователя —
@@ -238,7 +247,8 @@ QUEUED --[не взята до queue_expires_at]--> EXPIRED
 ### `GET /api/tasks/` — список задач пользователя
 
 Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по умолчанию 0), `status` (query-параметр
-называется `status`, опциональный, одно значение `TaskStatus`).
+называется `status`, опциональный, одно значение `TaskStatus`), `date_from`/`date_to` (опциональный
+[фильтр по датам](#фильтр-по-датам); для задач фильтруется `created_at`).
 
 **Ответ `200`** (`TaskListResponse`): `{ "items": [ /* TaskDetailResponse */ ], "meta": { ... } }`.
 
@@ -432,14 +442,16 @@ cancel/pause/resume):
 
 ### `GET /api/automations/` — список автоматизаций пользователя
 
-Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по умолчанию 0).
+Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по умолчанию 0), `date_from`/`date_to`
+(опциональный [фильтр по датам](#фильтр-по-датам); для автоматизаций фильтруется `created_at`).
 
 **Ответ `200`** (`AutomationListResponse`): `{ "items": [ /* AutomationResponse */ ], "meta": { ... } }`.
 
 ### `GET /api/automations/with-history` — список автоматизаций с последними проверками
 
-Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по умолчанию 0) — те же, что у
-`GET /api/automations/`, применяются к списку автоматизаций, не к историям внутри него.
+Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по умолчанию 0), `date_from`/`date_to` — те
+же, что у `GET /api/automations/`, применяются к списку автоматизаций (по `created_at`), не к
+историям внутри него.
 
 Удобно для дашборда списка автоматизаций, где под каждой карточкой сразу нужен мини-график/индикатор
 последних проверок — экономит по отдельному вызову `GET /api/automations/{id}/history` на каждую

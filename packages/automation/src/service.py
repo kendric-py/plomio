@@ -225,12 +225,20 @@ class AutomationService:
         user_id: int,
         limit: int,
         offset: int,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
     ) -> tuple[list[AutomationEntity], int]:
         async with self.transaction_manager(use_automation_repository=True) as transaction:
             automations = await transaction.automation_repository.get_by_user_id(
-                user_id=user_id, limit=limit, offset=offset,
+                user_id=user_id,
+                limit=limit,
+                offset=offset,
+                date_from=date_from,
+                date_to=date_to,
             )
-            total = await transaction.automation_repository.count_by_user_id(user_id=user_id)
+            total = await transaction.automation_repository.count_by_user_id(
+                user_id=user_id, date_from=date_from, date_to=date_to,
+            )
         return automations, total
 
     async def list_automations_with_recent_checks(
@@ -238,6 +246,8 @@ class AutomationService:
         user_id: int,
         limit: int,
         offset: int,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
     ) -> tuple[list[tuple[AutomationEntity, list[AutomationCheckLogEntity]]], int]:
         """Same page of automations as `list_automations`, each paired with its last
         `RECENT_CHECKS_LIMIT` check-log ticks (newest first) — one extra batched query
@@ -249,9 +259,15 @@ class AutomationService:
             use_automation_check_log_repository=True,
         ) as transaction:
             automations = await transaction.automation_repository.get_by_user_id(
-                user_id=user_id, limit=limit, offset=offset,
+                user_id=user_id,
+                limit=limit,
+                offset=offset,
+                date_from=date_from,
+                date_to=date_to,
             )
-            total = await transaction.automation_repository.count_by_user_id(user_id=user_id)
+            total = await transaction.automation_repository.count_by_user_id(
+                user_id=user_id, date_from=date_from, date_to=date_to,
+            )
             recent_checks_by_automation_id = (
                 await transaction.automation_check_log_repository.get_recent_by_automation_ids(
                     automation_ids=[automation.id for automation in automations],

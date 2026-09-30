@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import Select, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -114,20 +114,45 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
         user_id: int,
         limit: int,
         offset: int,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
     ) -> list[AutomationEntity]:
-        statement = (
-            select(self.model)
-            .where(self.model.user_id == user_id)
-            .order_by(self.model.created_at.desc())
-            .limit(limit)
-            .offset(offset)
+        statement = self._apply_user_filters(
+            statement=select(self.model), user_id=user_id, date_from=date_from, date_to=date_to,
         )
+        statement = statement.order_by(self.model.created_at.desc()).limit(limit).offset(offset)
         database_objects = await self.session.scalars(statement)
         return self._to_entities(database_objects=database_objects)
 
-    async def count_by_user_id(self, user_id: int) -> int:
-        statement = select(func.count(self.model.id)).where(self.model.user_id == user_id)
+    async def count_by_user_id(
+        self,
+        user_id: int,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+    ) -> int:
+        statement = self._apply_user_filters(
+            statement=select(func.count(self.model.id)),
+            user_id=user_id,
+            date_from=date_from,
+            date_to=date_to,
+        )
         return await self.session.scalar(statement)
+
+    def _apply_user_filters(
+        self,
+        statement: Select,
+        user_id: int,
+        date_from: datetime | None,
+        date_to: datetime | None,
+    ) -> Select:
+        """Общие фильтры списка автоматизаций пользователя — для выборки и count. Период
+        фильтрует `created_at`."""
+        statement = statement.where(self.model.user_id == user_id)
+        if date_from is not None:
+            statement = statement.where(self.model.created_at >= date_from)
+        if date_to is not None:
+            statement = statement.where(self.model.created_at <= date_to)
+        return statement
 
     async def finalize_check(
         self,

@@ -265,6 +265,10 @@ tasks (..., automation_id) VALUES (...)`, эта вторая сессия за�
 `GET /api/automations/{id}/history` — все владелец-only (`ObjectNotFoundError` при
 чужой/несуществующей автоматизации, как в `packages/task`).
 
+`GET /` и `GET /with-history` принимают опциональный период `date_from`/`date_to` (включительно, по
+`Automation.created_at`) — `list_automations`/`list_automations_with_recent_checks` →
+`AutomationRepository.get_by_user_id`/`count_by_user_id`, общие фильтры в `_apply_user_filters`.
+
 `GET /api/automations/{id}` (`AutomationDetailResponse` — расширяет `AutomationResponse`
 единственным полем `last_info`) — снимок всех восьми `TRACKED_FIELDS` на момент **последней
 успешной** проверки (`AutomationCheckLogRepository.get_latest_succeeded(automation_id).snapshot`,

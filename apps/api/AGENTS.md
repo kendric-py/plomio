@@ -26,7 +26,12 @@ REST API. Точка входа для клиентов (фронтенд, вн�
   в отличие от `routers/<domain>/schema.py`. Сейчас там `PaginationMeta` (`total`/`limit`/`offset`) —
   используется в `routers/task/schema.py` (`TaskListResponse`/`TaskResultsResponse`) и
   `routers/automation/schema.py` (`AutomationListResponse`/`AutomationHistoryListResponse`); до
-  выноса была продублирована в обоих файлах дословно.
+  выноса была продублирована в обоих файлах дословно. Там же `DateRange` (`date_from`/`date_to`) —
+  результат общей зависимости `routers/dependencies.py::get_date_range` (опциональный фильтр по
+  датам: UTC, границы включительные, naive → UTC, `from > to` → 422). Подключается точечно через
+  `Depends(get_date_range)`, сейчас — `GET /api/tasks/`, `GET /api/automations/` и `GET /api/automations/with-history` (по
+  `created_at`); в домен передаются просто
+  `date_from`/`date_to`, колонку времени выбирает репозиторий.
 - `routers/task/endpoints.py` + `routers/task/schema.py` (`/api/tasks`). Схема файла разложена на
   секции: сверху переиспользуемые сущности (`TaskItemResponse`, `TaskBaseResponse` — общие поля
   задачи, `TaskProgressFields` — агрегаты прогресса, `ResultItemResponse`), ниже — запрос
@@ -60,6 +65,7 @@ REST API. Точка входа для клиентов (фронтенд, вн�
     «не найдено» и «чужое», чтобы не давать возможность перебором `task_id` узнавать о чужих задачах.
   - `GET /` — требует авторизации, постранично отдаёт задачи пользователя (`TaskListResponse`:
     `items: list[TaskDetailResponse]` + `meta`), тот же `TaskDetailResponse`, что и у `GET /{task_id}`.
+    Фильтры: `status` и общий `date_from`/`date_to` (по `created_at`).
   - `GET /{task_id}/results` — требует авторизации, постранично отдаёт результаты задачи
     (`TaskResultsResponse`: `items` + `meta` — см. [конвенцию пагинации в
     gold-rules.md](../../docs/reference/gold-rules.md#пагинация-в-rest-ответах), `meta` всегда

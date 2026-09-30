@@ -18,7 +18,8 @@ from apps.api.src.routers.automation.schema import (
     CreateAutomationRequest,
     UpdateBaselineRequest,
 )
-from apps.api.src.routers.schema import PaginationMeta
+from apps.api.src.routers.dependencies import get_date_range
+from apps.api.src.routers.schema import DateRange, PaginationMeta
 from core.exceptions import ObjectNotFoundError
 from packages.automation.src.exceptions import DuplicateAutomationError, InvalidCheckFrequencyError
 from packages.automation.src.service import AutomationService
@@ -73,13 +74,18 @@ async def create_automation(
 async def list_automations(
     limit: int = Query(default=100, ge=1, le=500, description='Размер страницы'),
     offset: int = Query(default=0, ge=0, description='Смещение страницы'),
+    date_range: DateRange = Depends(get_date_range),
     current_user: UserEntity = Depends(get_current_user),
     automation_service: AutomationService = Depends(
         Provide[DependencyContainer.automation_service],
     ),
 ) -> AutomationListResponse:
     items, total = await automation_service.list_automations(
-        user_id=current_user.id, limit=limit, offset=offset,
+        user_id=current_user.id,
+        limit=limit,
+        offset=offset,
+        date_from=date_range.date_from,
+        date_to=date_range.date_to,
     )
     return AutomationListResponse(
         items=[
@@ -94,13 +100,18 @@ async def list_automations(
 async def list_automations_with_history(
     limit: int = Query(default=100, ge=1, le=500, description='Размер страницы'),
     offset: int = Query(default=0, ge=0, description='Смещение страницы'),
+    date_range: DateRange = Depends(get_date_range),
     current_user: UserEntity = Depends(get_current_user),
     automation_service: AutomationService = Depends(
         Provide[DependencyContainer.automation_service],
     ),
 ) -> AutomationWithHistoryListResponse:
     items, total = await automation_service.list_automations_with_recent_checks(
-        user_id=current_user.id, limit=limit, offset=offset,
+        user_id=current_user.id,
+        limit=limit,
+        offset=offset,
+        date_from=date_range.date_from,
+        date_to=date_range.date_to,
     )
     return AutomationWithHistoryListResponse(
         items=[

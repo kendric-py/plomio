@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from apps.api.src.container import DependencyContainer
 from apps.api.src.routers.auth.dependencies import get_current_user
-from apps.api.src.routers.schema import PaginationMeta
+from apps.api.src.routers.dependencies import get_date_range
+from apps.api.src.routers.schema import DateRange, PaginationMeta
 from apps.api.src.routers.task.schema import (
     CreateTaskRequest,
     CreateTaskResponse,
@@ -71,13 +72,19 @@ async def list_tasks(
     task_status: TaskStatus | None = Query(
         default=None, alias='status', description='Фильтр по статусу задачи',
     ),
+    date_range: DateRange = Depends(get_date_range),
     current_user: UserEntity = Depends(get_current_user),
     task_service: TaskService = Depends(
         Provide[DependencyContainer.task_service],
     ),
 ) -> TaskListResponse:
     items, total = await task_service.list_tasks(
-        user_id=current_user.id, limit=limit, offset=offset, status=task_status,
+        user_id=current_user.id,
+        limit=limit,
+        offset=offset,
+        status=task_status,
+        date_from=date_range.date_from,
+        date_to=date_range.date_to,
     )
     return TaskListResponse(
         items=[TaskDetailResponse.model_validate(obj=item) for item in items],
