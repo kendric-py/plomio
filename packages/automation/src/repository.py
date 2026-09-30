@@ -7,7 +7,11 @@ from sqlalchemy.orm import aliased
 
 from core.enums import Marketplace
 from core.repository import BaseRepository
-from packages.automation.src.entities import AutomationCheckLogEntity, AutomationEntity
+from packages.automation.src.entities import (
+    AutomationCheckLogEntity,
+    AutomationEntity,
+    AutomationListFilters,
+)
 from packages.automation.src.models import Automation, AutomationCheckLog
 
 
@@ -114,11 +118,10 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
         user_id: int,
         limit: int,
         offset: int,
-        date_from: datetime | None = None,
-        date_to: datetime | None = None,
+        filters: AutomationListFilters | None = None,
     ) -> list[AutomationEntity]:
         statement = self._apply_user_filters(
-            statement=select(self.model), user_id=user_id, date_from=date_from, date_to=date_to,
+            statement=select(self.model), user_id=user_id, filters=filters,
         )
         statement = statement.order_by(self.model.created_at.desc()).limit(limit).offset(offset)
         database_objects = await self.session.scalars(statement)
@@ -127,14 +130,10 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
     async def count_by_user_id(
         self,
         user_id: int,
-        date_from: datetime | None = None,
-        date_to: datetime | None = None,
+        filters: AutomationListFilters | None = None,
     ) -> int:
         statement = self._apply_user_filters(
-            statement=select(func.count(self.model.id)),
-            user_id=user_id,
-            date_from=date_from,
-            date_to=date_to,
+            statement=select(func.count(self.model.id)), user_id=user_id, filters=filters,
         )
         return await self.session.scalar(statement)
 
@@ -142,17 +141,22 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
         self,
         statement: Select,
         user_id: int,
-        date_from: datetime | None,
-        date_to: datetime | None,
+        filters: AutomationListFilters | None,
     ) -> Select:
-        """Общие фильтры списка автоматизаций пользователя — для выборки и count. Период
-        фильтрует `created_at`."""
+        """Общие фильтры списка автоматизаций пользователя — для выборки и count. Цена —
+        `price_kopecks` (текущая цена без скидки), период — `created_at`."""
         statement = statement.where(self.model.user_id == user_id)
-        if date_from is not None:
-            statement = statement.where(self.model.created_at >= date_from)
-        if date_to is not None:
-            statement = statement.where(self.model.created_at <= date_to)
-        return statement
+        if filters is None:
+            return statement
+        conditions = (
+            (filters.status, self.model.status == filters.status),
+            (filters.in_stock, self.model.in_stock == filters.in_stock),
+            (filters.price_from, self.model.price_kopecks >= filters.price_from),
+            (filters.price_to, self.model.price_kopecks <= filters.price_to),
+            (filters.date_from, self.model.created_at >= filters.date_from),
+            (filters.date_to, self.model.created_at <= filters.date_to),
+        )
+        return statement.where(*(condition for value, condition in conditions if value is not None))
 
     async def finalize_check(
         self,
@@ -160,12 +164,15 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
         last_checked_at: datetime,
         last_check_error: str | None,
         baseline_updates: dict[str, int | bool],
+        current_values: dict[str, int | str | None] | None = None,
     ) -> None:
         """Clears `pending_task_id` and sets `last_check_error` explicitly to `None` on success —
         both need a raw UPDATE rather than `BaseRepository.update`, which drops `None` fields
         (`exclude_none=True`) and so can't null out a previously-set value. `baseline_updates` may
         also carry `in_stock` (a bool, not a baseline_*_kopecks column) — same "only include what
-        actually changed" contract, just not restricted to price columns despite the name."""
+        actually changed" contract, just not restricted to price columns despite the name.
+        `current_values` — актуальные `name`/`*price_kopecks` по успешной проверке; пишутся как
+        есть, включая `None` (цена пропала с карточки — это и есть текущее состояние)."""
 
         statement = (
             update(self.model)
@@ -175,6 +182,7 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
                 last_checked_at=last_checked_at,
                 last_check_error=last_check_error,
                 **baseline_updates,
+                **(current_values or {}),
             )
         )
         await self.session.execute(statement)

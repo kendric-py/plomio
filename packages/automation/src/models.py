@@ -65,6 +65,12 @@ class Automation(BaseSQLModel):
     # FREQUENCY_MINUTES вместо check_frequency_minutes, пока False) и служит baseline для
     # обнаружения возврата в наличие в AutomationService._diff_stock.
     in_stock: Mapped[bool | None] = mapped_column(nullable=True)
+    # Актуальные название и цены по последней успешной проверке (в отличие от baseline_* — точки
+    # отсчёта — перезаписываются каждым успешным тиком); NULL — успешных проверок ещё не было.
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    price_kopecks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    discounted_price_kopecks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    original_price_kopecks: Mapped[int | None] = mapped_column(Integer, nullable=True)
     next_check_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     pending_task_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True),

@@ -265,9 +265,20 @@ tasks (..., automation_id) VALUES (...)`, эта вторая сессия за�
 `GET /api/automations/{id}/history` — все владелец-only (`ObjectNotFoundError` при
 чужой/несуществующей автоматизации, как в `packages/task`).
 
-`GET /` и `GET /with-history` принимают опциональный период `date_from`/`date_to` (включительно, по
-`Automation.created_at`) — `list_automations`/`list_automations_with_recent_checks` →
-`AutomationRepository.get_by_user_id`/`count_by_user_id`, общие фильтры в `_apply_user_filters`.
+`GET /` и `GET /with-history` принимают опциональные фильтры `status`, `in_stock`,
+`price_from`/`price_to` (по `Automation.price_kopecks`, копейки) и `date_from`/`date_to` (по
+`created_at`), все границы включительные. Домену они передаются одним `AutomationListFilters`
+(`entities.py`) → `list_automations`/`list_automations_with_recent_checks` →
+`AutomationRepository.get_by_user_id`/`count_by_user_id`, общие условия — в `_apply_user_filters`.
+Сборка и валидация (`price_from <= price_to`) — `routers/automation/dependencies.py`.
+
+**Текущие значения на `Automation`** — `name`, `price_kopecks`, `discounted_price_kopecks`,
+`original_price_kopecks`: актуальное состояние карточки по последней **успешной** проверке, в
+отличие от `baseline_*` (точка отсчёта). Пишутся в `_finalize_check` через
+`AutomationRepository.finalize_check(current_values=...)` тем же `UPDATE`, что и baseline, при любом
+успехе (включая `None`, если цена пропала); при провале проверки не трогаются. Нужны, чтобы
+фильтровать список в SQL, не джойня JSONB-снимок лога. У автоматизаций, созданных до миграции
+`a8c2e6f14d93`, поля `NULL` до первой успешной проверки (бэкфилла нет).
 
 `GET /api/automations/{id}` (`AutomationDetailResponse` — расширяет `AutomationResponse`
 единственным полем `last_info`) — снимок всех восьми `TRACKED_FIELDS` на момент **последней

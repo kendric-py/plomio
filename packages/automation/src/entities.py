@@ -51,6 +51,20 @@ class AutomationEntity(BaseModel):
         default=None,
         description='Наличие товара по последней завершённой проверке; None — проверок ещё не было',
     )
+    name: Optional[str] = Field(
+        default=None,
+        description='Название товара по последней успешной проверке; None — успешных проверок не было',
+    )
+    price_kopecks: Optional[int] = Field(
+        default=None, description='Текущая цена без скидки в копейках по последней успешной проверке',
+    )
+    discounted_price_kopecks: Optional[int] = Field(
+        default=None, description='Текущая цена со скидкой в копейках по последней успешной проверке',
+    )
+    original_price_kopecks: Optional[int] = Field(
+        default=None,
+        description='Текущая перечёркнутая цена в копейках по последней успешной проверке',
+    )
     next_check_at: Optional[datetime] = Field(
         default=None,
         description='Момент следующей плановой проверки',
@@ -72,6 +86,18 @@ class AutomationEntity(BaseModel):
         default=None,
         description='Время последнего изменения автоматизации',
     )
+
+
+class AutomationListFilters(BaseModel):
+    """Опциональные фильтры списка автоматизаций пользователя; `None` — фильтр не задан. Цены — в
+    копейках, границы включительные; период — по `created_at`."""
+
+    status: Optional[AutomationStatus] = None
+    in_stock: Optional[bool] = None
+    price_from: Optional[int] = None
+    price_to: Optional[int] = None
+    date_from: Optional[datetime] = None
+    date_to: Optional[datetime] = None
 
 
 class AutomationCheckLogEntity(BaseModel):

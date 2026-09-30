@@ -5,7 +5,11 @@ from core.enums import Marketplace
 from core.exceptions import DuplicatedObjectError, ObjectNotFoundError
 from core.marketplace_article import extract_article
 from core.transaction_manager import AsyncTransactionManager
-from packages.automation.src.entities import AutomationCheckLogEntity, AutomationEntity
+from packages.automation.src.entities import (
+    AutomationCheckLogEntity,
+    AutomationEntity,
+    AutomationListFilters,
+)
 from packages.automation.src.enums import AutomationStatus, TrackedField, TrackedFieldKind
 from packages.automation.src.exceptions import DuplicateAutomationError, InvalidCheckFrequencyError
 from packages.billing.src.enums import PricingDimension, ReferenceType
@@ -225,19 +229,14 @@ class AutomationService:
         user_id: int,
         limit: int,
         offset: int,
-        date_from: datetime | None = None,
-        date_to: datetime | None = None,
+        filters: AutomationListFilters | None = None,
     ) -> tuple[list[AutomationEntity], int]:
         async with self.transaction_manager(use_automation_repository=True) as transaction:
             automations = await transaction.automation_repository.get_by_user_id(
-                user_id=user_id,
-                limit=limit,
-                offset=offset,
-                date_from=date_from,
-                date_to=date_to,
+                user_id=user_id, limit=limit, offset=offset, filters=filters,
             )
             total = await transaction.automation_repository.count_by_user_id(
-                user_id=user_id, date_from=date_from, date_to=date_to,
+                user_id=user_id, filters=filters,
             )
         return automations, total
 
@@ -246,8 +245,7 @@ class AutomationService:
         user_id: int,
         limit: int,
         offset: int,
-        date_from: datetime | None = None,
-        date_to: datetime | None = None,
+        filters: AutomationListFilters | None = None,
     ) -> tuple[list[tuple[AutomationEntity, list[AutomationCheckLogEntity]]], int]:
         """Same page of automations as `list_automations`, each paired with its last
         `RECENT_CHECKS_LIMIT` check-log ticks (newest first) — one extra batched query
@@ -259,14 +257,10 @@ class AutomationService:
             use_automation_check_log_repository=True,
         ) as transaction:
             automations = await transaction.automation_repository.get_by_user_id(
-                user_id=user_id,
-                limit=limit,
-                offset=offset,
-                date_from=date_from,
-                date_to=date_to,
+                user_id=user_id, limit=limit, offset=offset, filters=filters,
             )
             total = await transaction.automation_repository.count_by_user_id(
-                user_id=user_id, date_from=date_from, date_to=date_to,
+                user_id=user_id, filters=filters,
             )
             recent_checks_by_automation_id = (
                 await transaction.automation_check_log_repository.get_recent_by_automation_ids(
@@ -448,6 +442,7 @@ class AutomationService:
         has_changes = False
         threshold_breached = False
         baseline_updates: dict[str, int | bool] = {}
+        current_values: dict[str, int | str | None] = {}
 
         if succeeded:
             results, _ = await self.result_service.get_results_for_task(
@@ -458,6 +453,12 @@ class AutomationService:
                 snapshot = self._build_snapshot(payload=payload)
                 product_name = payload.title
                 product_link = payload.product_url
+                current_values = {
+                    'name': payload.title,
+                    'price_kopecks': payload.price_kopecks,
+                    'discounted_price_kopecks': payload.discounted_price_kopecks,
+                    'original_price_kopecks': payload.original_price_kopecks,
+                }
 
                 previous_log = (
                     await transaction.automation_check_log_repository.get_latest_succeeded(
@@ -498,6 +499,7 @@ class AutomationService:
             last_checked_at=datetime.now(tz=timezone.utc),
             last_check_error=last_check_error,
             baseline_updates=baseline_updates,
+            current_values=current_values,
         )
 
         notify_call: dict | None = None

@@ -442,16 +442,23 @@ cancel/pause/resume):
 
 ### `GET /api/automations/` — список автоматизаций пользователя
 
-Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по умолчанию 0), `date_from`/`date_to`
-(опциональный [фильтр по датам](#фильтр-по-датам); для автоматизаций фильтруется `created_at`).
+Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по умолчанию 0) и опциональные фильтры
+(комбинируются через AND):
+
+- `status` — `ACTIVE` / `PAUSED`;
+- `in_stock` — `true`/`false` (по последней проверке; автоматизации без проверок не попадают в выдачу,
+  если фильтр задан);
+- `price_from` / `price_to` — текущая цена `price_kopecks` (без скидки), в копейках, границы
+  включительные, `price_from > price_to` → `422`; автоматизации без успешной проверки (цена `null`)
+  при заданном фильтре не попадают в выдачу;
+- `date_from` / `date_to` — [фильтр по датам](#фильтр-по-датам), по `created_at`.
 
 **Ответ `200`** (`AutomationListResponse`): `{ "items": [ /* AutomationResponse */ ], "meta": { ... } }`.
 
 ### `GET /api/automations/with-history` — список автоматизаций с последними проверками
 
-Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по умолчанию 0), `date_from`/`date_to` — те
-же, что у `GET /api/automations/`, применяются к списку автоматизаций (по `created_at`), не к
-историям внутри него.
+Query: `limit`, `offset`, `status`, `in_stock`, `price_from`/`price_to`, `date_from`/`date_to` — те
+же, что у `GET /api/automations/`, применяются к списку автоматизаций, не к историям внутри него.
 
 Удобно для дашборда списка автоматизаций, где под каждой карточкой сразу нужен мини-график/индикатор
 последних проверок — экономит по отдельному вызову `GET /api/automations/{id}/history` на каждую
@@ -604,6 +611,10 @@ string | float | null`, тип зависит от `field`), `threshold_breached
 | `baseline_discounted_price_kopecks` | int \| null | базовая цена со скидкой |
 | `baseline_original_price_kopecks` | int \| null | базовая перечёркнутая цена |
 | `in_stock` | bool \| null | наличие по последней завершённой проверке; `null` — проверок ещё не было |
+| `name` | string \| null | название товара по последней успешной проверке; `null` — успешных проверок ещё не было |
+| `price_kopecks` | int \| null | текущая цена без скидки (последняя успешная проверка, перезаписывается каждым тиком) |
+| `discounted_price_kopecks` | int \| null | текущая цена со скидкой |
+| `original_price_kopecks` | int \| null | текущая перечёркнутая цена |
 | `next_check_at` | datetime | момент следующей плановой проверки |
 | `last_checked_at` | datetime \| null | момент последней завершённой проверки (успешной или нет) |
 | `last_check_error` | string \| null | причина провала последней проверки, если она провалилась; при успехе — `null` |

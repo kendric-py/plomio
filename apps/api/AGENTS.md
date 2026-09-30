@@ -133,6 +133,11 @@ REST API. Точка входа для клиентов (фронтенд, вн�
   проверки/списания → 503 (см. [`packages/direct/AGENTS.md`](../../packages/direct/AGENTS.md#тарификация-packagesbilling)). Провайдер `direct_bus`
   (`providers.Singleton(DirectBus)`) — в `container.py`.
 
+`routers/automation/dependencies.py::get_automation_filters` — Depends со всеми опциональными
+фильтрами списка автоматизаций (`status`, `in_stock`, `price_from`/`price_to`, плюс общий
+`get_date_range`), общий для `GET /api/automations/` и `/with-history`; возвращает доменный
+`AutomationListFilters`.
+
 Новый роутер домена: создать `routers/<domain>/endpoints.py` с `router = APIRouter(prefix='/<domain>',
 tags=[...])`, подключить в `routers/router.py` через `api_router.include_router(router=...)`. Если
 роутер использует `@inject`/`Provide[...]` (напрямую или через зависимость вроде `get_current_user`,

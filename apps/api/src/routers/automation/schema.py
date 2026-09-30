@@ -60,6 +60,18 @@ class AutomationResponse(BaseModel):
     in_stock: bool | None = Field(
         description='Наличие товара по последней завершённой проверке; None — проверок ещё не было',
     )
+    name: str | None = Field(
+        description='Название товара по последней успешной проверке; None — успешных проверок не было',
+    )
+    price_kopecks: int | None = Field(
+        description='Текущая цена без скидки в копейках (последняя успешная проверка)',
+    )
+    discounted_price_kopecks: int | None = Field(
+        description='Текущая цена со скидкой в копейках (последняя успешная проверка)',
+    )
+    original_price_kopecks: int | None = Field(
+        description='Текущая перечёркнутая цена в копейках (последняя успешная проверка)',
+    )
     next_check_at: datetime = Field(description='Момент следующей плановой проверки')
     last_checked_at: datetime | None = Field(description='Момент последней завершённой проверки')
     last_check_error: str | None = Field(description='Причина провала последней проверки')
