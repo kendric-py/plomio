@@ -148,15 +148,19 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
         statement = statement.where(self.model.user_id == user_id)
         if filters is None:
             return statement
-        conditions = (
-            (filters.status, self.model.status == filters.status),
-            (filters.in_stock, self.model.in_stock == filters.in_stock),
-            (filters.price_from, self.model.price_kopecks >= filters.price_from),
-            (filters.price_to, self.model.price_kopecks <= filters.price_to),
-            (filters.date_from, self.model.created_at >= filters.date_from),
-            (filters.date_to, self.model.created_at <= filters.date_to),
-        )
-        return statement.where(*(condition for value, condition in conditions if value is not None))
+        if filters.status is not None:
+            statement = statement.where(self.model.status == filters.status)
+        if filters.in_stock is not None:
+            statement = statement.where(self.model.in_stock == filters.in_stock)
+        if filters.price_from is not None:
+            statement = statement.where(self.model.price_kopecks >= filters.price_from)
+        if filters.price_to is not None:
+            statement = statement.where(self.model.price_kopecks <= filters.price_to)
+        if filters.date_from is not None:
+            statement = statement.where(self.model.created_at >= filters.date_from)
+        if filters.date_to is not None:
+            statement = statement.where(self.model.created_at <= filters.date_to)
+        return statement
 
     async def finalize_check(
         self,
