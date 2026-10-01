@@ -58,9 +58,9 @@ def cursor(page_num: int) -> WildberriesPaginationCursor:
     return WildberriesPaginationCursor(marketplace=Marketplace.WILDBERRIES, page_num=page_num)
 
 
-def make_task(result_limit=None):
+def make_task(result_limit=None, parse_type=ParseType.SEARCH_QUERY):
     return SimpleNamespace(
-        id=uuid4(), marketplace=Marketplace.WILDBERRIES, parse_type=ParseType.SEARCH_QUERY,
+        id=uuid4(), marketplace=Marketplace.WILDBERRIES, parse_type=parse_type,
         result_limit=result_limit,
     )
 
@@ -69,10 +69,10 @@ def make_item():
     return SimpleNamespace(id=uuid4(), input_value='q', cursor=None, result_count=0)
 
 
-def install_operation(monkeypatch, fetch_page):
+def install_operation(monkeypatch, fetch_page, parse_type=ParseType.SEARCH_QUERY):
     operation = PageOperation(fetch_page=fetch_page, cursor_model=WildberriesPaginationCursor)
     monkeypatch.setattr(
-        task_runner, 'OPERATIONS', {(Marketplace.WILDBERRIES, ParseType.SEARCH_QUERY): operation},
+        task_runner, 'OPERATIONS', {(Marketplace.WILDBERRIES, parse_type): operation},
     )
 
 
@@ -116,6 +116,73 @@ async def test_result_limit_stops_pagination(monkeypatch):
 
     assert seen_limits == [2]
     assert task_service.completions == [(TaskItemStatus.SUCCEEDED, None)]
+
+
+@pytest.mark.asyncio
+async def test_result_limit_truncates_reviews_page_and_stops(monkeypatch):
+    # Отзывные fetcher'ы отдают страницу целиком и ctx.limit не учитывают — лимит держит runner.
+    fetch_calls = []
+
+    async def fetch_page(input_value, cursor_value, ctx):
+        fetch_calls.append(ctx.limit)
+        return Page(items=[product(index) for index in range(5)], next_cursor=cursor(1))
+
+    install_operation(monkeypatch, fetch_page, parse_type=ParseType.REVIEWS)
+    task_service, result_service = FakeTaskService(), FakeResultService()
+    executor = PageExecutor(StubProvider(), ExecutionOptions())
+
+    await task_runner.process_item_pages(
+        make_task(result_limit=3, parse_type=ParseType.REVIEWS),
+        make_item(), executor, task_service, result_service,
+    )
+
+    assert len(fetch_calls) == 1
+    assert result_service.recorded == [3]
+    assert task_service.progress[-1][1] == 3
+    assert task_service.completions == [(TaskItemStatus.SUCCEEDED, None)]
+
+
+@pytest.mark.asyncio
+async def test_result_limit_spans_review_pages(monkeypatch):
+    pages = [
+        Page(items=[product(1), product(2)], next_cursor=cursor(1)),
+        Page(items=[product(3), product(4)], next_cursor=cursor(2)),
+    ]
+
+    async def fetch_page(input_value, cursor_value, ctx):
+        return pages.pop(0)
+
+    install_operation(monkeypatch, fetch_page, parse_type=ParseType.REVIEWS)
+    result_service = FakeResultService()
+    executor = PageExecutor(StubProvider(), ExecutionOptions())
+
+    await task_runner.process_item_pages(
+        make_task(result_limit=3, parse_type=ParseType.REVIEWS),
+        make_item(), executor, FakeTaskService(), result_service,
+    )
+
+    assert result_service.recorded == [2, 1]
+
+
+@pytest.mark.asyncio
+async def test_result_limit_does_not_apply_to_product_page(monkeypatch):
+    seen_limits = []
+
+    async def fetch_page(input_value, cursor_value, ctx):
+        seen_limits.append(ctx.limit)
+        return Page(items=[product(1)])
+
+    install_operation(monkeypatch, fetch_page, parse_type=ParseType.PRODUCT_PAGE)
+    result_service = FakeResultService()
+    executor = PageExecutor(StubProvider(), ExecutionOptions())
+
+    await task_runner.process_item_pages(
+        make_task(result_limit=1, parse_type=ParseType.PRODUCT_PAGE),
+        make_item(), executor, FakeTaskService(), result_service,
+    )
+
+    assert seen_limits == [None]
+    assert result_service.recorded == [1]
 
 
 @pytest.mark.asyncio

@@ -24,9 +24,11 @@ from packages.worker_health.src.liveness_reporter import LivenessReporter
 
 logger = logging.getLogger(__name__)
 
-# Лимит результатов задачи (`result_limit`) применяется только к спискам — как и раньше:
-# карточка всегда одна, отзывы выгружаются целиком.
-LISTING_PARSE_TYPES = frozenset({ParseType.SEARCH_QUERY, ParseType.CATEGORY, ParseType.SELLER})
+# Лимит результатов задачи (`result_limit`) применяется к спискам и отзывам; карточка товара всегда
+# одна, лимит к ней не относится.
+LIMITED_PARSE_TYPES = frozenset({
+    ParseType.SEARCH_QUERY, ParseType.CATEGORY, ParseType.SELLER, ParseType.REVIEWS,
+})
 
 
 def restore_cursor(operation: PageOperation, raw_cursor: dict | None) -> BaseModel | None:
@@ -75,7 +77,7 @@ async def process_item_pages(
     result_service: ResultService,
 ) -> None:
     operation = OPERATIONS[(task.marketplace, task.parse_type)]
-    limit_applies = task.parse_type in LISTING_PARSE_TYPES
+    limit_applies = task.parse_type in LIMITED_PARSE_TYPES
 
     cursor = restore_cursor(operation, item.cursor)
     seen_keys = initial_seen_keys(cursor)
@@ -100,14 +102,17 @@ async def process_item_pages(
             )
             return
 
-        if page.items:
+        # Списочные fetcher'ы режут страницу по `ctx.limit` сами, отзывные (Ozon/WB) отдают её
+        # целиком — поэтому обрезаем здесь, чтобы лимит держался для любого типа.
+        items = page.items if remaining_limit is None else page.items[:remaining_limit]
+        if items:
             await result_service.record_results(
                 task_item_id=item.id,
                 marketplace=task.marketplace,
                 parse_type=task.parse_type,
-                payloads=list(page.items),
+                payloads=list(items),
             )
-        result_count += len(page.items)
+        result_count += len(items)
         cursor = page.next_cursor
         await task_service.record_item_progress(
             item_id=item.id,
@@ -117,7 +122,7 @@ async def process_item_pages(
 
         if cursor is None:
             break
-        if remaining_limit is not None and remaining_limit - len(page.items) <= 0:
+        if remaining_limit is not None and remaining_limit - len(items) <= 0:
             break
 
         pages_since_status_check += 1

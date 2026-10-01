@@ -51,6 +51,7 @@ Ozon-пагинация: `next_url == null` = исчерпано. WB-пагин�
 для каждой пары (маркетплейс, `ParseType`); реестр — `registry.OPERATIONS` (фетчер + модель курсора),
 `FetchContext` (`fetch_context.py`) несёт HTTP-сессию, `SessionMessage`, лимит, лимит HTTP-ретраев и
 дедлайн (`ctx.request` подставляет их в `execute_request`). Карточка — страница с `next_cursor=None`.
+**Лимит результатов** (`task.result_limit`) применяет `task_runner.process_item_pages` для `SEARCH_QUERY`, `CATEGORY`, `SELLER` и `REVIEWS` (для карточки — нет): передаёт остаток лимита в `ctx.limit` и сам обрезает страницу до остатка — списочные фетчеры режут её по `ctx.limit` сами, отзывные (Ozon/WB) отдают страницу целиком. Лимит считается по каждому элементу задачи (входу) отдельно.
 
 **Поиск WB** (`fetch_wb_search_page`) — конец выдачи определяется не по размеру страницы, а по ответу WB:
 - HTTP 200 с телом `{"error": "binding request: page param malformed", "code": 500}` — страница больше
