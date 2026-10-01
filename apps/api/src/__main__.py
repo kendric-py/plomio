@@ -3,9 +3,11 @@ import uvicorn
 
 from apps.api.src.server import configure_rest_server  # noqa
 from apps.api.src.config import config
+from apps.api.src.migrations import upgrade_to_head
 
 
 def run_rest_server() -> NoReturn:
+    upgrade_to_head()
     uvicorn.run(
         app='apps.api.src.__main__:configure_rest_server',
         factory=True,

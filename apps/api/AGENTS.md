@@ -277,6 +277,11 @@ poetry -C apps/api run alembic downgrade -1
   — тогда этот alembic-каталог нужно будет либо параметризовать (`-x db=...`), либо завести второй,
   решать по факту, когда появится второй app с БД.
 
+- **Автонакатка при старте.** `apps/api/src/migrations.py::upgrade_to_head` (`alembic upgrade head`) вызывается
+  из `run_rest_server` синхронно до `uvicorn.run` (`env.py` сам делает `asyncio.run`, из lifespan его вызывать
+  нельзя). Ошибка логируется и не валит запуск. При нескольких репликах `apps/api` одновременный старт
+  может гонять миграции параллельно — при масштабировании вынести в отдельный шаг деплоя.
+
 - `alembic/versions/589dc8c271ea_initial.py` — первая миграция (`users`, `api_keys`, `memberships`).
   В `downgrade()` после `op.drop_table('users')` явно дропается Postgres ENUM `userrole`
   (`sa.Enum(name='userrole').drop(...)`) — `drop_table` сам его не удаляет, и без этой строки
