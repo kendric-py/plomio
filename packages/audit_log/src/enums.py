@@ -23,3 +23,4 @@ class AuditAction(str, Enum):
 
     AUTH_REGISTER_USER = 'AuthService.register_user'
     AUTH_AUTHENTICATE_USER = 'AuthService.authenticate_user'
+    BILLING_GRANT_CREDITS = 'BillingService.grant'

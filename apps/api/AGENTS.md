@@ -43,6 +43,15 @@ REST API. Точка входа для клиентов (фронтенд, вн�
     (чтобы админ не лишил систему доступа). Связанные данные (задачи, автоматизации, кошелёк,
     настройки уведомлений) удаляются каскадом на уровне БД (`ondelete='CASCADE'`), audit-записи и
     `granted_by_admin_id` обнуляются (`SET NULL`).
+- `routers/audit_log/{endpoints,dependencies,schema}.py` (`admin_router`, `/api/admin/audit-logs`,
+  `Depends(get_current_admin_user)`; см. [`packages/audit_log/AGENTS.md`](../../packages/audit_log/AGENTS.md)):
+  `GET /` — постраничный журнал аудита, новые сверху (`AuditLogListResponse`: `items:
+  list[AuditLogResponse]` + `meta: PaginationMeta`), `limit` 1..500 (по умолчанию 100), `offset` ≥ 0.
+  Фильтры (AND) собирает `dependencies.py::get_audit_log_filters` в доменный `AuditLogFilters`:
+  `user_id`, `action`, `action_type`, `status`, `error_reason`, `target_type`, `target_id`,
+  `ip_address` (точное совпадение) и общий `date_from`/`date_to` (`get_date_range`, по `created_at`).
+  Через `AuditLogService` (`audit_log_service` в `container.py`); модуль добавлен в
+  `container.wire(modules=[...])`.
 - `routers/schema.py` — REST-примитивы, переиспользуемые несколькими роутерами (а не одним доменом),
   в отличие от `routers/<domain>/schema.py`. Сейчас там `PaginationMeta` (`total`/`limit`/`offset`) —
   используется в `routers/task/schema.py` (`TaskListResponse`/`TaskResultsResponse`),

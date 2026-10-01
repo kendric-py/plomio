@@ -49,6 +49,34 @@
 - Подключается в [`core.transaction_manager.AsyncTransactionManager`](../../core/transaction_manager.py)
   через `use_audit_log_repository=True`, как `UserRepository`.
 
+## Реестр действий (`AuditAction`)
+
+- `AUTH_REGISTER_USER`, `AUTH_AUTHENTICATE_USER` — `AuthService` (регистрация/логин).
+- `BILLING_GRANT_CREDITS` (`'BillingService.grant'`) — **выдача кредитов администратором**:
+  `POST /api/admin/billing/users/{user_id}/grant` и начальные `credits` при
+  `POST /api/admin/users/`. `action_type=UPDATE`, `status=SUCCESS`, `user_id` — админ,
+  `target_type='User'`, `target_id` — получатель, `details.fields` — `balance` (`before`/`after`) и
+  `comment` (`utils.build_credit_grant_details`). Пишется после коммита начисления; сбой аудита не
+  откатывает начисление, а только логируется. Бонус при самостоятельной регистрации (`admin_id=None`)
+  не логируется. Неуспешные начисления не логируются.
+
+Колонка `audit_logs.action` — native Postgres enum, хранящий **имена** членов: новое значение
+требует миграции `ALTER TYPE auditaction ADD VALUE` (см. `alembic/versions/b9d3e7a25c18_...`).
+Запись из роутера идёт через `AuditLogService.record(entity)` (своя транзакция).
+
+## Чтение (список для админки)
+
+- **`AuditLogFilters`** (`entities.py`) — опциональные фильтры, комбинируются через AND, `None` —
+  не задан: `user_id`, `action`, `action_type`, `status`, `error_reason`, `target_type`,
+  `target_id`, `ip_address` (все — точное совпадение), `date_from`/`date_to` (по `created_at`,
+  границы включительные).
+- **`AuditLogRepository.get_page(filters, limit, offset)`** / **`count_by_filters(filters)`** —
+  выборка (новые сверху, тай-брейк по `id`) и `count` строятся через общий
+  `_apply_filters`, чтобы не расходились.
+- **`service.py`** — `AuditLogService.list_page(filters, limit, offset)` → `(items, total)`. Запись
+  по-прежнему идёт напрямую через репозиторий из сервисов-источников (см. ниже), сервис — только
+  чтение. REST — `GET /api/admin/audit-logs/` (см. [`apps/api/AGENTS.md`](../../apps/api/AGENTS.md#роуты)).
+
 **Важно:** audit-запись пишется в собственной, независимой транзакции, а не в той же, что бизнес-
 логика (см. [`packages/auth`](../auth/AGENTS.md) — `AuthService._record_audit_event`). Причины:
 - При исключении в бизнес-транзакции `AsyncTransactionManager` откатывает и закрывает сессию без

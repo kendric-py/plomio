@@ -20,7 +20,8 @@
 11. `/api/worker-health`
 12. `/api/sessions`
 13. `/api/admin/users` — управление пользователями (админ)
-14. Известные ограничения текущего API
+14. `/api/admin/audit-logs` — журнал аудита (админ)
+15. Известные ограничения текущего API
 
 ## Авторизация
 
@@ -45,7 +46,7 @@ Authorization: Bearer <access_token>
 **Роли.** Есть две роли — `client` и `admin` (`UserRole`, нижний регистр в JSON). Первый
 зарегистрированный в пустой системе (`GET /api/auth/status` вернул `has_users: false`) автоматически
 получает роль `admin`, все последующие — `client`. Роль видна в `GET /api/user/me`. Ручки под
-`/api/admin/billing/*` и `/api/admin/users/*` требуют роль `admin` — иначе
+`/api/admin/billing/*`, `/api/admin/users/*` и `/api/admin/audit-logs/*` требуют роль `admin` — иначе
 `403 {"detail": "Admin access required"}`. Остальные ручки ролей не различают.
 
 CORS настроен максимально открыто (`allow_origins=['*']`, `allow_methods=['*']`, `allow_headers=['*']`),
@@ -67,7 +68,7 @@ CORS настроен максимально открыто (`allow_origins=['*'
 Все постраничные ответы (`GET /api/tasks/`, `GET /api/tasks/{id}/results`, `GET /api/automations/`,
 `GET /api/automations/with-history`, `GET /api/automations/{id}/history`,
 `GET /api/billing/transactions/by-reference`, `GET /api/notifications/deliveries`,
-`GET /api/admin/users/`) имеют одну и ту же форму:
+`GET /api/admin/users/`, `GET /api/admin/audit-logs/`) имеют одну и ту же форму:
 
 ```json
 { "items": [ /* ... */ ], "meta": { "total": 0, "limit": 100, "offset": 0 } }
@@ -85,7 +86,7 @@ CORS настроен максимально открыто (`allow_origins=['*'
 ## Фильтр по датам
 
 Опциональный общий фильтр, подключён не ко всем ручкам — сейчас `GET /api/tasks/`, `GET /api/automations/`,
-`GET /api/automations/with-history` и `GET /api/admin/billing/stats`. Query-параметры
+`GET /api/automations/with-history`, `GET /api/admin/billing/stats` и `GET /api/admin/audit-logs/`. Query-параметры
 `date_from` и `date_to` (ISO8601, оба необязательны, можно указать один). Границы включительные;
 значение без часового пояса трактуется как UTC, с поясом — приводится к UTC. `date_from` позже
 `date_to` → `422`. Какое именно поле времени фильтруется, определяет ручка (указано в её описании).
@@ -1100,6 +1101,54 @@ Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по ум�
 
 - `404` — `{"detail": "User not found"}`.
 - `409` — админ пытается удалить самого себя (`{"detail": "Admin cannot delete themselves"}`).
+
+---
+
+## `/api/admin/audit-logs` — журнал аудита (админ)
+
+Требует роль `admin`. Read-only: записи создаёт только бэкенд.
+
+### `GET /api/admin/audit-logs/` — список записей (постранично)
+
+Сортировка — новые сверху. Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по умолчанию 0) и
+опциональные фильтры, комбинируются через AND, все сравнения — точное совпадение:
+
+| Параметр | Тип | Описание |
+|---|---|---|
+| `user_id` | int | кто выполнил действие |
+| `action` | enum `AuditAction` | `AuthService.register_user` \| `AuthService.authenticate_user` \| `BillingService.grant` (выдача кредитов админом) (значения регистрозависимы, с точкой) |
+| `action_type` | enum | `CREATE` \| `UPDATE` \| `DELETE` \| `AUTH` |
+| `status` | enum | `SUCCESS` \| `FAILURE` |
+| `error_reason` | string | код причины неуспеха, например `invalid_credentials`, `user_already_exists` |
+| `target_type` | string | тип сущности, например `User` |
+| `target_id` | int | id этой сущности |
+| `ip_address` | string | IP-адрес целиком (подстрока/маска не поддерживаются) |
+| `date_from` / `date_to` | datetime | [фильтр по датам](#фильтр-по-датам), по `created_at` записи |
+
+**Ответ `200`** (`AuditLogListResponse`): `{ "items": [ /* AuditLogResponse */ ], "meta": { ... } }`.
+
+`AuditLogResponse`:
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `id` | int | идентификатор записи |
+| `action` | enum | действие-источник (см. фильтр) |
+| `action_type` | enum | `CREATE` \| `UPDATE` \| `DELETE` \| `AUTH` |
+| `status` | enum | `SUCCESS` \| `FAILURE` |
+| `details` | object | `{"fields": {поле: {"before": ..., "after": ...}}}`; для `AUTH` — `fields: {}`; чувствительные поля (пароли, токены) никогда не попадают |
+| `error_reason` | string \| null | причина неуспеха; `null` при успехе |
+| `target_type` | string \| null | тип сущности, над которой выполнено действие |
+| `target_id` | int \| null | id сущности; `null`, если действие не дошло до её создания/определения |
+| `user_id` | int \| null | актор; `null` — не определён (например, неудачный логин) или пользователь удалён |
+| `ip_address` | string \| null | IP клиента |
+| `created_at` | datetime | время записи |
+
+Сейчас в журнал пишутся регистрация, логин и **выдача кредитов администратором** (`action:
+"BillingService.grant"`: `user_id` — админ, `target_type: "User"`, `target_id` — получатель,
+`details.fields.balance` — баланс до/после, `details.fields.comment` — комментарий; пишется и для
+`POST /api/admin/billing/users/{user_id}/grant`, и для `credits` в `POST /api/admin/users/`). Бонус
+при самостоятельной регистрации не логируется. Остальные действия админа над пользователями
+(`/api/admin/users/*`) и прочие домены в аудит пока **не** пишутся.
 
 ---
 

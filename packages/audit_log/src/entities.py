@@ -6,6 +6,22 @@ from pydantic import BaseModel, Field
 from packages.audit_log.src.enums import AuditAction, AuditActionType, AuditStatus
 
 
+class AuditLogFilters(BaseModel):
+    """Опциональные фильтры списка audit-записей (комбинируются через AND); `None` — фильтр не
+    задан. Все сравнения — точное совпадение, период — по `created_at`, границы включительные."""
+
+    user_id: Optional[int] = None
+    action: Optional[AuditAction] = None
+    action_type: Optional[AuditActionType] = None
+    status: Optional[AuditStatus] = None
+    error_reason: Optional[str] = None
+    target_type: Optional[str] = None
+    target_id: Optional[int] = None
+    ip_address: Optional[str] = None
+    date_from: Optional[datetime] = None
+    date_to: Optional[datetime] = None
+
+
 class AuditLogEntity(BaseModel):
     id: Optional[int] = Field(default=None, description='Идентификатор записи')
     action: Optional[AuditAction] = Field(default=None, description='Действие-источник события')

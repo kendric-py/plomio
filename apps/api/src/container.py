@@ -4,6 +4,7 @@ from dependency_injector.containers import DeclarativeContainer
 from apps.api.src.config import config
 from core.database import get_database_connection
 from core.transaction_manager import AsyncTransactionManager
+from packages.audit_log.src.service import AuditLogService
 from packages.auth.src.service import AuthService
 from packages.automation.src.service import AutomationService
 from packages.billing.src.service import BillingService
@@ -32,6 +33,11 @@ class DependencyContainer(DeclarativeContainer):
 
     user_service = providers.Factory(
         UserService,
+        transaction_manager=transaction_manager,
+    )
+
+    audit_log_service = providers.Factory(
+        AuditLogService,
         transaction_manager=transaction_manager,
     )
 

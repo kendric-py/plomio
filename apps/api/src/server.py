@@ -167,6 +167,7 @@ def configure_rest_server() -> FastAPI:
             'apps.api.src.routers.auth.endpoints',
             'apps.api.src.routers.task.endpoints',
             'apps.api.src.routers.user.endpoints',
+            'apps.api.src.routers.audit_log.endpoints',
             'apps.api.src.routers.worker_health.endpoints',
             'apps.api.src.routers.sessions.endpoints',
             'apps.api.src.routers.automation.endpoints',

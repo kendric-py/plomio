@@ -5,9 +5,10 @@ from core.exceptions import DuplicatedObjectError
 from core.transaction_manager import AsyncTransactionManager
 from packages.audit_log.src.entities import AuditLogEntity
 from packages.audit_log.src.enums import AuditAction, AuditActionType, AuditStatus
-from packages.audit_log.src.utils import build_create_fields
+from packages.audit_log.src.utils import build_create_fields, build_credit_grant_details
 from packages.auth.src.exceptions import InvalidCredentialsError, UserAlreadyExistsError
 from packages.auth.src.security import hash_password, verify_password
+from packages.billing.src.entities import CreditTransactionEntity
 from packages.billing.src.service import BillingService
 from packages.user.src.entities import UserEntity
 from packages.user.src.enums import UserRole
@@ -94,13 +95,46 @@ class AuthService:
         if initial_credits is None:
             await self._grant_signup_bonus(user_id=created_user.id)
         elif initial_credits > 0:
-            await self.billing_service.grant(
+            grant_transaction = await self.billing_service.grant(
                 user_id=created_user.id,
                 amount=initial_credits,
                 admin_id=granted_by_admin_id,
                 comment='admin_create',
             )
+            await self._record_credit_grant_audit(
+                grant_transaction=grant_transaction,
+                admin_id=granted_by_admin_id,
+                ip_address=ip_address,
+            )
         return created_user
+
+    async def _record_credit_grant_audit(
+        self,
+        grant_transaction: CreditTransactionEntity,
+        admin_id: int | None,
+        ip_address: str | None,
+    ) -> None:
+        # Начисление уже закоммичено — сбой аудита его не откатывает, только логируется.
+        try:
+            await self._record_audit_event(
+                action=AuditAction.BILLING_GRANT_CREDITS,
+                action_type=AuditActionType.UPDATE,
+                status=AuditStatus.SUCCESS,
+                user_id=admin_id,
+                target_type=TARGET_TYPE_USER,
+                target_id=grant_transaction.user_id,
+                details=build_credit_grant_details(
+                    balance_after=grant_transaction.balance_after,
+                    amount=grant_transaction.amount,
+                    comment='admin_create',
+                ),
+                ip_address=ip_address,
+            )
+        except Exception:
+            logger.exception(
+                'Failed to record audit event for credit grant to user %s',
+                grant_transaction.user_id,
+            )
 
     async def _grant_signup_bonus(self, user_id: int) -> None:
         # После коммита пользователя и в отдельной транзакции биллинга: сбой начисления не должен

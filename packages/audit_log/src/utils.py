@@ -10,6 +10,18 @@ def _is_sensitive(field_name: str) -> bool:
     return any(marker in lowered for marker in SENSITIVE_FIELD_MARKERS)
 
 
+def build_credit_grant_details(
+    balance_after: int, amount: int, comment: str | None,
+) -> dict:
+    """`details` для `AuditAction.BILLING_GRANT_CREDITS`: баланс до/после и комментарий админа."""
+    return {
+        'fields': {
+            'balance': {'before': balance_after - amount, 'after': balance_after},
+            'comment': {'before': None, 'after': comment},
+        },
+    }
+
+
 def build_create_fields(entity: BaseModel) -> dict[str, dict[str, Any]]:
     """Снапшот всех полей новой сущности: {field: {before: None, after: value}}."""
     data = entity.model_dump(mode='json', exclude_none=True)

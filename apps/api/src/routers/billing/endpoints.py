@@ -1,8 +1,10 @@
+import logging
+
 from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from apps.api.src.container import DependencyContainer
-from apps.api.src.routers.auth.dependencies import get_current_user
+from apps.api.src.routers.auth.dependencies import get_client_ip, get_current_user
 from apps.api.src.routers.billing.dependencies import get_current_admin_user
 from apps.api.src.routers.billing.schema import (
     BalanceResponse,
@@ -21,9 +23,15 @@ from apps.api.src.routers.billing.schema import (
 from apps.api.src.routers.dependencies import get_date_range
 from apps.api.src.routers.schema import DateRange, PaginationMeta
 from core.exceptions import ObjectNotFoundError
+from packages.audit_log.src.entities import AuditLogEntity
+from packages.audit_log.src.enums import AuditAction, AuditActionType, AuditStatus
+from packages.audit_log.src.service import AuditLogService
+from packages.audit_log.src.utils import build_credit_grant_details
 from packages.billing.src.exceptions import OverlappingPricingRuleError
 from packages.billing.src.service import BillingService
 from packages.user.src.entities import UserEntity
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/billing', tags=['Billing'])
 admin_router = APIRouter(prefix='/admin/billing', tags=['Billing Admin'])
@@ -168,10 +176,32 @@ async def delete_pricing_rule(
 async def grant_credits(
     user_id: int,
     body: GrantCreditsRequest,
+    ip_address: str | None = Depends(get_client_ip),
     current_admin: UserEntity = Depends(get_current_admin_user),
     billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
+    audit_log_service: AuditLogService = Depends(Provide[DependencyContainer.audit_log_service]),
 ) -> CreditTransactionResponse:
     transaction = await billing_service.grant(
         user_id=user_id, amount=body.amount, admin_id=current_admin.id, comment=body.comment,
     )
+    # Начисление уже закоммичено — сбой аудита его не откатывает, только логируется.
+    try:
+        await audit_log_service.record(
+            entity=AuditLogEntity(
+                action=AuditAction.BILLING_GRANT_CREDITS,
+                action_type=AuditActionType.UPDATE,
+                status=AuditStatus.SUCCESS,
+                details=build_credit_grant_details(
+                    balance_after=transaction.balance_after,
+                    amount=body.amount,
+                    comment=body.comment,
+                ),
+                target_type='User',
+                target_id=user_id,
+                user_id=current_admin.id,
+                ip_address=ip_address,
+            ),
+        )
+    except Exception:
+        logger.exception('Failed to record audit event for credit grant to user %s', user_id)
     return CreditTransactionResponse.model_validate(obj=transaction, from_attributes=True)

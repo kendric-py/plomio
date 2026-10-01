@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from apps.api.src.routers.audit_log.endpoints import admin_router as audit_log_admin_router
 from apps.api.src.routers.auth.endpoints import router as auth_router
 from apps.api.src.routers.automation.endpoints import router as automation_router
 from apps.api.src.routers.billing.endpoints import admin_router as billing_admin_router
@@ -16,6 +17,7 @@ api_router = APIRouter(prefix='/api')
 api_router.include_router(router=auth_router)
 api_router.include_router(router=user_router)
 api_router.include_router(router=user_admin_router)
+api_router.include_router(router=audit_log_admin_router)
 api_router.include_router(router=task_router)
 api_router.include_router(router=worker_health_router)
 api_router.include_router(router=sessions_router)
