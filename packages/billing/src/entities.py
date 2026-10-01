@@ -91,6 +91,18 @@ class CreditTransactionEntity(BaseModel):
     created_at: Optional[datetime] = Field(default=None, description='Время создания транзакции')
 
 
+class SpendingStatsEntity(BaseModel):
+    """Агрегат списаний (в кредитах, положительные числа) за период — см.
+    `CreditTransactionRepository.get_spending_stats`."""
+
+    total_spent: int = Field(description='Всего потрачено (все списания, включая direct-запросы)')
+    tasks_spent: int = Field(description='Потрачено на задачи (без проверок автоматизаций)')
+    automations_spent: int = Field(
+        description='Потрачено на автоматизации (создание + проверочные задачи)',
+    )
+    direct_spent: int = Field(description='Потрачено на direct-запросы')
+
+
 class CreditTransactionGroupEntity(BaseModel):
     """Агрегат списаний по одной сущности-источнику (`reference_type` + `reference_id`)."""
 

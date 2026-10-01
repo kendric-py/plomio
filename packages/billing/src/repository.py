@@ -1,4 +1,6 @@
-from sqlalchemy import func, select, update
+from datetime import datetime
+
+from sqlalchemy import Select, and_, func, not_, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.exceptions import ObjectNotFoundError
@@ -9,7 +11,9 @@ from packages.billing.src.entities import (
     CreditTransactionGroupEntity,
     CreditWalletEntity,
     PricingMultiplierRuleEntity,
+    SpendingStatsEntity,
 )
+from packages.billing.src.enums import PricingDimension, ReferenceType
 from packages.billing.src.models import (
     BillingAction,
     CreditTransaction,
@@ -175,6 +179,49 @@ class CreditTransactionRepository(BaseRepository[CreditTransaction, CreditTransa
             )
             for row in rows
         ]
+
+    async def get_spending_stats(
+        self, date_from: datetime | None = None, date_to: datetime | None = None,
+    ) -> SpendingStatsEntity:
+        """Суммы списаний (`amount < 0`, возвращаются положительными) по всем пользователям за
+        период (`created_at`, границы включительные).
+
+        Проверочные задачи автоматизаций списываются с `reference_type=TASK` (reference — id
+        задачи), поэтому «автоматизация» определяется по снэпшоту измерения в метаданных
+        транзакции (`dimension_code == automation_check_frequency`) либо по
+        `reference_type=AUTOMATION` (создание) — так billing не обращается к таблицам
+        `packages/task`/`packages/automation`."""
+
+        is_automation = or_(
+            self.model.reference_type == ReferenceType.AUTOMATION,
+            func.coalesce(self.model.transaction_metadata['dimension_code'].astext, '')
+            == PricingDimension.AUTOMATION_CHECK_FREQUENCY.value,
+        )
+        spent = -self.model.amount
+
+        def sum_where(*conditions) -> Select:
+            return func.coalesce(func.sum(spent).filter(and_(*conditions)), 0)
+
+        statement = select(
+            sum_where(true()).label('total_spent'),
+            sum_where(
+                self.model.reference_type == ReferenceType.TASK, not_(is_automation),
+            ).label('tasks_spent'),
+            sum_where(is_automation).label('automations_spent'),
+            sum_where(self.model.reference_type == ReferenceType.DIRECT).label('direct_spent'),
+        ).where(self.model.amount < 0)
+        if date_from is not None:
+            statement = statement.where(self.model.created_at >= date_from)
+        if date_to is not None:
+            statement = statement.where(self.model.created_at <= date_to)
+
+        row = (await self.session.execute(statement)).one()
+        return SpendingStatsEntity(
+            total_spent=row.total_spent,
+            tasks_spent=row.tasks_spent,
+            automations_spent=row.automations_spent,
+            direct_spent=row.direct_spent,
+        )
 
     async def count_reference_groups(self, user_id: int) -> int:
         groups = (

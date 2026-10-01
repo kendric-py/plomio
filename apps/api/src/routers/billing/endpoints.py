@@ -15,9 +15,11 @@ from apps.api.src.routers.billing.schema import (
     GrantCreditsRequest,
     PricingMultiplierRuleListResponse,
     PricingMultiplierRuleResponse,
+    SpendingStatsResponse,
     UpdateActionCostRequest,
 )
-from apps.api.src.routers.schema import PaginationMeta
+from apps.api.src.routers.dependencies import get_date_range
+from apps.api.src.routers.schema import DateRange, PaginationMeta
 from core.exceptions import ObjectNotFoundError
 from packages.billing.src.exceptions import OverlappingPricingRuleError
 from packages.billing.src.service import BillingService
@@ -54,6 +56,21 @@ async def list_transactions_by_reference(
             for item in items
         ],
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
+    )
+
+
+@admin_router.get('/stats')
+@inject
+async def get_spending_stats(
+    date_range: DateRange = Depends(get_date_range),
+    _current_admin: UserEntity = Depends(get_current_admin_user),
+    billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
+) -> SpendingStatsResponse:
+    stats = await billing_service.get_spending_stats(
+        date_from=date_range.date_from, date_to=date_range.date_to,
+    )
+    return SpendingStatsResponse(
+        **stats.model_dump(), date_from=date_range.date_from, date_to=date_range.date_to,
     )
 
 

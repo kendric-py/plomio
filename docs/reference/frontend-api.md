@@ -19,7 +19,8 @@
 10. `/api/notifications` — уведомления
 11. `/api/worker-health`
 12. `/api/sessions`
-13. Известные ограничения текущего API
+13. `/api/admin/users` — управление пользователями (админ)
+14. Известные ограничения текущего API
 
 ## Авторизация
 
@@ -44,8 +45,8 @@ Authorization: Bearer <access_token>
 **Роли.** Есть две роли — `client` и `admin` (`UserRole`, нижний регистр в JSON). Первый
 зарегистрированный в пустой системе (`GET /api/auth/status` вернул `has_users: false`) автоматически
 получает роль `admin`, все последующие — `client`. Роль видна в `GET /api/user/me`. Ручки под
-`/api/admin/billing/*` требуют роль `admin` — иначе `403 {"detail": "Admin access required"}`.
-Остальные ручки ролей не различают.
+`/api/admin/billing/*` и `/api/admin/users/*` требуют роль `admin` — иначе
+`403 {"detail": "Admin access required"}`. Остальные ручки ролей не различают.
 
 CORS настроен максимально открыто (`allow_origins=['*']`, `allow_methods=['*']`, `allow_headers=['*']`),
 `allow_credentials` не выставлен (по умолчанию `False`) — авторизация только через заголовок
@@ -65,7 +66,8 @@ CORS настроен максимально открыто (`allow_origins=['*'
 
 Все постраничные ответы (`GET /api/tasks/`, `GET /api/tasks/{id}/results`, `GET /api/automations/`,
 `GET /api/automations/with-history`, `GET /api/automations/{id}/history`,
-`GET /api/billing/transactions/by-reference`, `GET /api/notifications/deliveries`) имеют одну и ту же форму:
+`GET /api/billing/transactions/by-reference`, `GET /api/notifications/deliveries`,
+`GET /api/admin/users/`) имеют одну и ту же форму:
 
 ```json
 { "items": [ /* ... */ ], "meta": { "total": 0, "limit": 100, "offset": 0 } }
@@ -82,8 +84,8 @@ CORS настроен максимально открыто (`allow_origins=['*'
 
 ## Фильтр по датам
 
-Опциональный общий фильтр, подключён не ко всем ручкам — сейчас `GET /api/tasks/`, `GET /api/automations/` и
-`GET /api/automations/with-history`. Query-параметры
+Опциональный общий фильтр, подключён не ко всем ручкам — сейчас `GET /api/tasks/`, `GET /api/automations/`,
+`GET /api/automations/with-history` и `GET /api/admin/billing/stats`. Query-параметры
 `date_from` и `date_to` (ISO8601, оба необязательны, можно указать один). Границы включительные;
 значение без часового пояса трактуется как UTC, с поясом — приводится к UTC. `date_from` позже
 `date_to` → `422`. Какое именно поле времени фильтруется, определяет ручка (указано в её описании).
@@ -156,11 +158,6 @@ CORS настроен максимально открыто (`allow_origins=['*'
 
 ## `/api/user`
 
-### `GET /api/user/` — заглушка
-
-Не требует авторизации. Возвращает нетипизированный `{"message": "Hello World"}`. Не имеет отношения
-к профилю, для UI пользы не несёт.
-
 ### `GET /api/user/me` — профиль текущего пользователя
 
 Требует авторизации.
@@ -170,10 +167,10 @@ CORS настроен максимально открыто (`allow_origins=['*'
 | Поле | Тип | Описание |
 |---|---|---|
 | `id` | int | идентификатор пользователя |
-| `display_name` | string | отображаемое имя (сейчас всегда совпадает с `email`) |
+| `display_name` | string | отображаемое имя (при самостоятельной регистрации совпадает с `email`; админ может задать и изменить его — см. `/api/admin/users`) |
 | `email` | string | email |
 | `role` | enum | `client` \| `admin` (нижний регистр) |
-| `telegram_id` | int \| null | Telegram ID; `null` — пока не привязан. Привязка — через `POST /api/notifications/telegram/link` (см. раздел `/api/notifications`), не через эту ручку — `PATCH`/`PUT` на `telegram_id` напрямую не существует |
+| `telegram_id` | int \| null | Telegram ID; `null` — пока не привязан. Привязка — через `POST /api/notifications/telegram/link` (см. раздел `/api/notifications`), не через эту ручку; сам пользователь `telegram_id` напрямую менять не может (админ — может, `PATCH /api/admin/users/{user_id}`) |
 | `last_active_at` | datetime | время последней активности |
 | `created_at` | datetime | время создания аккаунта |
 
@@ -707,6 +704,25 @@ string | float | null`, тип зависит от `field`), `threshold_breached
 Требует роль `admin`. Path-параметр `rule_id` (int). Ответ — `204 No Content`. `404` —
 `{"detail": "Pricing rule not found"}`.
 
+### `GET /api/admin/billing/stats` — статистика трат за период
+
+Требует роль `admin`. Траты **всех** пользователей. Query: `date_from` / `date_to` — опциональный
+[фильтр по датам](#фильтр-по-датам), по времени транзакции; без параметров — за всё время.
+
+**Ответ `200`** (`SpendingStatsResponse`, без `meta`):
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `total_spent` | int | всего потрачено, в кредитах (включая direct-запросы) |
+| `tasks_spent` | int | потрачено на задачи (без проверок автоматизаций) |
+| `automations_spent` | int | потрачено на автоматизации: создание + результаты их проверочных задач |
+| `direct_spent` | int | потрачено на direct-запросы |
+| `date_from` / `date_to` | datetime \| null | применённые границы периода (UTC), `null` — не заданы |
+
+Суммы — **положительные** числа (в отличие от `total_amount` в `transactions/by-reference`, где
+списания отрицательные); начисления кредитов не учитываются. `total_spent` может быть больше
+`tasks_spent + automations_spent` ровно на `direct_spent`.
+
 ### `POST /api/admin/billing/users/{user_id}/grant` — выдать кредиты вручную
 
 Требует роль `admin`. Path-параметр `user_id` (int).
@@ -1030,6 +1046,63 @@ heartbeat-ручек воркеров).
 
 ---
 
+## `/api/admin/users` — управление пользователями (админ)
+
+Все ручки требуют роль `admin` (`403 {"detail": "Admin access required"}` для остальных).
+Формат пользователя везде — `UserResponse` из раздела `/api/user` (без хэша пароля).
+
+### `GET /api/admin/users/` — список всех пользователей (постранично)
+
+Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по умолчанию 0). Сортировка — по `id`
+по возрастанию. **Ответ `200`** (`UserListResponse`): `{ "items": [ /* UserResponse */ ], "meta": { ... } }`.
+
+### `POST /api/admin/users/` — зарегистрировать пользователя
+
+**Тело запроса** (`CreateUserRequest`):
+
+| Поле | Тип | Обязательное | По умолчанию | Описание |
+|---|---|---|---|---|
+| `email` | string, ≥3 символов | да | — | email |
+| `password` | string, ≥8 символов | да | — | пароль в открытом виде |
+| `display_name` | string, ≥1 символа \| null | нет | `email` | отображаемое имя |
+| `role` | enum | нет | `client` | `client` \| `admin` (нижний регистр) |
+| `credits` | int, ≥0 \| null | нет | `null` | начальный баланс: `null` — обычный бонус за регистрацию, `0` — без кредитов, `>0` — ровно столько (заменяет бонус) |
+
+**Ответ `201`** — `UserResponse` (токен не выдаётся, залогиниться этим аккаунтом можно через
+`POST /api/auth/login`). `409` — email уже занят
+(`{"detail": "User with this email already exists"}`).
+
+Если пользователь создан, а начисление `credits` упало, ручка вернёт ошибку сервера, хотя аккаунт
+уже существует — выдать кредиты тогда можно через `POST /api/admin/billing/users/{user_id}/grant`.
+
+### `PATCH /api/admin/users/{user_id}` — изменить пользователя
+
+Частичное обновление: меняются только переданные поля.
+
+**Тело запроса** (`UpdateUserRequest`) — все поля опциональны:
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `display_name` | string, ≥1 символа | отображаемое имя |
+| `email` | string, ≥3 символов | email |
+| `role` | enum | `client` \| `admin` |
+| `telegram_id` | int | Telegram ID |
+
+`null` значит «не менять» — **очистить `telegram_id` этой ручкой нельзя**. Пароль не меняется.
+
+**Ответ `200`** — `UserResponse`. `404` — `{"detail": "User not found"}`; `409` — email уже занят
+другим пользователем (`{"detail": "Email already in use"}`).
+
+### `DELETE /api/admin/users/{user_id}` — удалить пользователя
+
+Без тела. Ответ — `204 No Content`. Вместе с пользователем каскадно удаляются его задачи,
+автоматизации, кошелёк/история кредитов и настройки уведомлений.
+
+- `404` — `{"detail": "User not found"}`.
+- `409` — админ пытается удалить самого себя (`{"detail": "Admin cannot delete themselves"}`).
+
+---
+
 ## Известные ограничения текущего API
 
 - **`id` элементов входа задачи видны только в ответе `POST /api/tasks/`** (поле `items`). Никакая
@@ -1055,12 +1128,12 @@ heartbeat-ручек воркеров).
   Привязка Telegram сейчас работает через long polling на бэкенде (не webhook) — задержка между
   нажатием "Start" в Telegram и ответом бота обычно доли секунды, но при недоступности бэкенда
   сообщения не выстроятся в очередь и потеряются, а не будут доставлены позже.
+- **Админ может понизить сам себя или другого админа** через `PATCH /api/admin/users/{user_id}`
+  (`role`) — защиты от потери последнего админа нет (самоудаление запрещено, смена своей роли — нет).
 - **Квот на количество/частоту задач и автоматизаций по пользователю нет** — только кредитный баланс
   (`GET /api/billing/balance`), любые лимиты сверх него сейчас не выражены в API и не проверяются.
 - **`GET /api/worker-health/*` и `GET /api/sessions/pool`** не привязаны к текущему пользователю — это
   общесистемный мониторинг, не персональные данные; в клиентском (не админском) UI обычно не нужны.
-- **`GET /api/user/` — заглушка**, не содержит полезных для UI данных; реальный профиль — только
-  `GET /api/user/me`.
 - **Ролевых ограничений на большинстве ручек нет** — роль `admin` проверяется только для
-  `/api/admin/billing/*`; управление сроком хранения результатов периодических задач администратором
+  `/api/admin/billing/*` и `/api/admin/users/*`; управление сроком хранения результатов периодических задач администратором
   (упомянуто как обязанность администратора) отдельной ручкой не выражено.

@@ -1,4 +1,5 @@
 import math
+from datetime import datetime
 from decimal import Decimal
 
 from core.exceptions import ObjectNotFoundError
@@ -8,6 +9,7 @@ from packages.billing.src.entities import (
     CreditTransactionEntity,
     CreditTransactionGroupEntity,
     PricingMultiplierRuleEntity,
+    SpendingStatsEntity,
 )
 from packages.billing.src.enums import ReferenceType
 from packages.billing.src.exceptions import OverlappingPricingRuleError
@@ -111,6 +113,16 @@ class BillingService:
             )
             await self.transaction_manager.commit()
         return created_transaction
+
+    async def get_spending_stats(
+        self, date_from: datetime | None = None, date_to: datetime | None = None,
+    ) -> SpendingStatsEntity:
+        """Суммарные траты всех пользователей за период (админская статистика)."""
+
+        async with self.transaction_manager(use_credit_transaction_repository=True) as transaction:
+            return await transaction.credit_transaction_repository.get_spending_stats(
+                date_from=date_from, date_to=date_to,
+            )
 
     async def get_balance(self, user_id: int) -> int:
         async with self.transaction_manager(use_credit_wallet_repository=True) as transaction:

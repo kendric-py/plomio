@@ -109,6 +109,17 @@ class BalanceResponse(BaseModel):
     balance: int = Field(description='Текущий баланс кредитов пользователя')
 
 
+class SpendingStatsResponse(BaseModel):
+    """Ответ `GET /api/admin/billing/stats` — траты всех пользователей за период, в кредитах."""
+
+    total_spent: int = Field(description='Всего потрачено (включая direct-запросы)')
+    tasks_spent: int = Field(description='Потрачено на задачи')
+    automations_spent: int = Field(description='Потрачено на автоматизации')
+    direct_spent: int = Field(description='Потрачено на direct-запросы')
+    date_from: datetime | None = Field(description='Начало периода (включительно), UTC')
+    date_to: datetime | None = Field(description='Конец периода (включительно), UTC')
+
+
 class CreditTransactionGroupListResponse(BaseModel):
     """Ответ `GET /api/billing/transactions/by-reference` — постраничные траты пользователя,
     сгруппированные по сущности-источнику."""

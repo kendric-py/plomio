@@ -61,6 +61,17 @@ quantity)` — округление вверх, чтобы дробный мно
 - **`list_transactions_grouped_by_reference(user_id, limit, offset)`** — пагинированные траты,
   сгруппированные по (`reference_type`, `reference_id`): сумма, число транзакций, первая/последняя
   дата. Строки без источника (ручное начисление) не входят. Плоского списка транзакций в сервисе нет.
+- **`get_spending_stats(date_from, date_to)`** — админская статистика трат **всех** пользователей
+  за период (`created_at`, границы включительные, оба необязательны): `total_spent`, `tasks_spent`,
+  `automations_spent`, `direct_spent` (кредиты, положительные числа; считаются только списания
+  `amount < 0`, начисления не входят). Один агрегирующий запрос
+  (`CreditTransactionRepository.get_spending_stats`, `SUM ... FILTER`). Классификация без обращения к
+  `packages/task`/`packages/automation`: **автоматизации** — `reference_type=AUTOMATION` (создание)
+  либо `transaction_metadata.dimension_code == automation_check_frequency` (результаты проверочных
+  задач — они списываются с `reference_type=TASK`, но с этим измерением); **задачи** — `TASK` без
+  признака автоматизации; **direct** — `DIRECT`. `total_spent` может быть больше суммы задач и
+  автоматизаций на `direct_spent`. Если появится новый `reference_type`, он попадёт только в
+  `total_spent`.
 - **`list_actions`/`update_action_cost`/`list_pricing_rules`/`create_pricing_rule`/
   `delete_pricing_rule`** — админский CRUD над каталогом/правилами (без REST-специфики — схемы и
   auth-guard в `apps/api/src/routers/billing/`).

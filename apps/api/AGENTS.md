@@ -123,7 +123,11 @@ REST API. Точка входа для клиентов (фронтенд, вн�
   `GET /transactions/by-reference` (траты, сгруппированные по `reference_type`+`reference_id`,
   `PaginationMeta`; плоского списка транзакций нет); `admin_router`
   (`/api/admin/billing`, `Depends(get_current_admin_user)`) — CRUD над каталогом действий
-  (`GET`/`PATCH /actions/{action_code}`) и правилами множителей (`GET`/`POST /pricing-rules`,
+  (`GET`/`PATCH /actions/{action_code}`), `GET /stats` — статистика трат всех пользователей за
+  период (`SpendingStatsResponse`: `total_spent`/`tasks_spent`/`automations_spent`/`direct_spent` в
+  кредитах + эхо `date_from`/`date_to`; период — общий `Depends(get_date_range)`, по `created_at`
+  транзакций, без периода — за всё время; классификация — см.
+  [`packages/billing/AGENTS.md`](../../packages/billing/AGENTS.md)), и правилами множителей (`GET`/`POST /pricing-rules`,
   `DELETE /pricing-rules/{rule_id}`), `POST /users/{user_id}/grant` — ручное начисление кредитов.
   `routers/billing/dependencies.py::get_current_admin_user` — первая admin-only зависимость в
   проекте, оборачивает `get_current_user` проверкой `current_user.role == UserRole.ADMIN` (иначе
