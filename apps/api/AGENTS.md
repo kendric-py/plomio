@@ -19,12 +19,34 @@ REST API. Точка входа для клиентов (фронтенд, вн�
     `UserAlreadyExistsError` → 409, `InvalidCredentialsError` → 401. Первый зарегистрированный в
     пустой системе получает роль `ADMIN` (логика — в `AuthService.register_user`, не в роутере).
 - `routers/user/endpoints.py` + `routers/user/schema.py` (`/api/user`):
-  - `GET /` — заглушка `{"message": "Hello World"}`.
   - `GET /me` — требует авторизации (`Depends(get_current_user)`), возвращает `UserResponse` текущего
     пользователя.
+  - `admin_router` (`/api/admin/users`, `Depends(get_current_admin_user)`): `GET /` — постраничный
+    список всех пользователей, сортировка по `id` (`UserListResponse`: `items: list[UserResponse]` +
+    `meta: PaginationMeta`), `limit` 1..500 (по умолчанию 100), `offset` ≥ 0, через
+    `UserService.list_page`. Модуль добавлен в `container.wire(modules=[...])`.
+    `PATCH /{user_id}` — частичное обновление (`UpdateUserRequest`: `display_name`/`email`/`role`/
+    `telegram_id`, все опциональны; `null` = «не менять», очистить `telegram_id` нельзя, т.к.
+    `BaseRepository.update` игнорирует `None`) через `UserService.update_profile`, ответ —
+    `UserResponse`. Несуществующий пользователь → `404`, занятый email
+    (`DuplicatedObjectError`) → `409`. Пароль этой ручкой не меняется.
+    `POST /` — регистрация пользователя администратором (`CreateUserRequest`: `email`, `password`
+    ≥ 8, опциональные `display_name` (по умолчанию — email), `role` (по умолчанию `CLIENT`) и `credits` ≥ 0 —
+    начальный баланс: не указан → обычный signup-бонус, `0` → ничего, `> 0` → именно столько
+    (`BillingService.grant` от имени админа, `comment='admin_create'`, заменяет бонус; сбой
+    начисления, в отличие от бонуса, не скрывается — пользователь уже создан, кредиты можно выдать
+    через `POST /api/admin/billing/users/{user_id}/grant`)),
+    `201` + `UserResponse`, токен не выдаётся. Идёт через `AuthService.register_user(role=...)` —
+    тот же сценарий, что публичный `POST /api/auth/register` (хэш пароля, audit, signup-бонус), но
+    с явной ролью вместо «первый — ADMIN». Занятый email → `409`.
+    `DELETE /{user_id}` — удаление, `204`. Несуществующий → `404`; удалить самого себя → `409`
+    (чтобы админ не лишил систему доступа). Связанные данные (задачи, автоматизации, кошелёк,
+    настройки уведомлений) удаляются каскадом на уровне БД (`ondelete='CASCADE'`), audit-записи и
+    `granted_by_admin_id` обнуляются (`SET NULL`).
 - `routers/schema.py` — REST-примитивы, переиспользуемые несколькими роутерами (а не одним доменом),
   в отличие от `routers/<domain>/schema.py`. Сейчас там `PaginationMeta` (`total`/`limit`/`offset`) —
-  используется в `routers/task/schema.py` (`TaskListResponse`/`TaskResultsResponse`) и
+  используется в `routers/task/schema.py` (`TaskListResponse`/`TaskResultsResponse`),
+  `routers/user/schema.py` (`UserListResponse`) и
   `routers/automation/schema.py` (`AutomationListResponse`/`AutomationHistoryListResponse`); до
   выноса была продублирована в обоих файлах дословно. Там же `DateRange` (`date_from`/`date_to`) —
   результат общей зависимости `routers/dependencies.py::get_date_range` (опциональный фильтр по

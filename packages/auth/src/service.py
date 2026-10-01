@@ -34,7 +34,16 @@ class AuthService:
         email: str,
         password: str,
         ip_address: str | None = None,
+        role: UserRole | None = None,
+        initial_credits: int | None = None,
+        granted_by_admin_id: int | None = None,
     ) -> UserEntity:
+        """`role=None` — роль по умолчанию (первый пользователь — ADMIN, остальные — CLIENT);
+        явная роль передаётся только при регистрации администратором.
+
+        `initial_credits` (только админская регистрация) заменяет signup-бонус: `None` — начислить
+        обычный бонус, `0` — не начислять ничего, `> 0` — начислить именно это количество от имени
+        `granted_by_admin_id`. В отличие от бонуса, сбой такого начисления не скрывается."""
         try:
             async with self.transaction_manager(use_user_repository=True) as transaction:
                 existing_user = await transaction.user_repository.get_by_email(email=email)
@@ -45,8 +54,9 @@ class AuthService:
                 # administer the system without a separate bootstrap/seed step. Not race-safe
                 # under concurrent registration on an empty table — acceptable for a one-off
                 # bootstrap action, not for the ongoing registration flow.
-                is_first_user = not await transaction.user_repository.exists()
-                role = UserRole.ADMIN if is_first_user else UserRole.CLIENT
+                if role is None:
+                    is_first_user = not await transaction.user_repository.exists()
+                    role = UserRole.ADMIN if is_first_user else UserRole.CLIENT
 
                 user_entity = UserEntity(
                     display_name=display_name,
@@ -81,7 +91,15 @@ class AuthService:
             details={'fields': build_create_fields(created_user)},
             ip_address=ip_address,
         )
-        await self._grant_signup_bonus(user_id=created_user.id)
+        if initial_credits is None:
+            await self._grant_signup_bonus(user_id=created_user.id)
+        elif initial_credits > 0:
+            await self.billing_service.grant(
+                user_id=created_user.id,
+                amount=initial_credits,
+                admin_id=granted_by_admin_id,
+                comment='admin_create',
+            )
         return created_user
 
     async def _grant_signup_bonus(self, user_id: int) -> None:

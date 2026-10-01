@@ -27,14 +27,19 @@
 - **`repository.py`** — `UserRepository(BaseRepository[User, UserEntity])`, наследует CRUD
   (`create`/`get_by_id`/`retrieve_all`/`update`/`delete`/`retrieve_all_by_filter`) от
   [`core.repository.BaseRepository`](../../core/repository.py) и добавляет `get_by_email`,
-  `get_by_telegram_id`.
+  `get_by_telegram_id`, `get_page(limit, offset)` (сортировка по `id`) и `count()` — для
+  постраничного списка.
 
 Используется в [`packages/auth`](../auth/AGENTS.md).
 
 ## Сервис
 
 - **`service.py`** — `UserService(transaction_manager: AsyncTransactionManager)`: профильные
-  операции над пользователем — `get_by_id`, `get_by_email`, `retrieve_all`, `update`, `delete`.
+  операции над пользователем — `get_by_id`, `get_by_email`, `retrieve_all`, `list_page(limit, offset)` (страница + общее число пользователей,
+  используется админской ручкой `GET /api/admin/users/`), `update_profile(user_id, display_name, email, role, telegram_id)` (частичное обновление только
+  переданных полей; `IntegrityError` по уникальному email → `DuplicatedObjectError`; используется
+  админской ручкой `PATCH /api/admin/users/{user_id}`), `update`, `delete` (используется `DELETE /api/admin/users/{user_id}`; зависимые данные удаляет БД
+  каскадом, см. [`apps/api/AGENTS.md`](../../apps/api/AGENTS.md#роуты)).
   Работает с БД только через
   [`core.transaction_manager.AsyncTransactionManager`](../../core/transaction_manager.py)
   (`transaction_manager(use_user_repository=True)` открывает `AsyncSession` и поднимает

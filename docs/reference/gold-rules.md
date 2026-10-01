@@ -110,7 +110,8 @@ packages/<domain>/
 
   Пример: `TaskResultsResponse` (`apps/api/src/routers/task/schema.py`) — `items:
   list[ResultItemResponse]`, затем `meta: PaginationMeta` (`total`/`limit`/`offset`). Используется
-  в `GET /api/tasks/{task_id}/results`.
+  в `GET /api/tasks/{task_id}/results`. Тот же паттерн — в `GET /api/admin/users/`
+  (`UserListResponse`).
 
 ## Вспомогательные функции роутера
 

@@ -25,6 +25,13 @@
     (`user_repository.exists()`) и `create` — в одной транзакции, но **не race-safe** при
     одновременной регистрации на пустой таблице (два параллельных запроса оба могут стать ADMIN) —
     приемлемо для одноразового bootstrap-действия, не для обычного потока регистрации.
+  - `register_user(..., role=None)` — необязательный `role` нужен админской регистрации
+    (`POST /api/admin/users/`): если задан, используется как есть и проверка «первый пользователь →
+    ADMIN» не выполняется; `None` — поведение выше.
+  - `register_user(..., initial_credits=None, granted_by_admin_id=None)` — только для админской
+    регистрации: `initial_credits` **заменяет** signup-бонус (`None` — обычный бонус, `0` — ничего,
+    `> 0` — это количество через `BillingService.grant(admin_id=granted_by_admin_id,
+    comment='admin_create')`). Сбой такого начисления не гасится (в отличие от бонуса).
   - **Бонус при регистрации.** `AuthService(transaction_manager, billing_service,
     signup_bonus_credits)`: после коммита пользователя и записи audit (`> 0`) зовёт
     `BillingService.grant(admin_id=None, comment='signup_bonus')` в отдельной транзакции биллинга.
