@@ -57,6 +57,7 @@ class DependencyContainer(DeclarativeContainer):
     telegram_notifier = providers.Singleton(
         build_telegram_notifier,
         bot_token=config.TELEGRAM.BOT_TOKEN,
+        proxy_url=config.TELEGRAM.PROXY_URL,
     )
 
     telegram_link_store = providers.Singleton(

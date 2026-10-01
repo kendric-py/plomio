@@ -288,11 +288,18 @@ notification_delivery_sweep.py`, `config.NOTIFICATIONS.DELIVERY_SWEEP_INTERVAL_S
    итерации (см. ниже).
 
 `TelegramNotifier` собирается в DI-контейнере `apps/api` (`container.telegram_notifier`,
-`providers.Singleton(build_telegram_notifier, bot_token=config.TELEGRAM.BOT_TOKEN)`) и
+`providers.Singleton(build_telegram_notifier, bot_token=..., proxy_url=...)`) и
 инжектируется в `NotificationService` необязательным параметром. Пустой `TELEGRAM_BOT_TOKEN`
 (`core.configs.TelegramConfig`, по умолчанию) — `build_telegram_notifier` возвращает `None`,
 `dispatch_pending` в этом случае пропускает `TELEGRAM`-доставки (оставляет `PENDING`), не падает —
 тот же приём, что `LivenessReporter` при пустом `LIVENESS_ENDPOINT_URL`.
+
+**Прокси для Bot API.** Если с хоста `api.telegram.org` недоступен напрямую (бот тогда молчит:
+`TelegramNetworkError: Request timeout error`, polling падает), задаётся `TELEGRAM_PROXY_URL` —
+SOCKS5 в виде `socks5://user:pass@host:port` (спецсимволы в логине/пароле — в URL-кодировке).
+Пустое значение (по умолчанию) — бот ходит в Telegram напрямую, без прокси. Единая точка сборки
+бота — `telegram_client.build_bot(bot_token, proxy_url)` (`AiohttpSession(proxy=...)`, нужен пакет
+`aiohttp-socks` в зависимостях `apps/api`); её используют и `TelegramNotifier`, и long polling.
 
 ## Привязка Telegram
 
@@ -329,6 +336,9 @@ webhook (`POST /api/notifications/telegram/webhook`, `config.REST.PUBLIC_BASE_UR
 зарезервирован под это в конфиге) — задокументированная будущая работа, не в этой итерации.
 `handle_signals=False` при `start_polling` — эта задача не должна ставить свои `SIGINT`/`SIGTERM`-
 обработчики поверх uvicorn'а, процесс останавливает её сам через `task.cancel()` в `lifespan`.
+Если polling падает с исключением (например, недоступен Telegram), оно логируется
+(`[telegram_polling] polling crashed`) и polling перезапускается через 10 секунд — иначе фоновая
+задача умирала бы молча, и бот просто переставал отвечать.
 
 ## Не входит в эту итерацию
 

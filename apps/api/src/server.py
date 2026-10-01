@@ -134,6 +134,7 @@ def configure_rest_server() -> FastAPI:
                 run_telegram_polling(
                     bot_token=config.TELEGRAM.BOT_TOKEN,
                     notification_service=container.notification_service(),
+                    proxy_url=config.TELEGRAM.PROXY_URL,
                 ),
             )
 

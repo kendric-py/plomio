@@ -83,6 +83,10 @@ class TelegramConfig(BaseSettings):
     # `https://t.me/{BOT_USERNAME}?start=<code>`, не для аутентификации запросов к Bot API.
     BOT_USERNAME: str = Field(default='')
     LINK_CODE_TTL_SECONDS: int = Field(default=600)
+    # SOCKS5-прокси для запросов к Bot API (`socks5://user:pass@host:port`) — нужен там, где
+    # `api.telegram.org` недоступен напрямую. Пусто (по умолчанию) — бот ходит в Telegram без
+    # прокси. Спецсимволы в логине/пароле — в URL-кодировке.
+    PROXY_URL: str = Field(default='')
 
 
 class LivenessConfig(BaseSettings):
