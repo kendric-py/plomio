@@ -93,5 +93,12 @@ make run-worker_sessions   # apps/worker_sessions
 - [`apps/worker_parser/.env.example`](./apps/worker_parser/.env.example) → `apps/worker_parser/.env`
 - [`apps/worker_sessions/.env.example`](./apps/worker_sessions/.env.example) → `apps/worker_sessions/.env`
 
-> TODO: добавить инструкции по запуску через Docker (есть `Dockerfile` в каждом `apps/*`), по накатке миграций БД,
-> по локальному запуску тестов и по тому, как приложения взаимодействуют друг с другом в рантайме, когда эти процессы появятся/будут описаны.
+### Запуск через Docker
+
+```
+docker compose up -d --build
+```
+
+Поднимает `api` (порт 8000, миграции накатываются при старте), `worker_parser` (режим `tasks`), `worker_parser_direct` (режим `direct`) и `worker_sessions`. Postgres и Redis в compose не входят — они должны быть запущены отдельно (для разработки — `docker-compose.dev.yml`). Настройки берутся из `apps/<app>/.env`; хосты Postgres/Redis внутри контейнеров по умолчанию `host.docker.internal` (переопределяются переменными `POSTGRES_HOST`/`REDIS_HOST`), URL heartbeat compose переопределяет под docker-сеть.
+
+> TODO: добавить инструкции по локальному запуску тестов и по тому, как приложения взаимодействуют друг с другом в рантайме.

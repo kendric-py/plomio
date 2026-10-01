@@ -1,0 +1,82 @@
+# Приложения SMPCrawl: api + воркеры. Postgres и Redis здесь НЕ поднимаются — они запущены отдельно.
+#   docker compose up -d --build
+# Настройки — из apps/<app>/.env (создать из .env.example).
+# Postgres/Redis для локальной разработки: docker-compose.dev.yml.
+x-app: &app
+  restart: unless-stopped
+  extra_hosts:
+    - 'host.docker.internal:host-gateway'
+
+# Postgres и Redis подняты отдельно (не в этом compose). В .env у приложений они обычно на localhost,
+# что внутри контейнера не работает — поэтому хосты указывают на машину, где они запущены.
+# Другой хост: POSTGRES_HOST=... REDIS_HOST=... docker compose up. Порты, база и креды — из apps/<app>/.env.
+x-infra-env: &infra-env
+  POSTGRES_HOST: ${POSTGRES_HOST:-host.docker.internal}
+  REDIS_HOST: ${REDIS_HOST:-host.docker.internal}
+
+services:
+  api:
+    <<: *app
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - apps/api/.env
+    environment:
+      <<: *infra-env
+      REST_APP_HOST: 0.0.0.0
+      REST_APP_PORT: 8000
+    # Наружу api отдаёт nginx (api.plomio.pro -> data_manager_app:8000 в сети proxy), порт — только localhost.
+    ports:
+      - '127.0.0.1:8000:8000'
+    networks:
+      default:
+      proxy:
+        aliases:
+          - data_manager_app
+
+  # Задачи из очереди Postgres.
+  worker_parser:
+    <<: *app
+    build:
+      context: .
+      dockerfile: apps/worker_parser/Dockerfile
+    env_file:
+      - apps/worker_parser/.env
+    environment:
+      <<: *infra-env
+      WORKER_MODE: tasks
+      LIVENESS_ENDPOINT_URL: http://api:8000/api/worker-health/parser/heartbeat
+
+  # Синхронные direct-запросы из Redis (Postgres не нужен).
+  worker_parser_direct:
+    <<: *app
+    build:
+      context: .
+      dockerfile: apps/worker_parser/Dockerfile
+    env_file:
+      - apps/worker_parser/.env
+    environment:
+      <<: *infra-env
+      WORKER_MODE: direct
+      DIRECT_CONSUMER_NAME: direct-1
+      LIVENESS_WORKER_NAME: worker-parser-direct-1
+      LIVENESS_ENDPOINT_URL: http://api:8000/api/worker-health/parser/heartbeat
+
+  worker_sessions:
+    <<: *app
+    build:
+      context: .
+      dockerfile: apps/worker_sessions/Dockerfile
+    env_file:
+      - apps/worker_sessions/.env
+    environment:
+      <<: *infra-env
+      LIVENESS_ENDPOINT_URL: http://api:8000/api/worker-health/sessions/heartbeat
+    # Firefox падает на маленьком /dev/shm.
+    shm_size: 1gb
+
+# Внешняя сеть nginx/postgres/redis (docker network create proxy), см. серверный infra.
+networks:
+  proxy:
+    external: true
