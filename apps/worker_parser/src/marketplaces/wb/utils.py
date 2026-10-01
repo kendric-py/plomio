@@ -74,7 +74,7 @@ def get_raw_wb_products(payload: dict[str, Any]) -> list[Any]:
 def create_wb_http_session(session_message: SessionMessage) -> AsyncSession:
     kwargs: dict = {'impersonate': 'chrome136'}
     if session_message.proxy:
-        proxy_url = session_message.proxy.to_url()
+        proxy_url = session_message.proxy.to_curl_url()
         kwargs['proxies'] = {'http': proxy_url, 'https': proxy_url}
     http_session = AsyncSession(**kwargs)
     for name, value in session_message.cookies.items():

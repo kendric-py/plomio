@@ -64,3 +64,5 @@ TTL/лимиты (`ttl_ms`, `max_pop_attempts`, `min_ttl_margin_seconds`, `strea
 параметры методов, а не поля пакета: пакеты не импортируют `Config` приложений (только `core`),
 поэтому вызывающая сторона (`apps/worker_sessions`/`apps/worker_parser`) передаёт значения из
 своего собственного конфига явно.
+
+**URL прокси.** `ProxyConfig.to_url()` — для браузера (Camoufox + локальный SOCKS5-туннель, ждёт `socks5://`), `ProxyConfig.to_curl_url()` — для curl_cffi (HTTP-клиенты `worker_parser` и валидация `worker_sessions`): для SOCKS5 это `socks5h://`. При `socks5://` libcurl резолвит DNS локально и отдаёт прокси голый IP; у хостов с AAAA-записью (`www.wildberries.ru`) это IPv6, который сеть прокси не маршрутизирует, и каждый запрос падает с `curl: (97) cannot complete SOCKS5 connection ... (3)`. Любой новый curl-клиент с прокси должен брать `to_curl_url()`, не `to_url()`.

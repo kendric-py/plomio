@@ -31,7 +31,7 @@ def create_ozon_http_session(session_message: SessionMessage) -> AsyncSession:
     # user-agent, a mismatch antibot can fingerprint on (see `build_ozon_navigation_headers`).
     kwargs: dict = {'impersonate': 'firefox135'}
     if session_message.proxy:
-        proxy_url = session_message.proxy.to_url()
+        proxy_url = session_message.proxy.to_curl_url()
         kwargs['proxies'] = {'http': proxy_url, 'https': proxy_url}
     http_session = AsyncSession(**kwargs)
     for name, value in session_message.cookies.items():

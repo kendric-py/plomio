@@ -27,17 +27,10 @@ logger = logging.getLogger(__name__)
 
 
 def _curl_proxy_url(session_message: SessionMessage) -> str | None:
-    """curl_cffi/libcurl resolves DNS locally for a `socks5://` proxy URL, then hands the
-    proxy a bare IP — the proxy network often can't route to that IP even though it can
-    reach the hostname itself, surfacing as "SOCKS5 ... network unreachable". `socks5h://`
-    makes libcurl forward the hostname and resolve through the proxy instead, matching how
-    the browser side already behaves (its local SOCKS5 tunnel relays the hostname as-is)."""
+    """`socks5h://` instead of `socks5://` for libcurl — see `ProxyConfig.to_curl_url`."""
     if session_message.proxy is None:
         return None
-    url = session_message.proxy.to_url()
-    if url.startswith('socks5://'):
-        return 'socks5h://' + url.removeprefix('socks5://')
-    return url
+    return session_message.proxy.to_curl_url()
 
 
 def _build_curl_session(

@@ -18,6 +18,16 @@ class ProxyConfig(BaseModel):
         auth = f'{self.username}:{self.password}@' if self.username and self.password else ''
         return f'{scheme}://{auth}{self.host}:{self.port}'
 
+    def to_curl_url(self) -> str:
+        """URL для curl_cffi/libcurl. Для SOCKS5 — `socks5h://`: при `socks5://` libcurl резолвит
+        DNS локально и отдаёт прокси голый IP. У хостов с AAAA-записью (www.wildberries.ru) это
+        IPv6, который сеть прокси не маршрутизирует, — ошибка `curl: (97) cannot complete SOCKS5
+        connection ... (3)` на каждом запросе. `socks5h://` отдаёт прокси имя хоста, и он резолвит
+        его сам. Браузерная сторона (`to_url`) так же передаёт имя хоста через свой локальный
+        SOCKS5-туннель."""
+        url = self.to_url()
+        return 'socks5h://' + url.removeprefix('socks5://') if url.startswith('socks5://') else url
+
 
 class SessionMessage(BaseModel):
     session_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
