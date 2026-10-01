@@ -88,7 +88,7 @@ class Config(BaseSettings):
         extra='ignore',
     )
 
-    WORKER_MODE: WorkerMode = Field(default=WorkerMode.DIRECT)
+    WORKER_MODE: WorkerMode = Field(default=WorkerMode.TASKS)
     # Базовый URL фронтенда (без завершающего /) — используется TaskService.complete_item, чтобы
     # положить ссылку на страницу завершённой задачи в payload уведомления (см.
     # packages/notifications/AGENTS.md, "Базовый URL фронтенда"). Тот же смысл, что

@@ -4,7 +4,10 @@ import re
 from apps.worker_sessions.src.generation.marketplaces.ozon.fingerprint import OzonFingerprintProfile
 
 OZON_BASE_URL = 'https://www.ozon.ru'
-OZON_REQUIRED_COOKIES: frozenset[str] = frozenset({'abt_data', '__Secure-ETC', 'rfuid'})
+# `rfuid` used to be required, but Ozon no longer sets it (verified live 2026-09-30: after a
+# successful antibot pass the jar has `abt_data`/`__Secure-ETC`/tokens and no `rfuid`), so
+# requiring it made the poll loop time out on every attempt. Kept optional in case it returns.
+OZON_REQUIRED_COOKIES: frozenset[str] = frozenset({'abt_data', '__Secure-ETC'})
 # Captured when present but never gate the poll loop (see `_run_browser`'s `optional_cookies`
 # param) — a real browser session always carries these alongside `abt_data`/`__Secure-ETC`
 # (confirmed live: a genuine session with the full set survived 8 rapid consecutive search-API
@@ -13,6 +16,7 @@ OZON_REQUIRED_COOKIES: frozenset[str] = frozenset({'abt_data', '__Secure-ETC', '
 # signature — anonymous-session tokens, not auth in the "logged in user" sense.
 OZON_OPTIONAL_COOKIES: frozenset[str] = frozenset({
     '__Secure-access-token', '__Secure-refresh-token', '__Secure-user-id', '__Secure-ext_xcid',
+    'rfuid',
 })
 
 OZON_FALLBACK_APP_VERSION = 'release_30-6-2026_35d481b8'
