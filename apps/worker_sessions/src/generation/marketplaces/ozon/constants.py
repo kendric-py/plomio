@@ -7,7 +7,15 @@ OZON_BASE_URL = 'https://www.ozon.ru'
 # `rfuid` used to be required, but Ozon no longer sets it (verified live 2026-09-30: after a
 # successful antibot pass the jar has `abt_data`/`__Secure-ETC`/tokens and no `rfuid`), so
 # requiring it made the poll loop time out on every attempt. Kept optional in case it returns.
-OZON_REQUIRED_COOKIES: frozenset[str] = frozenset({'abt_data', '__Secure-ETC'})
+# `__Secure-access-token` IS required: it's the only cookie that's set strictly after the antibot
+# challenge is passed. `abt_data`/`__Secure-ETC` appear earlier, so gating on them alone returns
+# the session before the challenge finishes — fine on a fast direct connection (tokens land within
+# a second), but behind a slower proxy the browser hands over a token-less session that the API
+# answers with a 403 challenge (verified live 2026-10-01 via a SOCKS5 proxy: 13s/token-less/403
+# vs 70s/with tokens/200, same code and proxy otherwise).
+OZON_REQUIRED_COOKIES: frozenset[str] = frozenset(
+    {'abt_data', '__Secure-ETC', '__Secure-access-token'},
+)
 # Captured when present but never gate the poll loop (see `_run_browser`'s `optional_cookies`
 # param) — a real browser session always carries these alongside `abt_data`/`__Secure-ETC`
 # (confirmed live: a genuine session with the full set survived 8 rapid consecutive search-API
@@ -15,8 +23,7 @@ OZON_REQUIRED_COOKIES: frozenset[str] = frozenset({'abt_data', '__Secure-ETC'})
 # Sending `abt_data` without its matching access/refresh-token pair is itself an anomaly
 # signature — anonymous-session tokens, not auth in the "logged in user" sense.
 OZON_OPTIONAL_COOKIES: frozenset[str] = frozenset({
-    '__Secure-access-token', '__Secure-refresh-token', '__Secure-user-id', '__Secure-ext_xcid',
-    'rfuid',
+    '__Secure-refresh-token', '__Secure-user-id', '__Secure-ext_xcid', 'rfuid',
 })
 
 OZON_FALLBACK_APP_VERSION = 'release_30-6-2026_35d481b8'
