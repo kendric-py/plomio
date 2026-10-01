@@ -1,5 +1,5 @@
 # Контекст сборки — КОРЕНЬ репозитория (приложения импортируют core/ и packages/):
-#   docker build -f apps/worker_sessions/Dockerfile -t smpcrawl-worker_sessions .
+#   docker build -f apps/worker_sessions/Dockerfile -t plomio-worker_sessions .
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1     PYTHONDONTWRITEBYTECODE=1     PYTHONPATH=/app     POETRY_VERSION=1.8.3     POETRY_VIRTUALENVS_CREATE=false     POETRY_NO_INTERACTION=1

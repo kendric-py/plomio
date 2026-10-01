@@ -4,16 +4,16 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: smpcrawl_postgres_dev
+    container_name: plomio_postgres_dev
     restart: unless-stopped
     env_file:
       - .env
     ports:
       - '5432:5432'
     volumes:
-      - smpcrawl_postgres_dev_data:/var/lib/postgresql/data
+      - plomio_postgres_dev_data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U postgres -d smpcrawl']
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d plomio']
       interval: 5s
       timeout: 5s
       retries: 10
@@ -22,12 +22,12 @@ services:
   # RedisConfig в core/configs.py. Без пароля по умолчанию, как в apps/worker_sessions/.env.example.
   redis:
     image: redis:7-alpine
-    container_name: smpcrawl_redis_dev
+    container_name: plomio_redis_dev
     restart: unless-stopped
     ports:
       - '6379:6379'
     volumes:
-      - smpcrawl_redis_dev_data:/data
+      - plomio_redis_dev_data:/data
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
@@ -35,5 +35,5 @@ services:
       retries: 10
 
 volumes:
-  smpcrawl_postgres_dev_data:
-  smpcrawl_redis_dev_data:
+  plomio_postgres_dev_data:
+  plomio_redis_dev_data:

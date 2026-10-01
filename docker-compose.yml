@@ -1,4 +1,4 @@
-# Приложения SMPCrawl: api + воркеры. Postgres и Redis здесь НЕ поднимаются — они запущены отдельно.
+# Приложения Plomio: api + воркеры. Postgres и Redis здесь НЕ поднимаются — они запущены отдельно.
 #   docker compose up -d --build
 # Настройки — из apps/<app>/.env (создать из .env.example).
 # Postgres/Redis для локальной разработки: docker-compose.dev.yml.

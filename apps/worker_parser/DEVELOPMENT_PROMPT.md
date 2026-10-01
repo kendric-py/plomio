@@ -1,7 +1,7 @@
 # Промт для разработки apps/worker_parser
 
 Разработай `apps/worker_parser` — воркер, который забирает задачи парсинга OZON/Wildberries из очереди
-и исполняет их. Это отдельный процесс монорепо SMPCrawl (`C:\Users\kendric\Desktop\monosmp`).
+и исполняет их. Это отдельный процесс монорепо Plomio (`C:\Users\kendric\Desktop\monosmp`).
 
 ## Контекст, который нужно изучить перед проектированием
 

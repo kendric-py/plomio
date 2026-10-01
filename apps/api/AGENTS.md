@@ -244,7 +244,7 @@ Swagger UI (`/docs`) появляется кнопка **Authorize**, куда �
 
 `docker-compose.dev.yml` в корне репозитория поднимает dev-Postgres на **порту хоста 5433** (не 5432
 — чтобы не конфликтовать с другими Postgres-контейнерами на машине разработчика), с кредами
-`postgres`/`postgres`/`smpcrawl`, совпадающими со значениями по умолчанию в `.env.example`:
+`postgres`/`postgres`/`plomio`, совпадающими со значениями по умолчанию в `.env.example`:
 
 ```
 docker compose -f docker-compose.dev.yml up -d
