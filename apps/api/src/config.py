@@ -134,6 +134,20 @@ class BillingConfig(BaseSettings):
     SIGNUP_BONUS_CREDITS: int = Field(default=10000, ge=0)
 
 
+class ProxyConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=ENV_FILE,
+        env_file_encoding='utf-8',
+        env_prefix='PROXY_',
+        extra='ignore',
+    )
+
+    # Общий секрет, который `worker_sessions` шлёт в заголовке `X-Worker-Token` на
+    # `GET /api/proxy/issue` (тот же, что `PROXY_API_TOKEN` в `.env` воркера). Пусто — выдача
+    # прокси выключена (ручка отвечает 503).
+    WORKER_TOKEN: str = Field(default_factory=str)
+
+
 class Config(BaseSettings):
     REST: RestConfig = Field(default_factory=RestConfig)
     POSTGRES: PostgresConfig = Field(default_factory=PostgresConfig)
@@ -145,6 +159,7 @@ class Config(BaseSettings):
     NOTIFICATIONS: NotificationsConfig = Field(default_factory=NotificationsConfig)
     DIRECT: DirectConfig = Field(default_factory=DirectConfig)
     BILLING: BillingConfig = Field(default_factory=BillingConfig)
+    PROXY: ProxyConfig = Field(default_factory=ProxyConfig)
 
     class Config:
         env_file = ENV_FILE

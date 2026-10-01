@@ -26,6 +26,7 @@ from packages.notifications.src.models import (  # noqa: F401
     NotificationEvent,
     NotificationSetting,
 )
+from packages.proxy.src.models import Proxy  # noqa: F401
 from packages.result.src.models import ResultItem  # noqa: F401
 from packages.task.src.models import Task, TaskItem  # noqa: F401
 from packages.user.src.models import User  # noqa: F401

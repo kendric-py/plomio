@@ -209,6 +209,8 @@ Swagger UI (`/docs`) появляется кнопка **Authorize**, куда �
 - `task_service` — [`packages.task.src.service.TaskService`](../../packages/task/AGENTS.md), теперь
   также принимает `billing_service` и `notification_service`.
 - `result_service` — [`packages.result.src.service.ResultService`](../../packages/result/AGENTS.md).
+- `proxy_service` — [`packages.proxy.src.service.ProxyService`](../../packages/proxy/AGENTS.md); роутер
+  `routers/proxy` (`/api/admin/proxies` для админа, `/api/proxy/issue` для воркера по `X-Worker-Token`).
 - `billing_service` — [`packages.billing.src.service.BillingService`](../../packages/billing/AGENTS.md),
   инжектируется и в `task_service`, и в `automation_service` (каждый получает свой отдельный
   `AsyncTransactionManager`-экземпляр — `transaction_manager` сам `providers.Factory`, повторное

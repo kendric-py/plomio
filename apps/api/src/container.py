@@ -13,6 +13,7 @@ from packages.direct.src.redis_bus import DirectBus
 from packages.notifications.src.service import NotificationService
 from packages.notifications.src.telegram_client import build_telegram_notifier
 from packages.notifications.src.telegram_link_store import TelegramLinkStore
+from packages.proxy.src.service import ProxyService
 from packages.result.src.service import ResultService
 from packages.sessions.src.redis_store import SessionPoolStore
 from packages.task.src.service import TaskService
@@ -116,4 +117,9 @@ class DependencyContainer(DeclarativeContainer):
         billing_service=billing_service,
         notification_service=notification_service,
         frontend_base_url=config.REST.FRONTEND_BASE_URL,
+    )
+
+    proxy_service = providers.Factory(
+        ProxyService,
+        transaction_manager=transaction_manager,
     )

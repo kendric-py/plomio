@@ -76,14 +76,17 @@ Redis-потребителей проекта, не только этого во
 по `sessions:pool:{marketplace}`, см. [`packages/sessions`](../../packages/sessions/AGENTS.md) и
 `apps/worker_parser/AGENTS.md`).
 
-## Прокси — заглушка
+## Прокси
 
-`proxy/client.py::get_proxy()` — HTTP-клиент на будущую ручку выдачи прокси (`PROXY_API_ISSUE_URL`
-в `.env`), которой пока не существует. Пустой `PROXY_API_ISSUE_URL` (значение по умолчанию) —
-`get_proxy()` возвращает `None`, воркер трактует это как «прокси сейчас нет» и ждёт, не падает.
+`proxy/client.py::get_proxy()` — HTTP-клиент ручки выдачи прокси `GET /api/proxy/issue` api
+(`packages/proxy`, см. [`packages/proxy/AGENTS.md`](../../packages/proxy/AGENTS.md)): отдаёт
+**случайный активный** прокси из пула, который ведёт админ. Настройка в `.env` воркера:
+`PROXY_API_ISSUE_URL=https://<api>/api/proxy/issue` и `PROXY_API_TOKEN` — тот же секрет, что
+`PROXY_WORKER_TOKEN` в `.env` api (уходит заголовком `X-Worker-Token`). Пустой `PROXY_API_ISSUE_URL`
+(значение по умолчанию) — `get_proxy()` возвращает `None`, воркер трактует это как «прокси сейчас
+нет» и ждёт, не падает; то же при `404` (пул пуст), `401`/`503` (неверный/не настроенный токен).
 `ProxyRotator` переиспользует один выданный прокси для `GENERATION_MAX_SESSIONS_PER_PROXY` генераций
-подряд, прежде чем запросить новый. Когда ручка появится — меняется только `PROXY_API_ISSUE_URL`
-и, при необходимости, разбор ответа в `get_proxy()`; остальной код воркера не зависит от источника.
+подряд, прежде чем запросить новый.
 
 **Дев-режим без прокси:** `GENERATION_REQUIRE_PROXY=false` (по умолчанию в `.env.example`) полностью
 убирает ожидание прокси — `pool_manager` генерирует сессию напрямую (`proxy=None` во всех слоях:

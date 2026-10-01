@@ -21,7 +21,8 @@
 12. `/api/sessions`
 13. `/api/admin/users` — управление пользователями (админ)
 14. `/api/admin/audit-logs` — журнал аудита (админ)
-15. Известные ограничения текущего API
+15. `/api/admin/proxies` — прокси для воркеров (админ)
+16. Известные ограничения текущего API
 
 ## Авторизация
 
@@ -46,7 +47,7 @@ Authorization: Bearer <access_token>
 **Роли.** Есть две роли — `client` и `admin` (`UserRole`, нижний регистр в JSON). Первый
 зарегистрированный в пустой системе (`GET /api/auth/status` вернул `has_users: false`) автоматически
 получает роль `admin`, все последующие — `client`. Роль видна в `GET /api/user/me`. Ручки под
-`/api/admin/billing/*`, `/api/admin/users/*` и `/api/admin/audit-logs/*` требуют роль `admin` — иначе
+`/api/admin/billing/*`, `/api/admin/users/*`, `/api/admin/proxies/*` и `/api/admin/audit-logs/*` требуют роль `admin` — иначе
 `403 {"detail": "Admin access required"}`. Остальные ручки ролей не различают.
 
 CORS настроен максимально открыто (`allow_origins=['*']`, `allow_methods=['*']`, `allow_headers=['*']`),
@@ -1149,6 +1150,70 @@ Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по ум�
 `POST /api/admin/billing/users/{user_id}/grant`, и для `credits` в `POST /api/admin/users/`). Бонус
 при самостоятельной регистрации не логируется. Остальные действия админа над пользователями
 (`/api/admin/users/*`) и прочие домены в аудит пока **не** пишутся.
+
+---
+
+## `/api/admin/proxies` — прокси для воркеров (админ)
+
+Пул прокси, из которого воркер `worker_sessions` получает **случайный активный** прокси для генерации
+сессий. Все ручки ниже требуют роль `admin`. Пароль прокси наружу не отдаётся — только флаг
+`has_password`.
+
+`ProxyResponse`:
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `id` | int | идентификатор прокси |
+| `proxy_type` | enum | `http` / `socks5` (нижний регистр) |
+| `host` | string | хост |
+| `port` | int | порт, `1..65535` |
+| `username` | string \| null | логин; `null` — прокси без авторизации |
+| `has_password` | bool | задан ли пароль (сам пароль не возвращается) |
+| `is_active` | bool | участвует ли в случайной выдаче воркерам |
+| `note` | string \| null | заметка админа |
+| `created_at` / `updated_at` | datetime | |
+
+### `GET /api/admin/proxies/` — список прокси (постранично)
+
+Query: `limit` (int, `1..500`, по умолчанию `100`), `offset` (int, `≥0`), `is_active` (bool,
+опционально — фильтр). Сортировка по `id`.
+
+**Ответ `200`** (`ProxyListResponse`): `{ "items": [ /* ProxyResponse */ ], "meta": { total, limit, offset } }`.
+
+### `POST /api/admin/proxies/` — добавить прокси
+
+**Тело запроса** (`CreateProxyRequest`): `proxy_type` (`http`/`socks5`, обязательное), `host` (string,
+не пустой), `port` (int, `1..65535`), `username` (string, опционально), `password` (string,
+опционально), `is_active` (bool, по умолчанию `true`), `note` (string, опционально).
+
+**Ответ `201`** — `ProxyResponse`. `409` — `{"detail": "Proxy with this type, host, port and username already exists"}`
+(дубль по `(proxy_type, host, port, username)`; два прокси без логина с одним адресом — тоже дубль).
+`422` — невалидное тело (например, порт вне диапазона, неизвестный `proxy_type`).
+
+### `PATCH /api/admin/proxies/{proxy_id}` — изменить прокси
+
+Path-параметр `proxy_id` (int). **Тело** (`UpdateProxyRequest`) — любой набор полей из
+`CreateProxyRequest`; меняются только переданные. `username`, `password` и `note` можно **сбросить**,
+передав `null`; `proxy_type`, `host`, `port`, `is_active` с `null` дают `422`. Отключить прокси от
+выдачи, не удаляя, — `{"is_active": false}`.
+
+**Ответ `200`** — `ProxyResponse`. `404` — `{"detail": "Proxy not found"}`. `409` — правка создаёт
+дубль (тот же текст, что у `POST`).
+
+### `DELETE /api/admin/proxies/{proxy_id}` — удалить прокси
+
+**Ответ** `204 No Content`. `404` — `{"detail": "Proxy not found"}`.
+
+### `GET /api/proxy/issue` — выдача прокси воркеру
+
+**Не для фронтенда** — ручку дёргает `worker_sessions`. Вместо JWT авторизуется заголовком
+`X-Worker-Token` (общий секрет `PROXY_WORKER_TOKEN` на стороне api). Query: `proxy_type`
+(`http`/`socks5`, опционально — выдать только этого типа).
+
+**Ответ `200`**: `proxy_type`, `proxy_host`, `proxy_port`, `proxy_username` (string \| null),
+`proxy_password` (string \| null) — случайный из активных. `404` — `{"detail": "No active proxies
+available"}`; `401` — токен не передан или неверный; `503` — выдача не настроена (`PROXY_WORKER_TOKEN`
+пуст).
 
 ---
 
