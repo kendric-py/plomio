@@ -26,14 +26,14 @@ services:
       <<: *infra-env
       REST_APP_HOST: 0.0.0.0
       REST_APP_PORT: 8000
-    # Наружу api отдаёт nginx (api.plomio.pro -> data_manager_app:8000 в сети proxy), порт — только localhost.
+    # Наружу api отдаёт nginx (api.plomio.pro -> plomio_api:8000 в сети proxy), порт — только localhost.
     ports:
       - '127.0.0.1:8000:8000'
     networks:
       default:
       proxy:
         aliases:
-          - data_manager_app
+          - plomio_api
 
   # Задачи из очереди Postgres.
   worker_parser:
