@@ -41,6 +41,14 @@ apps.worker_sessions.src`.
 `generation/process_reaper.py` параллельно подчищает осиротевшие процессы Camoufox/Playwright
 (крэш/зависание инициализации браузера оставляет процесс висеть).
 
+**Контейнер обязан запускаться с `init: true`** (`docker-compose.yml`, сервис `worker_sessions`) и
+`MOZ_DISABLE_SANDBOX=1` — как в `session-service`. Без init PID 1 — Python, который не делает
+`wait()` на осиротевших потомках Firefox/Node: они остаются зомби. `process_reaper` их не убирает
+(у зомби пустой cmdline, `_matches_target` их пропускает, да и убить зомби нельзя — его должен
+забрать родитель). Инцидент 2026-10-02: за ~6 часов 3465 зомби, `pids.current` 3473 при
+`pids.max` 3521 — Firefox падал с `SIGSEGV` сразу при запуске, пул сессий переставал пополняться.
+Диагностика: `docker exec <контейнер> sh -c 'ps -eo stat | grep -c Z'`.
+
 ## Хранение сессии — Redis
 
 Подключение к Redis (`RedisConfig`: `HOST`/`PORT`/`DB`/`PASSWORD`) — глобальный конфиг

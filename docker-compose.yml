@@ -73,8 +73,14 @@ services:
     environment:
       <<: *infra-env
       LIVENESS_ENDPOINT_URL: http://api:8000/api/worker-health/sessions/heartbeat
+      # В Docker Firefox не может создать user namespace (EPERM) — отключаем песочницу, как в session-service.
+      MOZ_DISABLE_SANDBOX: 1
     # Firefox падает на маленьком /dev/shm.
     shm_size: 1gb
+    # Без init PID 1 — сам Python, он не убирает осиротевших потомков Firefox/Node: они копятся
+    # зомби (3465 за ~6 часов), упираются в лимит pid контейнера, и браузер падает при запуске.
+    # process_reaper зомби не видит (у них пустой cmdline) — убирает их только init.
+    init: true
 
 # Внешняя сеть nginx/postgres/redis (docker network create proxy), см. серверный infra.
 networks:
