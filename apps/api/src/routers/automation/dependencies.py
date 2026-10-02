@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from fastapi import Depends, HTTPException, Query, status
 
 from apps.api.src.routers.dependencies import get_date_range
@@ -35,3 +37,33 @@ def get_automation_filters(
         date_from=date_range.date_from,
         date_to=date_range.date_to,
     )
+
+
+MAX_CHART_PERIOD = timedelta(days=365)
+
+
+def get_chart_period(
+    days: int = Query(
+        default=30, ge=1, le=365,
+        description='Период графика в днях, заканчивающийся в date_to (или сейчас); игнорируется, '
+        'если задан date_from',
+    ),
+    date_range: DateRange = Depends(get_date_range),
+) -> DateRange:
+    """Диапазон графика: `date_from`/`date_to` (зум) либо последние `days` дней. Конец не позже
+    "сейчас" (будущего на графике нет), длина — не больше года. Возвращает `DateRange` с обеими
+    границами заданными."""
+    now = datetime.now(tz=timezone.utc)
+    date_to = min(date_range.date_to or now, now)
+    date_from = date_range.date_from or date_to - timedelta(days=days)
+    if date_from >= date_to:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail='date_from must be earlier than date_to (and not in the future)',
+        )
+    if date_to - date_from > MAX_CHART_PERIOD:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail='chart period must not exceed 365 days',
+        )
+    return DateRange(date_from=date_from, date_to=date_to)

@@ -16,10 +16,17 @@ from apps.api.src.routers.automation.schema import (
     AutomationWithHistoryListResponse,
     AutomationWithHistoryResponse,
     CreateAutomationRequest,
+    PriceChangeFrequencyPointResponse,
+    PriceChangeFrequencyResponse,
+    PriceDynamicsResponse,
+    PricePointResponse,
     UpdateBaselineRequest,
 )
-from apps.api.src.routers.automation.dependencies import get_automation_filters
-from apps.api.src.routers.schema import PaginationMeta
+from apps.api.src.routers.automation.dependencies import (
+    get_automation_filters,
+    get_chart_period,
+)
+from apps.api.src.routers.schema import DateRange, PaginationMeta
 from core.exceptions import ObjectNotFoundError
 from packages.automation.src.entities import AutomationListFilters
 from packages.automation.src.exceptions import DuplicateAutomationError, InvalidCheckFrequencyError
@@ -233,6 +240,71 @@ async def delete_automation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='Automation not found',
         ) from error
+
+
+@router.get('/{automation_id}/charts/price-dynamics')
+@inject
+async def get_price_dynamics(
+    automation_id: UUID,
+    period: DateRange = Depends(get_chart_period),
+    current_user: UserEntity = Depends(get_current_user),
+    automation_service: AutomationService = Depends(
+        Provide[DependencyContainer.automation_service],
+    ),
+) -> PriceDynamicsResponse:
+    try:
+        step_seconds, points = await automation_service.get_price_dynamics(
+            automation_id=automation_id,
+            user_id=current_user.id,
+            since=period.date_from,
+            until=period.date_to,
+        )
+    except ObjectNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Automation not found',
+        ) from error
+    return PriceDynamicsResponse(
+        date_from=period.date_from,
+        date_to=period.date_to,
+        step_seconds=step_seconds,
+        items=[
+            PricePointResponse.model_validate(obj=point, from_attributes=True) for point in points
+        ],
+    )
+
+
+@router.get('/{automation_id}/charts/price-change-frequency')
+@inject
+async def get_price_change_frequency(
+    automation_id: UUID,
+    period: DateRange = Depends(get_chart_period),
+    current_user: UserEntity = Depends(get_current_user),
+    automation_service: AutomationService = Depends(
+        Provide[DependencyContainer.automation_service],
+    ),
+) -> PriceChangeFrequencyResponse:
+    try:
+        step_seconds, points = await automation_service.get_price_change_frequency(
+            automation_id=automation_id,
+            user_id=current_user.id,
+            since=period.date_from,
+            until=period.date_to,
+        )
+    except ObjectNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Automation not found',
+        ) from error
+    return PriceChangeFrequencyResponse(
+        date_from=period.date_from,
+        date_to=period.date_to,
+        step_seconds=step_seconds,
+        items=[
+            PriceChangeFrequencyPointResponse.model_validate(obj=point, from_attributes=True)
+            for point in points
+        ],
+    )
 
 
 @router.get('/{automation_id}/history')

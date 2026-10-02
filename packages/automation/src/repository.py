@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import Select, func, select, text, update
@@ -11,8 +11,34 @@ from packages.automation.src.entities import (
     AutomationCheckLogEntity,
     AutomationEntity,
     AutomationListFilters,
+    AutomationPriceChangeBucketEntity,
+    AutomationPricePointEntity,
 )
 from packages.automation.src.models import Automation, AutomationCheckLog
+
+# Общая основа графиков цены: успешные тики со снимком + значения предыдущего успешного тика
+# (`LAG` считается по всей истории, до фильтра по периоду — иначе первый тик периода всегда
+# выглядел бы "изменившимся"). `windowed` — уже только тики с `since`. `IS DISTINCT FROM` — чтобы
+# NULL (цена пропала с карточки) тоже считался значением, а не "неизвестно".
+_PRICE_TICKS_CTE = (
+    'WITH ticks AS ('
+    "    SELECT checked_at, (snapshot->>'PRICE')::bigint AS price, "
+    "           (snapshot->>'DISCOUNTED_PRICE')::bigint AS discounted_price, "
+    "           (snapshot->>'ORIGINAL_PRICE')::bigint AS original_price, "
+    "           (snapshot->>'IN_STOCK')::boolean AS in_stock "
+    '    FROM automation_check_log '
+    '    WHERE automation_id = :automation_id AND succeeded AND snapshot IS NOT NULL'
+    '), lagged AS ('
+    '    SELECT *, '
+    '           row_number() OVER w > 1 AS has_previous, '
+    '           price IS DISTINCT FROM lag(price) OVER w '
+    '           OR discounted_price IS DISTINCT FROM lag(discounted_price) OVER w '
+    '           OR original_price IS DISTINCT FROM lag(original_price) OVER w AS price_changed '
+    '    FROM ticks WINDOW w AS (ORDER BY checked_at)'
+    '), windowed AS ('
+    '    SELECT * FROM lagged WHERE checked_at >= :since'
+    ')'
+)
 
 
 class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
@@ -275,6 +301,103 @@ class AutomationCheckLogRepository(BaseRepository[AutomationCheckLog, Automation
         for entity in self._to_entities(database_objects=database_objects):
             grouped[entity.automation_id].append(entity)
         return grouped
+
+    async def get_price_dynamics(
+        self,
+        automation_id: UUID,
+        start: datetime,
+        until: datetime,
+        step_seconds: int,
+    ) -> list[AutomationPricePointEntity]:
+        """Регулярный ряд для графика динамики: на каждую точку сетки `start..until` с шагом
+        `step_seconds` — состояние карточки по последнему успешному тику на конец её интервала
+        (цена "держится", пока не изменится, поэтому пропусков нет, даже если тиков в интервале не
+        было). Тик ищется по всей истории, а не только внутри периода — так первые точки несут
+        цену, действовавшую до начала периода. Точки до самого первого тика автоматизации не
+        возвращаются. `at` — конец интервала (не позже `until`): значение в точке верно именно на
+        этот момент."""
+
+        statement = text(
+            'WITH ticks AS ('
+            "    SELECT checked_at, (snapshot->>'PRICE')::bigint AS price, "
+            "           (snapshot->>'DISCOUNTED_PRICE')::bigint AS discounted_price, "
+            "           (snapshot->>'ORIGINAL_PRICE')::bigint AS original_price, "
+            "           (snapshot->>'IN_STOCK')::boolean AS in_stock "
+            '    FROM automation_check_log '
+            '    WHERE automation_id = :automation_id AND succeeded AND snapshot IS NOT NULL'
+            '), grid AS ('
+            "    SELECT least(g + cast(:step AS double precision) * interval '1 second', "
+            '                 cast(:until AS timestamptz)) AS at '
+            '    FROM generate_series('
+            '        cast(:start AS timestamptz), cast(:until AS timestamptz), '
+            "        cast(:step AS double precision) * interval '1 second'"
+            '    ) AS g'
+            ') '
+            'SELECT grid.at, t.price, t.discounted_price, t.original_price, t.in_stock '
+            'FROM grid JOIN LATERAL ('
+            '    SELECT * FROM ticks WHERE checked_at <= grid.at '
+            '    ORDER BY checked_at DESC LIMIT 1'
+            ') t ON true '
+            'ORDER BY grid.at ASC',
+        )
+        result = await self.session.execute(
+            statement,
+            {
+                'automation_id': automation_id,
+                'start': start,
+                'until': until,
+                'step': step_seconds,
+            },
+        )
+        return [
+            AutomationPricePointEntity(
+                at=row['at'],
+                price_kopecks=row['price'],
+                discounted_price_kopecks=row['discounted_price'],
+                original_price_kopecks=row['original_price'],
+                in_stock=row['in_stock'],
+            )
+            for row in result.mappings()
+        ]
+
+    async def get_price_change_frequency(
+        self,
+        automation_id: UUID,
+        since: datetime,
+        until: datetime,
+        step_seconds: int,
+    ) -> list[AutomationPriceChangeBucketEntity]:
+        """Число тиков с изменением цены по корзинам `since..until` шириной `step_seconds`
+        (корзина выровнена по шагу от эпохи, UTC). Корзины без изменений не возвращаются
+        (достраивает сервис). Самый первый тик автоматизации изменением не считается — не с чем
+        сравнивать."""
+
+        statement = text(
+            f'{_PRICE_TICKS_CTE} '
+            'SELECT to_timestamp('
+            '    floor(extract(epoch FROM checked_at) / cast(:step AS double precision)) '
+            '    * cast(:step AS double precision)'
+            ') AS bucket_start, count(*) AS changes_count '
+            'FROM windowed '
+            'WHERE has_previous AND price_changed AND checked_at <= cast(:until AS timestamptz) '
+            'GROUP BY 1 ORDER BY 1 ASC',
+        )
+        result = await self.session.execute(
+            statement,
+            {
+                'automation_id': automation_id,
+                'since': since,
+                'until': until,
+                'step': step_seconds,
+            },
+        )
+        return [
+            AutomationPriceChangeBucketEntity(
+                bucket_start=row['bucket_start'].astimezone(timezone.utc),
+                changes_count=row['changes_count'],
+            )
+            for row in result.mappings()
+        ]
 
     async def delete_expired(self) -> int:
         """Deletes every check-log row older than its own automation's `history_retention_days` —

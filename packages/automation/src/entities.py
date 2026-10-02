@@ -100,6 +100,24 @@ class AutomationListFilters(BaseModel):
     date_to: Optional[datetime] = None
 
 
+class AutomationPricePointEntity(BaseModel):
+    """Точка регулярного ряда динамики цены: состояние карточки на момент `at`."""
+
+    at: datetime
+    price_kopecks: Optional[int] = None
+    discounted_price_kopecks: Optional[int] = None
+    original_price_kopecks: Optional[int] = None
+    in_stock: Optional[bool] = None
+    changed: bool = False
+
+
+class AutomationPriceChangeBucketEntity(BaseModel):
+    """Точка графика частоты изменения цены — число тиков с изменением цены в корзине времени."""
+
+    bucket_start: datetime
+    changes_count: int
+
+
 class AutomationCheckLogEntity(BaseModel):
     id: Optional[int] = Field(default=None, description='Идентификатор строки лога проверки')
     automation_id: Optional[UUID] = Field(

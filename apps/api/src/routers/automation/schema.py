@@ -127,6 +127,41 @@ class AutomationHistoryResponse(BaseModel):
     checked_at: datetime = Field(description='Момент проверки')
 
 
+class PricePointResponse(BaseModel):
+    at: datetime = Field(description='Момент, на который верно состояние карточки в точке (UTC)')
+    price_kopecks: int | None = Field(description='Цена без скидки в копейках')
+    discounted_price_kopecks: int | None = Field(description='Цена со скидкой в копейках')
+    original_price_kopecks: int | None = Field(description='Перечёркнутая цена в копейках')
+    in_stock: bool | None = Field(description='Наличие товара на этот момент')
+    changed: bool = Field(description='Цена в этой точке отличается от предыдущей точки')
+
+
+class PriceDynamicsResponse(BaseModel):
+    date_from: datetime = Field(description='Начало применённого диапазона (UTC)')
+    date_to: datetime = Field(description='Конец применённого диапазона (UTC)')
+    step_seconds: int = Field(description='Шаг сетки точек в секундах (зависит от периода)')
+    items: list[PricePointResponse] = Field(
+        description='Регулярный ряд по возрастанию времени: цена на конец каждого шага сетки '
+        '(держится до следующего изменения, без пропусков)',
+    )
+
+
+class PriceChangeFrequencyPointResponse(BaseModel):
+    bucket_start: datetime = Field(description='Начало корзины времени (UTC)')
+    changes_count: int = Field(description='Сколько раз за корзину изменилась цена')
+
+
+class PriceChangeFrequencyResponse(BaseModel):
+    date_from: datetime = Field(description='Начало применённого диапазона (UTC)')
+    date_to: datetime = Field(description='Конец применённого диапазона (UTC)')
+    step_seconds: int = Field(
+        description='Ширина корзины в секундах — тот же шаг, что у динамики на этом диапазоне',
+    )
+    items: list[PriceChangeFrequencyPointResponse] = Field(
+        description='Корзины по возрастанию времени без пропусков; без изменений — 0',
+    )
+
+
 class AutomationHistoryListResponse(BaseModel):
     items: list[AutomationHistoryResponse] = Field(description='Тики проверок на текущей странице')
     meta: PaginationMeta = Field(description='Метаданные пагинации')

@@ -9,6 +9,8 @@ from packages.automation.src.entities import (
     AutomationCheckLogEntity,
     AutomationEntity,
     AutomationListFilters,
+    AutomationPriceChangeBucketEntity,
+    AutomationPricePointEntity,
 )
 from packages.automation.src.enums import AutomationStatus, TrackedField, TrackedFieldKind
 from packages.automation.src.exceptions import DuplicateAutomationError, InvalidCheckFrequencyError
@@ -64,6 +66,58 @@ DISPATCH_PRIORITY = 5
 DISPATCH_TTL = timedelta(minutes=10)
 CHECK_TASK_RESULT_LIMIT = 1
 RECENT_CHECKS_LIMIT = 5
+
+
+# Целевое максимальное число точек графика динамики — шаг сетки подбирается под период так, чтобы
+# укладываться в него (на любом периоде линия получается плотной, но не тяжёлой для фронта).
+PRICE_CHART_MAX_POINTS = 30
+# "Круглые" шаги сетки в секундах: 5/15/30 минут, 1/2/4/6/12 часов, 1/2/3 суток, 1/2 недели.
+PRICE_CHART_STEPS_SECONDS = (
+    300, 900, 1800, 3600, 7200, 14400, 21600, 43200, 86400, 172800, 259200, 604800, 1209600,
+)
+
+
+def price_chart_step_seconds(span: timedelta) -> int:
+    """Наименьший "круглый" шаг сетки, при котором на диапазоне не больше PRICE_CHART_MAX_POINTS
+    точек: сутки — 1 час, 7 дней — 6 часов, 30 дней — 1 день, 365 дней — 2 недели; при зуме в
+    узкий диапазон шаг уменьшается (час — 5 минут). Один и тот же шаг у обоих графиков."""
+
+    needed = span.total_seconds() / PRICE_CHART_MAX_POINTS
+    return next(
+        (step for step in PRICE_CHART_STEPS_SECONDS if step >= needed),
+        PRICE_CHART_STEPS_SECONDS[-1],
+    )
+
+
+def align_to_step(moment: datetime, step_seconds: int) -> datetime:
+    """Начало сетки: кратно шагу от эпохи — точки не "плывут" между запросами."""
+
+    return datetime.fromtimestamp(
+        moment.timestamp() // step_seconds * step_seconds, tz=timezone.utc,
+    )
+
+
+def fill_empty_buckets(
+    points: list[AutomationPriceChangeBucketEntity],
+    since: datetime,
+    until: datetime,
+    step_seconds: int,
+) -> list[AutomationPriceChangeBucketEntity]:
+    """Достраивает корзины без изменений нулями — столбчатый график непрерывный по времени."""
+
+    delta = timedelta(seconds=step_seconds)
+    counts = {point.bucket_start: point.changes_count for point in points}
+    current = align_to_step(moment=since, step_seconds=step_seconds)
+
+    filled = []
+    while current <= until:
+        filled.append(
+            AutomationPriceChangeBucketEntity(
+                bucket_start=current, changes_count=counts.get(current, 0),
+            ),
+        )
+        current += delta
+    return filled
 
 
 class AutomationService:
@@ -296,6 +350,69 @@ class AutomationService:
                 automation_id=automation_id,
             )
         return items, total
+
+    async def get_price_dynamics(
+        self,
+        automation_id: UUID,
+        user_id: int,
+        since: datetime,
+        until: datetime,
+    ) -> tuple[int, list[AutomationPricePointEntity]]:
+        """Регулярный ряд для графика "Динамика" на диапазоне `since..until` (зум — просто более
+        узкий диапазон): шаг сетки зависит от длины диапазона (`price_chart_step_seconds`), в
+        каждой точке — цена на этот момент (держится до следующего изменения), поэтому линия
+        живая и без пропусков. `changed` — цена в точке отличается от предыдущей."""
+
+        step_seconds = price_chart_step_seconds(span=until - since)
+        async with self.transaction_manager(
+            use_automation_repository=True,
+            use_automation_check_log_repository=True,
+        ) as transaction:
+            automation = await transaction.automation_repository.get_by_id(entity_id=automation_id)
+            if automation.user_id != user_id:
+                raise ObjectNotFoundError
+            points = await transaction.automation_check_log_repository.get_price_dynamics(
+                automation_id=automation_id,
+                start=align_to_step(moment=since, step_seconds=step_seconds),
+                until=until,
+                step_seconds=step_seconds,
+            )
+
+        previous = None
+        for point in points:
+            current = (
+                point.price_kopecks, point.discounted_price_kopecks, point.original_price_kopecks,
+            )
+            point.changed = previous is not None and current != previous
+            previous = current
+        return step_seconds, points
+
+    async def get_price_change_frequency(
+        self,
+        automation_id: UUID,
+        user_id: int,
+        since: datetime,
+        until: datetime,
+    ) -> tuple[int, list[AutomationPriceChangeBucketEntity]]:
+        """Точки графика "Частота изменения цен" на диапазоне `since..until`: число изменений
+        цены на корзину времени. Шаг тот же, что у динамики (`price_chart_step_seconds`) —
+        оси двух графиков совпадают, при зуме меняются вместе."""
+
+        step_seconds = price_chart_step_seconds(span=until - since)
+        async with self.transaction_manager(
+            use_automation_repository=True,
+            use_automation_check_log_repository=True,
+        ) as transaction:
+            automation = await transaction.automation_repository.get_by_id(entity_id=automation_id)
+            if automation.user_id != user_id:
+                raise ObjectNotFoundError
+            points = await transaction.automation_check_log_repository.get_price_change_frequency(
+                automation_id=automation_id, since=since, until=until, step_seconds=step_seconds,
+            )
+        filled = fill_empty_buckets(
+            points=points, since=since, until=until, step_seconds=step_seconds,
+        )
+        return step_seconds, filled
 
     async def dispatch_due_checks(
         self,
