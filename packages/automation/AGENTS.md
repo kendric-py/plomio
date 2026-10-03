@@ -186,7 +186,11 @@ Wildberries `in_stock = totalQuantity > 0` — надёжно работает �
 
    В обоих случаях — `pending_task_id` очищается (`AutomationRepository.finalize_check`, сырой
    `UPDATE`, так как `BaseRepository.update` не умеет обнулять поле через `exclude_none=True`).
-   Если `has_changes or threshold_breached` — `_finalize_check` **не зовёт** `notify()` сам, а
+   Перед формированием уведомления из `changes` убираются изменения цен (`KOPECKS`), где новое
+   значение `>=` значения прошлой проверки (цена та же или выше): в лог они пишутся как есть, но
+   уведомление по ним не шлётся — в частности, пока цена ниже baseline и не меняется, повторных
+   уведомлений нет. Если после фильтра ничего не осталось — `notify()` не вызывается.
+   Если остались изменения — `_finalize_check` **не зовёт** `notify()` сам, а
    возвращает готовый набор `**kwargs` для него; `process_pending_results` копит эти наборы по
    всем автоматизациям батча и вызывает `notification_service.notify(event_code='automation.
    change_detected', payload={..., 'automation_link': ..., 'threshold_breached': ...},

@@ -620,7 +620,22 @@ class AutomationService:
         )
 
         notify_call: dict | None = None
-        if has_changes or threshold_breached:
+        kopecks_fields = {
+            field.value for field, kind, _baseline, _payload in TRACKED_FIELDS
+            if kind == TrackedFieldKind.KOPECKS
+        }
+        # Цена не упала относительно прошлой проверки (та же или выше) — в лог пишем как есть, но
+        # уведомлять не о чем.
+        changes = [
+            change for change in changes
+            if not (
+                change['field'] in kopecks_fields
+                and change['old_value'] is not None
+                and change['new_value'] >= change['old_value']
+            )
+        ]
+        threshold_breached = any(change['threshold_breached'] for change in changes)
+        if changes:
             notify_payload = {
                 'automation_id': str(automation.id),
                 'product_name': product_name,
