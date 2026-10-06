@@ -42,7 +42,7 @@ WB_VALIDATION_PARAMS_BASE: dict[str, Any] = {
 }
 
 WB_STEALTH_JS = """
-() => {
+(() => {
     Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
     Object.defineProperty(navigator, 'languages', {
         get: () => ['ru-RU', 'ru', 'en-US', 'en']
@@ -55,5 +55,5 @@ WB_STEALTH_JS = """
         parameters.name === 'notifications'
             ? Promise.resolve({state: Notification.permission})
             : originalQuery(parameters);
-}
+})();
 """

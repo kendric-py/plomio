@@ -53,6 +53,19 @@ def _build_proxy_config(proxy_url: str | None) -> tuple[dict[str, str] | None, S
     return proxy_config, None
 
 
+async def _with_navigation_retry(page: Any, action: Callable[[], Any], attempts: int = 5) -> Any:
+    """Runs a page read, waiting for the page to settle and retrying when it fails because
+    a navigation destroyed the execution context mid-call."""
+    for attempt in range(1, attempts + 1):
+        try:
+            await page.wait_for_load_state('domcontentloaded', timeout=15_000)
+            return await action()
+        except Exception as exc:
+            if 'Execution context was destroyed' not in str(exc) or attempt == attempts:
+                raise
+            await asyncio.sleep(0.5 * attempt)
+
+
 async def _run_browser(
     stealth_script: str,
     origin_url: str,
@@ -101,15 +114,22 @@ async def _run_browser(
             else:
                 raise BrowserInitError('challenge not passed within 60 seconds')
 
-            html = await page.content()
-            user_agent = await page.evaluate('navigator.userAgent')
-            sec_ch_ua = await page.evaluate(
-                "(navigator.userAgentData?.brands || [])"
-                ".map(brand => `\"${brand.brand}\";v=\"${brand.version}\"`)"
-                ".join(', ')",
+            # The antibot may reload the page right after issuing the cookie, so reads below
+            # race with a navigation — retry them once the page has settled.
+            html = await _with_navigation_retry(page, lambda: page.content())
+            user_agent = await _with_navigation_retry(
+                page, lambda: page.evaluate('navigator.userAgent'),
             )
-            sec_ch_ua_platform = await page.evaluate(
-                "navigator.userAgentData?.platform || 'Windows'",
+            sec_ch_ua = await _with_navigation_retry(
+                page,
+                lambda: page.evaluate(
+                    "(navigator.userAgentData?.brands || [])"
+                    ".map(brand => `\"${brand.brand}\";v=\"${brand.version}\"`)"
+                    ".join(', ')",
+                ),
+            )
+            sec_ch_ua_platform = await _with_navigation_retry(
+                page, lambda: page.evaluate("navigator.userAgentData?.platform || 'Windows'"),
             )
 
             await asyncio.sleep(2.0)
