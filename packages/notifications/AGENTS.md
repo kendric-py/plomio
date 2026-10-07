@@ -205,7 +205,7 @@ template`, часть той же карты `preferences`, что `channels`/`f
 
 ### Переменные `automation.change_detected`
 
-Помимо `automation_id`/`changes`/`changes_text`/`threshold_breached` (см. "Кто сейчас
+Помимо `automation_id`/`changes`/`changes_text` (см. "Кто сейчас
 вызывает `notify`" выше), доступны:
 
 - `product_name`, `link` — заголовок и ссылка карточки на момент **этого** тика

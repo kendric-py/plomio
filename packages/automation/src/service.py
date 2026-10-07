@@ -624,15 +624,12 @@ class AutomationService:
             field.value for field, kind, _baseline, _payload in TRACKED_FIELDS
             if kind == TrackedFieldKind.KOPECKS
         }
-        # Цена не упала относительно прошлой проверки (та же или выше) — в лог пишем как есть, но
-        # уведомлять не о чем.
+        # Ценовые изменения уведомляют только при пробитии порога падения относительно baseline —
+        # любое другое движение цены (рост, мелкое снижение) в лог пишем как есть, но уведомлять не
+        # о чем.
         changes = [
             change for change in changes
-            if not (
-                change['field'] in kopecks_fields
-                and change['old_value'] is not None
-                and change['new_value'] >= change['old_value']
-            )
+            if not (change['field'] in kopecks_fields and not change['threshold_breached'])
         ]
         threshold_breached = any(change['threshold_breached'] for change in changes)
         if changes:

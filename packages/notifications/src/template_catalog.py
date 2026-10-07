@@ -53,9 +53,6 @@ TEMPLATE_VARIABLES: dict[str, dict[str, NotificationTemplateVariableEntity]] = {
         'changes_text': NotificationTemplateVariableEntity(
             description='Список всех изменившихся полей',
         ),
-        'threshold_breached': NotificationTemplateVariableEntity(
-            description='Пробитие порога цены',
-        ),
         **_tracked_field_variables(),
     },
     'task.completed': {
