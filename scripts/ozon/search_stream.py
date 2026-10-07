@@ -3,7 +3,7 @@
 Запуск (из корня репозитория):  python scripts/ozon/search_stream.py
 
 Скрипт спрашивает поисковый запрос, генерирует антибот-сессию безбраузерным путём
-(`apps/worker_sessions/research/js_runtime/oz_flow.py`), затем раз в секунду печатает названия
+(`apps/worker_sessions/js_runtime/ready/ozon/oz_flow.py`), затем раз в секунду печатает названия
 товаров — страница выдачи за такт, пока пользователь не остановит (Ctrl+C) или не кончится выдача.
 Запросы к API повторяют прод-фетчер `apps/worker_parser/src/marketplaces/ozon/fetchers.py`
 (warmup-навигация → entrypoint-api, курсор `nextPage`, `x-o3-parent-requestid`).
@@ -17,7 +17,7 @@ from urllib.parse import quote_plus
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, REPO_ROOT)
-sys.path.insert(0, os.path.join(REPO_ROOT, 'apps', 'worker_sessions', 'research', 'js_runtime'))
+sys.path.insert(0, os.path.join(REPO_ROOT, 'apps', 'worker_sessions', 'js_runtime', 'ready', 'ozon'))
 
 import oz_flow  # noqa: E402 — безбраузерная генерация сессии (curl_cffi + Node-решатель)
 from apps.worker_sessions.src.generation.marketplaces.ozon.constants import (  # noqa: E402

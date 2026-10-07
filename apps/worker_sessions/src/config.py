@@ -57,6 +57,12 @@ class GenerationConfig(BaseSettings):
     BROWSER_MAX_USES: int = Field(default=10)
     BROWSER_MAX_AGE_S: float = Field(default=120.0)
     BROWSER_IDLE_TTL_S: float = Field(default=45.0)
+    # How a session is produced per marketplace: 'browser' (Camoufox) or 'js_runtime' (curl_cffi +
+    # Node, no browser — apps/worker_sessions/js_runtime). See generation/marketplaces/registry.py.
+    OZON_MODE: str = Field(default='browser')
+    WB_MODE: str = Field(default='browser')
+    # When a js_runtime attempt fails, retry the same session through Camoufox instead of dropping it.
+    JS_RUNTIME_FALLBACK_TO_BROWSER: bool = Field(default=True)
     NO_PROXY_RETRY_DELAY_SECONDS: float = Field(default=30.0)
     POOL_FULL_RECHECK_DELAY_SECONDS: float = Field(default=15.0)
 

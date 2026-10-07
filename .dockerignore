@@ -10,3 +10,10 @@
 **/.env
 docs
 **/tests
+**/node_modules
+apps/worker_sessions/js_runtime/debug
+apps/worker_sessions/js_runtime/history
+apps/worker_sessions/js_runtime/ready/*/cache_*
+apps/worker_sessions/js_runtime/ready/ozon/raw/last_*
+apps/worker_sessions/js_runtime/ready/ozon/raw/failed_body_*
+apps/worker_sessions/js_runtime/ready/ozon/tmp_*

@@ -8,3 +8,7 @@ class BrowserInitError(WorkerSessionsError):
 
 class SessionValidationError(WorkerSessionsError):
     pass
+
+
+class JsRuntimeError(WorkerSessionsError):
+    pass

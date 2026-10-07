@@ -1,9 +1,9 @@
 # oz_flow: что динамическое, что — слепок, и что может потребовать правок
 
 Дата: 2026-10-07. Относится к безбраузерному получению антибот-кук Ozon
-(`apps/worker_sessions/research/js_runtime/oz_flow.py`, актуально для `script_v47_2.js`).
+(`apps/worker_sessions/js_runtime/ready/ozon/oz_flow.py`, актуально для `script_v47_2.js`).
 Формат самого отпечатка разобран в
-[`apps/worker_sessions/research/js_runtime/oz/FINGERPRINT.md`](./apps/worker_sessions/research/js_runtime/oz/FINGERPRINT.md).
+[`apps/worker_sessions/js_runtime/ready/ozon/FINGERPRINT.md`](../apps/worker_sessions/js_runtime/ready/ozon/FINGERPRINT.md).
 
 ## Что сейчас динамическое, а что — слепок
 
@@ -92,12 +92,12 @@
 
 ## План быстрого дебага и адаптации под изменения
 
-Рабочий каталог — `apps/worker_sessions/research/js_runtime/`. Первый шаг при любом подозрении на
+Рабочий каталог — `apps/worker_sessions/js_runtime/` (поток — `ready/ozon/`, отладка — `debug/ozon/`; скрипты `debug/ozon/*.js` читающие `raw/` запускать с cwd `ready/ozon/`). Первый шаг при любом подозрении на
 поломку — один прогон с диагностикой:
 
 ```
-python oz_flow.py        # verbose: GET / → POST → RELOAD → API check
-python oz_check.py 5     # если нужен процент успеха, а не один срез
+python ready/ozon/oz_flow.py      # verbose: GET / → POST → RELOAD → API check
+python debug/ozon/oz_check.py 5    # если нужен процент успеха, а не один срез
 ```
 
 Дальше — по симптому (порядок совпадает с порядком шагов потока).
@@ -113,7 +113,7 @@ python oz_check.py 5     # если нужен процент успеха, а �
 
 VM не дошла до `fetch` — усилилась антиотладка или детект окружения.
 
-1. `node oz/oz_trace.js raw/last_challenge.html oz/cache_script_vNN_M.js` — трасса: какие глобалы
+1. `node debug/ozon/oz_trace.js raw/last_challenge.html ready/ozon/cache_script_vNN_M.js` — трасса: какие глобалы
    читает VM (`UNDEF global ...`), на чём падает.
 2. Достать недостающее в `env_extra.js` / `env_canvas.js` (прокладки) — цель: довести VM до
    `fetch`, содержимое fp на этом шаге не важно.
@@ -124,24 +124,30 @@ VM не дошла до `fetch` — усилилась антиотладка и
 
 Сменился кодек или длина цепочки вне 1–8.
 
-1. `node oz/brute_chain.js` — перебор раундов по всем `failed_body_*`. Нашло N → расширить диапазон
+1. `node debug/ozon/brute_chain.js` — перебор раундов по всем `failed_body_*`. Нашло N → расширить диапазон
    в `fpcodec.js`.
 2. Не нашло → проверить структуру: magic `Salted__` на месте? seed всё ещё 4 hex посередине?
    (`brute_chain.js` печатает magic/seed). Съехал формат контейнера → ре-реверс по настоящему
-   захвату (см. «Снятие свежего эталона» ниже + хуки `__enc` в `oz/hook.js`).
+   захвату (см. «Снятие свежего эталона» ниже + хуки `__enc` в `debug/ozon/hook.js`).
 
 ### Симптом 3: `POST /abt/result` → 403 `{"ok":false}` (decode при этом работает)
 
 Сервер расшифровал, но содержимое отвергнуто. Самый частый случай при ротации сборки.
 
-1. Сверить версию: `script_vNN_M` в выводе vs `oz/cache_*.js`. Новая версия — почти наверняка
+0. **Сначала `evalmachine`**: декодировать `raw/last_vm_body.json` и поискать `evalmachine` в строке
+   fp (особенно в `fn_1.stack`). Это маркер `node:vm` → гарантированный 403 (инцидент 2026-10-08:
+   подмена URL в стеках не сработала, когда версия сборки совпала с версией шаблона). Фикс живёт в
+   `oz_forge.js` — подмена безусловная; если маркер снова есть — сломался именно он.
+1. Сверить версию: `script_vNN_M` в выводе vs `ready/ozon/cache_*.js`. Новая версия — почти наверняка
    дрейф схемы или новая константа сборки.
 2. Дифф ключей: декодировать своё тело (`fpcodec.js::decode` над `raw/last_vm_body.json`) и
-   сравнить `Object.keys` с `template_chrome154.json`. Новые ключи, которых нет в шаблоне, —
-   кандидаты на отказ (их значения остались jsdom-ными): снять свежий эталон или замокать.
+   сравнить `Object.keys` с `template_chrome154.json`. Меньше ключей, чем у шаблона — VM пропустила
+   секции из-за отсутствующих в jsdom API (проверить прокладки в `env_extra.js`); новые ключи,
+   которых нет в шаблоне — кандидаты на отказ (их значения остались jsdom-ными): снять свежий
+   эталон или замокать.
 3. Подозрение на новую константу сборки (аналог `browser_2`): сравнить значения своего fp с
    шаблоном по ключам; всё, что по смыслу зашито в байткод (строки-приманки, исходники функций),
-   перенести в `VM_DERIVED` в `oz/oz_forge.js` — значение возьмётся из VM-прогона.
+   перенести в `VM_DERIVED` в `ready/ozon/oz_forge.js` — значение возьмётся из VM-прогона.
 4. Версия та же и схема та же, а 403 начались массово и внезапно — слепок состарился или режут
    транспорт/IP: см. симптом 5 и раздел про JA4 выше; проверить `x-o3-bot-score` и
    `x-o3-antibot-ja4-*` в ответе.
@@ -164,11 +170,11 @@ VM не дошла до `fetch` — усилилась антиотладка и
 1. Настоящий Chrome → открыть ozon.ru, в DevTools перехватить тело `POST /abt/result`
    (`{"token","fp","info","error","timings"}`), сохранить JSON.
 2. `node -e` с `fpcodec.js::decode(fp, token)` → расшифрованный объект.
-3. Сохранить: как `oz/template_chrome154.json` (общий эталон) **или** сырое тело в
-   `oz/raw/real_script_vNN_M_0.json` (per-build эталон подхватывается автоматически).
+3. Сохранить: как `ready/ozon/template_chrome154.json` (общий эталон) **или** сырое тело в
+   `ready/ozon/raw/real_script_vNN_M_0.json` (per-build эталон подхватывается автоматически).
 4. Заодно обновить `UA`/`CH` в `oz_flow.py` под версию Chrome, с которой снят эталон, и
    impersonate в curl_cffi под ближайшую доступную версию.
-5. Контроль: `python oz_check.py 10` → цель 10/10.
+5. Контроль: `python debug/ozon/oz_check.py 10` → цель 10/10.
 
 ### Чего в плане нет (сценарии «откат к браузеру»)
 

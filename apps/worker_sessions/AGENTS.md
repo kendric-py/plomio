@@ -46,8 +46,30 @@ apps.worker_sessions.src`.
 `BROWSER_MAX_AGE_S` + таймаут попытки обязаны быть меньше `PROCESS_REAPER_MAX_AGE_S`, иначе реапер убьёт
 живой браузер как осиротевший. Картинки/шрифты/медиа блокируются через `context.route`, переход —
 `wait_until='commit'`, фиксированные `sleep` убраны (ожидание по появлению кук).
-Замер (прямое соединение, `python -m apps.worker_sessions.bench.benchmark_generation`): Ozon ~9,3 с → ~5 с,
+Замер (прямое соединение): Ozon ~9,3 с → ~5 с,
 WB ~12 с → ~7,5 с на сессию; нижняя граница — сам антибот-челлендж (WB ~3,6 с, Ozon ~2,8 с).
+
+## Режим js_runtime (генерация без браузера)
+
+Альтернатива Camoufox — [`js_runtime/`](./js_runtime/AGENTS.md): HTTP в `curl_cffi` + challenge-скрипт
+маркетплейса в Node. ~1,6 с (WB) и ~2 с (Ozon) на сессию против ~7,5 / ~5 с. Режим выбирается
+**по маркетплейсу**: `GENERATION_OZON_MODE` / `GENERATION_WB_MODE` = `browser` (по умолчанию) |
+`js_runtime`. `registry.build_session` берёт builder по режиму; адаптеры —
+`generation/marketplaces/{ozon,wb}/session_js.py`, подключение `js_runtime/ready/*` —
+`generation/js_runtime/loader.py`. При `GENERATION_JS_RUNTIME_FALLBACK_TO_BROWSER=true` (по умолчанию)
+`JsRuntimeError` не роняет попытку — та же сессия делается через Camoufox (в логе `[js_runtime_fallback]`).
+
+- **Идентичность.** js_runtime-сессия говорит как Chrome 154 / TLS `chrome136` (Ozon) и Firefox 135
+  (WB). Это пишется в `SessionMessage.extra['impersonate']`; `validation.py` и `apps/worker_parser`
+  (`create_*_http_session`) берут TLS-профиль оттуда (по умолчанию — прежние значения для
+  браузерных сессий). Не хардкодить impersonate мимо этого поля.
+- **Ограничения.** `spa_version` (WB) — константа `WB_FALLBACK_SPA_VERSION`: безбраузерный поток SPA не
+  грузит. `app_version` (Ozon) читается из страницы после reload, иначе fallback.
+- **Параллельность.** WB: свой постоянный `NodeSolver` на поток executor'а (один pipe — не thread-safe),
+  упавший процесс пересоздаётся. Ozon: Node-подпроцесс на сессию, временные файлы уникальны по потоку.
+- **Docker.** Образ — multi-stage: `node:22-slim` ставит `npm ci --omit=dev`, в финальный образ едут
+  `node`, `node_modules` и только `js_runtime/ready` (`debug/`, `history/` — в `.dockerignore`).
+  Кэши и временные файлы — в `JS_RUNTIME_CACHE_DIR` (`/tmp/js_runtime`), а не в код. `js-beautify` — devDependency.
 
 `generation/process_reaper.py` параллельно подчищает осиротевшие процессы Camoufox/Playwright
 (крэш/зависание инициализации браузера оставляет процесс висеть).
@@ -148,6 +170,12 @@ Camoufox/Playwright не умеет SOCKS5 с логином/паролем. П�
 
 Не перенесены (переосмыслены): публикация в RabbitMQ и отдельный `LiveSessionTracker`-костыль
 (TTL-реап Rabbit ненадёжен при простое) — заменены на `SessionPoolStore` с TTL на самих ключах.
+
+## Безбраузерный рантайм — `js_runtime/`
+
+Исследовательский безбраузерный способ получить антибот-куки Ozon/WB (curl_cffi + Node-решатель,
+~1–2 с вместо ~5–7,5 с у Camoufox). В прод-поток пока **не подключён**. Разложен на `ready/` (рабочий
+код), `debug/` (отладка и проверки), `history/` (справка) — см. [`js_runtime/AGENTS.md`](./js_runtime/AGENTS.md).
 
 ## Не входит в эту итерацию
 

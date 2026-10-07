@@ -59,7 +59,7 @@ def _validate_wb(session_message: SessionMessage) -> bool:
         session_message=session_message,
         cookie_domain='www.wildberries.ru',
         extra_cookies={'deviceid': session_message.extra['device_id']},
-        impersonate='firefox135',
+        impersonate=session_message.extra.get('impersonate', 'firefox135'),
     )
     nav_headers = {
         'accept': (
@@ -137,7 +137,7 @@ def _validate_ozon(session_message: SessionMessage) -> bool:
             'xcid': session_message.extra['xcid'],
             '__Secure-ab-group': session_message.extra['ab_group'],
         },
-        impersonate='firefox135',
+        impersonate=session_message.extra.get('impersonate', 'firefox135'),
     )
     search_query = quote_plus(OZON_VALIDATION_QUERY)
     search_nav_url = f'{OZON_BASE_URL}/search/?from_global=true&text={search_query}'

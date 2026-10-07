@@ -9,7 +9,11 @@
         },
         "models": {
           "kimi-k3": {
-            "name": "Kimi K3"
+            "name": "Kimi K3",
+            "limit": {
+              "context": 10000,
+              "output": 3000
+            }
           }
         }
       }

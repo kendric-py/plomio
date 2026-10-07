@@ -29,7 +29,7 @@ def create_ozon_http_session(session_message: SessionMessage) -> AsyncSession:
     # Camoufox is a Firefox-engine browser — `session_message.user_agent` is a real Firefox
     # string. Impersonating Chrome's TLS/HTTP2 fingerprint here would contradict that
     # user-agent, a mismatch antibot can fingerprint on (see `build_ozon_navigation_headers`).
-    kwargs: dict = {'impersonate': 'firefox135'}
+    kwargs: dict = {'impersonate': session_message.extra.get('impersonate', 'firefox135')}
     if session_message.proxy:
         proxy_url = session_message.proxy.to_curl_url()
         kwargs['proxies'] = {'http': proxy_url, 'https': proxy_url}

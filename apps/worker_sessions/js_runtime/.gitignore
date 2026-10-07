@@ -1,0 +1,8 @@
+node_modules/
+ready/*/cache_*
+ready/ozon/raw/last_*
+ready/ozon/raw/probe_*
+ready/ozon/raw/failed_body_*
+ready/ozon/tmp_*
+*.log
+__pycache__/

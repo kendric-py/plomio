@@ -3,7 +3,7 @@
 Запуск (из корня репозитория):  python scripts/wb/search_stream.py
 
 Скрипт спрашивает поисковый запрос, поднимает постоянный Node-решатель и получает токен
-`x_wbaas_token` безбраузерным путём (`apps/worker_sessions/research/js_runtime/wb_flow_warm.py`),
+`x_wbaas_token` безбраузерным путём (`apps/worker_sessions/js_runtime/ready/wb/wb_flow_warm.py`),
 затем раз в секунду печатает названия товаров — страница выдачи за такт, пока пользователь не
 остановит (Ctrl+C) или не кончится выдача. Запросы к API повторяют прод-фетчер
 `apps/worker_parser/src/marketplaces/wb/fetchers.py` (прогрев главной и страницы поиска,
@@ -17,7 +17,7 @@ from urllib.parse import quote_plus
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, REPO_ROOT)
-sys.path.insert(0, os.path.join(REPO_ROOT, 'apps', 'worker_sessions', 'research', 'js_runtime'))
+sys.path.insert(0, os.path.join(REPO_ROOT, 'apps', 'worker_sessions', 'js_runtime', 'ready', 'wb'))
 
 from curl_cffi.requests import Session  # noqa: E402
 from wb_flow import UA, HOST  # noqa: E402 — Firefox-135 идентичность, под которую выдаётся токен
@@ -38,7 +38,7 @@ from apps.worker_sessions.src.generation.marketplaces.wb.utils import (  # noqa:
 WB_BASE_URL = HOST  # https://www.wildberries.ru
 PAGE_INTERVAL_S = 1.0
 MAX_SESSION_REGENS = 2  # подряд, при блокировке/деградации
-SPA_VERSION = '14.13.6'  # как в research/wb_validate.py; снимок, дрейфует со временем
+SPA_VERSION = '14.13.6'  # как в js_runtime/debug/wb/wb_validate.py; снимок, дрейфует со временем
 
 try:
     sys.stdout.reconfigure(encoding='utf-8')
