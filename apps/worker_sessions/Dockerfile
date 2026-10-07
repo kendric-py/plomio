@@ -23,7 +23,7 @@ COPY apps/worker_sessions/pyproject.toml apps/worker_sessions/poetry.lock ./
 RUN poetry install --no-root --only main
 
 # Системные библиотеки Firefox + бинарник Camoufox (headless-браузер для генерации сессий)
-RUN python -m playwright install-deps firefox     && python -m camoufox fetch     && rm -rf /var/lib/apt/lists/*
+RUN python -m playwright install-deps firefox     && python -m camoufox fetch official/152.0.4-beta.30     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=js_runtime_deps /usr/local/bin/node /usr/local/bin/node
 COPY --from=js_runtime_deps /js_runtime/node_modules ./apps/worker_sessions/js_runtime/node_modules
