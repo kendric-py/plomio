@@ -1,0 +1,1 @@
+(function(){globalThis.__js=[];const o=globalThis.encodeURIComponent;globalThis.encodeURIComponent=function(s){const r=o.call(this,s);if(String(s).length>200)globalThis.__js.push(String(s));return r}})();

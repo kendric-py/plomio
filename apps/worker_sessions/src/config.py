@@ -47,9 +47,16 @@ class GenerationConfig(BaseSettings):
     REQUIRE_PROXY: bool = Field(default=False)
     TTL_MS: int = Field(default=7 * 60 * 1000)  # a bit under the ~10-20min natural session lifetime
     VALIDATION_TIMEOUT_SECONDS: float = Field(default=15.0)
-    # Above the worst case inside _run_browser (30s goto + 60s cookie-poll + ~4s sleeps) with
+    # Above the worst case inside _collect_session (30s goto + 60s cookie-poll + reads) with
     # margin. Bounds a hung Camoufox launch/teardown so it can't block an executor thread forever.
     BROWSER_ATTEMPT_TIMEOUT_S: float = Field(default=120.0)
+    # Warm browser reuse (one Firefox per proxy, a fresh isolated context per session). Limits
+    # keep Firefox memory growth bounded and must stay under PROCESS_REAPER.MAX_AGE_S: a live
+    # browser older than that is killed as an orphan, so MAX_AGE_S + one attempt timeout (120s)
+    # has to remain below it.
+    BROWSER_MAX_USES: int = Field(default=10)
+    BROWSER_MAX_AGE_S: float = Field(default=120.0)
+    BROWSER_IDLE_TTL_S: float = Field(default=45.0)
     NO_PROXY_RETRY_DELAY_SECONDS: float = Field(default=30.0)
     POOL_FULL_RECHECK_DELAY_SECONDS: float = Field(default=15.0)
 

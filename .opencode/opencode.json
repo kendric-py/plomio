@@ -1,0 +1,17 @@
+{
+    "$schema": "https://opencode.ai/config.json",
+    "provider": {
+      "aitunnel": {
+        "npm": "@ai-sdk/openai-compatible",
+        "name": "AITunnel",
+        "options": {
+          "baseURL": "https://api.aitunnel.ru/v1"
+        },
+        "models": {
+          "kimi-k3": {
+            "name": "Kimi K3"
+          }
+        }
+      }
+    }
+  }
