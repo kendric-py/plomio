@@ -2,7 +2,8 @@ from datetime import timedelta
 from uuid import UUID
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.concurrency import run_in_threadpool
 
 from apps.api.src.container import DependencyContainer
 from apps.api.src.routers.auth.dependencies import get_current_user
@@ -18,6 +19,7 @@ from apps.api.src.routers.task.schema import (
     TaskListResponse,
     TaskResultsResponse,
 )
+from apps.api.src.routers.task.xlsx_export import build_results_xlsx
 from core.exceptions import ObjectNotFoundError
 from packages.billing.src.exceptions import InsufficientCreditsError
 from packages.result.src.service import ResultService
@@ -27,6 +29,9 @@ from packages.task.src.service import TaskService
 from packages.user.src.entities import UserEntity
 
 router = APIRouter(prefix='/tasks', tags=['Tasks'])
+
+EXPORT_PAGE_SIZE = 500
+XLSX_MEDIA_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 
 @router.post('/', status_code=status.HTTP_201_CREATED)
@@ -143,6 +148,42 @@ async def get_task_results(
             ResultItemResponse.model_validate(obj=item, from_attributes=True) for item in items
         ],
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
+    )
+
+
+@router.get('/{task_id}/results/export')
+@inject
+async def export_task_results(
+    task_id: UUID,
+    current_user: UserEntity = Depends(get_current_user),
+    task_service: TaskService = Depends(
+        Provide[DependencyContainer.task_service],
+    ),
+    result_service: ResultService = Depends(
+        Provide[DependencyContainer.result_service],
+    ),
+) -> Response:
+    try:
+        await task_service.ensure_task_owner(task_id=task_id, user_id=current_user.id)
+    except ObjectNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Task not found',
+        ) from error
+
+    results = []
+    while True:
+        page, total = await result_service.get_results_for_task(
+            task_id=task_id, limit=EXPORT_PAGE_SIZE, offset=len(results),
+        )
+        results.extend(page)
+        if not page or len(results) >= total:
+            break
+    content = await run_in_threadpool(build_results_xlsx, results)
+    return Response(
+        content=content,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={'Content-Disposition': f'attachment; filename="task_{task_id}_results.xlsx"'},
     )
 
 

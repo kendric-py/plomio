@@ -310,6 +310,25 @@ Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по ум�
 поля-дискриминатора нет — различать на фронте нужно по набору ключей в `payload` (например, наличие
 `supplier_id` → профиль продавца; наличие `title`+`product_url` → товар).
 
+### `GET /api/tasks/{task_id}/results/export` — выгрузка результатов в xlsx
+
+Без query и тела. Отдаёт **все** результаты задачи (без пагинации) одним файлом, `200`:
+`Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`,
+`Content-Disposition: attachment; filename="task_{task_id}_results.xlsx"`. Ответ — **бинарный, не
+JSON**: на фронте читать как `blob` (`fetch(...).then(r => r.blob())`), а не `.json()`; заголовок
+`Authorization: Bearer ...` нужен, поэтому обычная ссылка `<a href>` не подойдёт — скачивать через
+`fetch` + `URL.createObjectURL`.
+
+`404` — как у `GET /{task_id}` (`{"detail": "Task not found"}`); при ошибке тело — JSON.
+
+Содержимое: отдельный лист на каждый тип сущности — «Список товаров» (`ProductPayload`), «Карточки
+товаров» (`ProductPagePayload`), «Отзывы» (`ReviewPayload`), «Профили продавцов»
+(`SellerProfilePayload`); листы без данных не создаются (у пустой задачи — один пустой лист
+«Список товаров» с заголовками). Отличия от JSON: цены `*_kopecks` — в **рублях**, `published_at` —
+строка `YYYY-MM-DD HH:MM` (UTC), `in_stock`/`is_premium` — «Да»/«Нет», списки (фото,
+характеристики, категории) — построчно внутри одной ячейки. Задача без результатов тоже
+выгружается (файл только с заголовками).
+
 ### `POST /api/tasks/{task_id}/cancel` — отменить задачу
 
 Без тела запроса. Разрешено из `QUEUED`, `PAUSED`, `RUNNING` (можно отменить уже парсящуюся задачу).

@@ -105,6 +105,15 @@ REST API. Точка входа для клиентов (фронтенд, вн�
     «не найдено» и «чужое»), сами результаты — через `ResultService.get_results_for_task` (см.
     [`packages/result/AGENTS.md`](../../packages/result/AGENTS.md)) — join `result_items`↔`task_items`
     по `task_id`, сортировка по `created_at`.
+  - `GET /{task_id}/results/export` — требует авторизации, отдаёт **все** результаты задачи
+    файлом xlsx (`Content-Disposition: attachment`). Владение — тот же `ensure_task_owner`/404.
+    Результаты забираются из `ResultService.get_results_for_task` страницами по 500, файл
+    собирается в `routers/task/xlsx_export.py::build_results_xlsx` (XlsxWriter, в потоке через
+    `run_in_threadpool`): отдельный лист на тип сущности (товары, карточки, отзывы, продавцы —
+    определяется по ключам `payload`), цветные колонки по смыслу (заголовок насыщенного цвета,
+    14pt bold, белый текст; ячейки колонки — светлый тон того же цвета), закреплённая шапка и
+    автофильтр. Новая колонка — запись `_col(...)` в нужном списке модуля. Весь результат
+    держится в памяти (лимит — `result_limit` задачи).
   - `POST /{task_id}/cancel`, `POST /{task_id}/pause`, `POST /{task_id}/resume` — требуют
     авторизации, возвращают `TaskDetailResponse` (та же форма, что и `GET /{task_id}`/`GET /`;
     сервис не пересчитывает прогресс сам, роутер дополнительно запрашивает его через
