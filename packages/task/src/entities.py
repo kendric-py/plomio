@@ -20,7 +20,7 @@ class TaskEntity(BaseModel):
     )
     result_limit: Optional[int] = Field(
         default=None,
-        description='Общий лимит результатов по задаче',
+        description='Лимит результатов на каждый вход задачи (не на задачу целиком)',
     )
     claimed_by: Optional[str] = Field(
         default=None,

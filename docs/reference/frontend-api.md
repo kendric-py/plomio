@@ -232,7 +232,7 @@ QUEUED --[не взята до queue_expires_at]--> EXPIRED
 | `inputs` | `string[]`, ≥1 элемент | да | — | ссылки/запросы, см. таблицу `parse_type` |
 | `priority` | int, 1..10 | нет | `5` | 1 — наивысший приоритет, 10 — наинизший |
 | `ttl_seconds` | int, `> 0` | да | — | сколько секунд задача может ждать в очереди, прежде чем станет `EXPIRED` |
-| `result_limit` | int \| null | нет | `null` (без лимита) | лимит результатов; применяется к `SEARCH_QUERY`, `CATEGORY`, `SELLER` и `REVIEWS` (для `PRODUCT_PAGE` игнорируется — карточка всегда одна) |
+| `result_limit` | int \| null | нет | `null` (без лимита) | лимит результатов **на каждый вход** (не на задачу целиком); применяется к `SEARCH_QUERY`, `CATEGORY`, `SELLER` и `REVIEWS` (для `PRODUCT_PAGE` игнорируется — карточка всегда одна) |
 
 **Ответ `201`** (`CreateTaskResponse`) — все поля из раздела "Поля задачи" ниже, плюс:
 
@@ -269,7 +269,7 @@ Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по ум�
 
 Как показывать прогресс: для `PRODUCT_PAGE` — `processed_items / total_items` (общее число входов
 известно заранее); для `SEARCH_QUERY` / `CATEGORY` / `SELLER` / `REVIEWS` — растущий `result_count`
-(и, если задан `result_limit`, — `result_count / result_limit`), так как общий объём выдачи заранее не
+(и, если задан `result_limit`, — `result_count / (result_limit × total_items)`: лимит действует на каждый вход), так как общий объём выдачи заранее не
 известен.
 
 `404` — задача не найдена или принадлежит другому пользователю (`{"detail": "Task not found"}`).
@@ -392,7 +392,7 @@ cancel/pause/resume):
 | `status` | enum | см. выше |
 | `priority` | int | 1 (высший) .. 10 |
 | `queue_expires_at` | datetime | дедлайн "взять в работу"; после него `QUEUED`-задача станет `EXPIRED` |
-| `result_limit` | int \| null | общий лимит результатов, если задан |
+| `result_limit` | int \| null | лимит результатов на каждый вход, если задан |
 | `error_reason` | string \| null | причина провала задачи целиком (сейчас единственное значение — `"item_failed"`); причина провала конкретного входа фронту не видна |
 | `user_id` | int | владелец |
 | `automation_id` | UUID \| null | не `null` только у проверочных задач автоматизаций — обычные задачи, созданные фронтом, всегда `null` |
@@ -806,6 +806,21 @@ string | float | null`, тип зависит от `field`), `threshold_breached
 | `transactions_count` | int | число транзакций в группе |
 | `first_at` | datetime | время первой транзакции группы |
 | `last_at` | datetime | время последней транзакции группы |
+
+### `GET /api/billing/pricing` — прайс для расчёта стоимости
+
+Требует авторизации. Только чтение: каталог тарифицируемых действий и правила множителей (те же
+сущности, что в админских `GET /api/admin/billing/actions` и `.../pricing-rules`). Нужна, чтобы показать
+пользователю примерную стоимость до отправки (задача, автоматизация, прямой запрос).
+
+**Ответ `200`** (`PricingResponse`, без `meta`): `{ "actions": [ /* BillingActionResponse */ ], "rules": [ /* PricingMultiplierRuleResponse */ ] }`.
+
+Формула та же, что при списании: `ceil(base_cost × multiplier × quantity)`; множитель — правило, в
+диапазон `value_min..value_max` которого попадает значение измерения (нет правила — `1`). Действия:
+`task.create`, `automation.create` (плоские, один раз), `result.<ParseType>` (за каждый результат;
+множитель `task_priority` по приоритету задачи, у проверок автоматизации — `automation_check_frequency`
+по периодичности) и `direct.<ТИП_ЗАПРОСА>` (за элемент ответа, без множителей). Число результатов
+заранее неизвестно, поэтому расчёт на фронте — оценка.
 
 ### `GET /api/admin/billing/actions` — каталог тарифицируемых действий
 
@@ -1361,6 +1376,31 @@ available"}`; `401` — токен не передан или неверный; 
 пуст).
 
 ---
+
+## `/api/marketplace` — прямые запросы
+
+Синхронные запросы к маркетплейсу: ответ приходит сразу, без задач и без сохранения в БД. Требуют
+авторизации. `{marketplace}` — `ozon` | `wildberries`. Время ответа определяется самим маркетплейсом.
+
+| Метод и путь | Параметры | Ответ |
+|---|---|---|
+| `GET /api/marketplace/{marketplace}/product/{article}` | `article` — артикул (1..64) или ссылка на карточку | `{request_id, product}` |
+| `GET /api/marketplace/{marketplace}/product/{article}/reviews` | `page_key?` | `{request_id, items, next_page_key}` |
+| `GET /api/marketplace/{marketplace}/search` | `query` (1..200), `page_key?` | `{request_id, items, next_page_key}` |
+| `GET /api/marketplace/{marketplace}/category` | `url` (1..500), `page_key?` | `{request_id, items, next_page_key}` |
+| `GET /api/marketplace/{marketplace}/seller` | `seller` (1..500) — id (только WB) или ссылка, `page_key?` | `{request_id, items, next_page_key}` |
+
+- **Пагинация** — не offset, а `page_key`: клиент передаёт `next_page_key` из предыдущего ответа.
+  `next_page_key = null` — страниц больше нет (признак конца — только он, не размер страницы).
+  Ключ подписан и живёт ограниченное время (по умолчанию 15 минут), привязан к маркетплейсу и
+  предмету запроса; чужой/просроченный — `422`.
+- **Тарификация:** перед запросом баланс должен быть `> 0`, иначе `402`. Списание — только за успешный
+  ответ: за каждый возвращённый элемент (`1` для карточки, `len(items)` для страниц). Ошибки бесплатны.
+- **Ошибки** — всегда фиксированный `{"detail": "<строка>"}`, без деталей маркетплейса: `422` (неверный ввод
+  или `page_key`), `404` (не найдено), `402` (нет кредитов), `503` (временно недоступно), `504` (таймаут).
+- **Фронтенд** ходит не напрямую, а через BFF `GET /api/direct?type&marketplace&subject&pageKey`
+  (`app/api/direct/route.ts`), который по `type` (`product|reviews|search|category|seller`) выбирает
+  ручку выше и пробрасывает тело ответа и код как есть.
 
 ## Известные ограничения текущего API
 

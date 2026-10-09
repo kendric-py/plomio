@@ -17,6 +17,7 @@ from apps.api.src.routers.billing.schema import (
     GrantCreditsRequest,
     PricingMultiplierRuleListResponse,
     PricingMultiplierRuleResponse,
+    PricingResponse,
     SpendingStatsResponse,
     UpdateActionCostRequest,
 )
@@ -64,6 +65,27 @@ async def list_transactions_by_reference(
             for item in items
         ],
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
+    )
+
+
+@router.get('/pricing')
+@inject
+async def get_pricing(
+    _current_user: UserEntity = Depends(get_current_user),
+    billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
+) -> PricingResponse:
+    """Прайс для расчёта стоимости на фронте: каталог действий и множители (только чтение)."""
+    actions = await billing_service.list_actions()
+    rules = await billing_service.list_pricing_rules()
+    return PricingResponse(
+        actions=[
+            BillingActionResponse.model_validate(obj=action, from_attributes=True)
+            for action in actions
+        ],
+        rules=[
+            PricingMultiplierRuleResponse.model_validate(obj=rule, from_attributes=True)
+            for rule in rules
+        ],
     )
 
 

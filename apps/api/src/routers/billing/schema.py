@@ -30,6 +30,14 @@ class PricingMultiplierRuleResponse(BaseModel):
     multiplier: Decimal = Field(description='На что умножается базовая цена в этом диапазоне')
 
 
+class PricingResponse(BaseModel):
+    """Публичный прайс (`GET /api/billing/pricing`): каталог действий и множители — всё, что нужно
+    клиенту, чтобы прикинуть стоимость до отправки. Те же сущности, что в админском CRUD."""
+
+    actions: list[BillingActionResponse] = Field(description='Каталог тарифицируемых действий')
+    rules: list[PricingMultiplierRuleResponse] = Field(description='Правила множителей стоимости')
+
+
 class CreditTransactionResponse(BaseModel):
     """Строка журнала списаний/начислений — ответ `POST /api/admin/billing/users/{user_id}/grant`."""
 

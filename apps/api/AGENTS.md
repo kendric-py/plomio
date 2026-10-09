@@ -177,7 +177,8 @@ REST API. Точка входа для клиентов (фронтенд, вн�
 - `routers/billing/endpoints.py` + `routers/billing/schema.py` — два роутера в одном файле:
   `router` (`/api/billing`, owner-only, `Depends(get_current_user)`) — `GET /balance`,
   `GET /transactions/by-reference` (траты, сгруппированные по `reference_type`+`reference_id`,
-  `PaginationMeta`; плоского списка транзакций нет); `admin_router`
+  `PaginationMeta`; плоского списка транзакций нет), `GET /pricing` (прайс для расчёта
+  стоимости на фронте: каталог действий + правила множителей, только чтение, `PricingResponse`); `admin_router`
   (`/api/admin/billing`, `Depends(get_current_admin_user)`) — CRUD над каталогом действий
   (`GET`/`PATCH /actions/{action_code}`), `GET /stats` — статистика трат всех пользователей за
   период (`SpendingStatsResponse`: `total_spent`/`tasks_spent`/`automations_spent`/`direct_spent` в

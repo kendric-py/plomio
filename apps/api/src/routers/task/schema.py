@@ -35,7 +35,7 @@ class TaskBaseResponse(BaseModel):
     queue_expires_at: datetime = Field(
         description='Момент, до которого задача должна быть взята в работу',
     )
-    result_limit: int | None = Field(description='Общий лимит результатов по задаче')
+    result_limit: int | None = Field(description='Лимит результатов на каждый вход задачи (не на задачу целиком)')
     error_reason: str | None = Field(description='Причина общего провала задачи')
     user_id: int = Field(description='Идентификатор пользователя, поставившего задачу')
     automation_id: UUID | None = Field(
@@ -100,7 +100,7 @@ class CreateTaskRequest(BaseModel):
         description='Через сколько секунд задача считается просроченной, если не взята в работу',
         gt=0,
     )
-    result_limit: int | None = Field(default=None, description='Общий лимит результатов по задаче')
+    result_limit: int | None = Field(default=None, description='Лимит результатов на каждый вход задачи (не на задачу целиком)')
 
 
 class ResumeTaskRequest(BaseModel):
