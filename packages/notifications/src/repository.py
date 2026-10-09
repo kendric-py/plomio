@@ -1,6 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.repository import BaseRepository
@@ -15,6 +16,10 @@ from packages.notifications.src.models import (
     NotificationEvent,
     NotificationSetting,
 )
+
+# Окно подбора доставок автоматизации без `payload.task_id` после завершения проверочной задачи
+# (свип результатов — раз в 15 секунд, на практике доставка появляется через 8–25 секунд).
+LEGACY_DELIVERY_WINDOW = timedelta(minutes=5)
 
 
 class NotificationEventRepository(BaseRepository[NotificationEvent, NotificationEventEntity]):
@@ -86,6 +91,62 @@ class NotificationDeliveryRepository(
         )
         database_objects = await self.session.scalars(statement)
         return self._to_entities(database_objects=database_objects)
+
+    async def get_by_task_id(
+        self,
+        task_id: UUID,
+        automation_id: UUID | None = None,
+        finished_at: datetime | None = None,
+    ) -> list[NotificationDeliveryEntity]:
+        """Доставки, порождённые задачей: `payload.task_id` проставляют и `task.*` события
+        (`TaskService.complete_item`), и `automation.change_detected` (`AutomationService`).
+        Поиск идёт по индексу `ix_notification_deliveries_payload_task_id` (то же выражение).
+
+        Для проверочной задачи автоматизации (`automation_id` и `finished_at` заданы) дополнительно
+        подбираются **старые** доставки без `payload.task_id` (созданы до его появления): событие
+        `automation.change_detected` той же автоматизации, поставленное в течение
+        `LEGACY_DELIVERY_WINDOW` после завершения задачи — доставку создаёт
+        `AUTOMATION_RESULT_SWEEP` через секунды после финиша проверки. Эвристика по времени, только
+        для доставок без `task_id`."""
+        condition = self.model.payload['task_id'].astext == str(task_id)
+        if automation_id is not None and finished_at is not None:
+            condition = or_(
+                condition,
+                and_(
+                    self.model.payload['task_id'].astext.is_(None),
+                    self.model.event_code == 'automation.change_detected',
+                    self.model.payload['automation_id'].astext == str(automation_id),
+                    self.model.created_at >= finished_at,
+                    self.model.created_at < finished_at + LEGACY_DELIVERY_WINDOW,
+                ),
+            )
+        statement = (
+            select(self.model)
+            .where(condition)
+            .order_by(self.model.created_at.asc(), self.model.id.asc())
+        )
+        database_objects = await self.session.scalars(statement)
+        return self._to_entities(database_objects=database_objects)
+
+    async def get_page_by_automation_id(
+        self, automation_id: UUID, limit: int, offset: int,
+    ) -> list[NotificationDeliveryEntity]:
+        """Вся история уведомлений автоматизации (`payload.automation_id`), новые сверху."""
+        statement = (
+            select(self.model)
+            .where(self.model.payload['automation_id'].astext == str(automation_id))
+            .order_by(self.model.created_at.desc(), self.model.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        database_objects = await self.session.scalars(statement)
+        return self._to_entities(database_objects=database_objects)
+
+    async def count_by_automation_id(self, automation_id: UUID) -> int:
+        statement = select(func.count(self.model.id)).where(
+            self.model.payload['automation_id'].astext == str(automation_id),
+        )
+        return await self.session.scalar(statement)
 
     async def count_by_user_id(self, user_id: int) -> int:
         statement = select(func.count(self.model.id)).where(self.model.user_id == user_id)

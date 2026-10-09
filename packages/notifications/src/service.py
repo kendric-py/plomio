@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from uuid import UUID
 
 from core.exceptions import ObjectNotFoundError
 from core.transaction_manager import AsyncTransactionManager
@@ -166,6 +167,37 @@ class NotificationService:
             )
             total = await transaction.notification_delivery_repository.count_by_user_id(
                 user_id=user_id,
+            )
+        return items, total
+
+    async def list_deliveries_for_task(
+        self,
+        task_id: UUID,
+        automation_id: UUID | None = None,
+        finished_at: datetime | None = None,
+    ) -> list[NotificationDeliveryEntity]:
+        """Админский просмотр: все доставки, связанные с задачей (по `payload.task_id`), старые
+        первыми. Для проверочной задачи автоматизации (`automation_id` + `finished_at`) подбираются
+        и старые доставки без `task_id` — по времени, см. `get_by_task_id`."""
+        async with self.transaction_manager(
+            use_notification_delivery_repository=True,
+        ) as transaction:
+            return await transaction.notification_delivery_repository.get_by_task_id(
+                task_id=task_id, automation_id=automation_id, finished_at=finished_at,
+            )
+
+    async def list_deliveries_for_automation(
+        self, automation_id: UUID, limit: int, offset: int,
+    ) -> tuple[list[NotificationDeliveryEntity], int]:
+        """Админский просмотр: вся история уведомлений автоматизации, новые сверху."""
+        async with self.transaction_manager(
+            use_notification_delivery_repository=True,
+        ) as transaction:
+            items = await transaction.notification_delivery_repository.get_page_by_automation_id(
+                automation_id=automation_id, limit=limit, offset=offset,
+            )
+            total = await transaction.notification_delivery_repository.count_by_automation_id(
+                automation_id=automation_id,
             )
         return items, total
 

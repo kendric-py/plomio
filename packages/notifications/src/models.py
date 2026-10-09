@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, text
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -79,6 +79,11 @@ class NotificationDelivery(BaseSQLModel):
     __table_args__ = (
         Index('ix_notification_deliveries_status_created_at', 'status', 'created_at'),
         Index('ix_notification_deliveries_user_id', 'user_id'),
+        Index('ix_notification_deliveries_payload_task_id', text("(payload->>'task_id')")),
+        Index(
+            'ix_notification_deliveries_payload_automation_id',
+            text("(payload->>'automation_id')"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

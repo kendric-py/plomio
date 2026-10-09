@@ -5,7 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from core.enums import Marketplace
-from packages.task.src.enums import ParseType, TaskItemStatus, TaskStatus
+from packages.task.src.enums import ParseType, TaskItemStatus, TaskPurpose, TaskStatus
 
 
 class TaskEntity(BaseModel):
@@ -68,6 +68,28 @@ class TaskEntity(BaseModel):
         default=None,
         description='Время последнего изменения задачи',
     )
+
+
+class AdminTaskFilters(BaseModel):
+    """Фильтры админского списка задач; комбинируются через AND, `None` — не задан. Период —
+    по `created_at`, границы включительные."""
+
+    task_id: Optional[UUID] = Field(default=None, description='Точное совпадение ID задачи')
+    item_id: Optional[UUID] = Field(
+        default=None, description='ID элемента задачи — находит задачу-родителя',
+    )
+    automation_id: Optional[UUID] = Field(
+        default=None, description='ID автоматизации — её проверочные задачи',
+    )
+    purpose: Optional[TaskPurpose] = Field(
+        default=None, description='Пользовательская задача или проверка автоматизации',
+    )
+    user_id: Optional[int] = Field(default=None, description='Автор задачи')
+    marketplace: Optional[Marketplace] = Field(default=None, description='Маркетплейс')
+    status: Optional[TaskStatus] = Field(default=None, description='Статус задачи')
+    parse_type: Optional[ParseType] = Field(default=None, description='Тип парсинга')
+    date_from: Optional[datetime] = Field(default=None, description='Начало периода')
+    date_to: Optional[datetime] = Field(default=None, description='Конец периода')
 
 
 class TaskItemEntity(BaseModel):

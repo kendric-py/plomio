@@ -205,10 +205,14 @@ min_check_frequency_minutes)` → `list[BulkCreateResult]` (индекс в ин
 
    В обоих случаях — `pending_task_id` очищается (`AutomationRepository.finalize_check`, сырой
    `UPDATE`, так как `BaseRepository.update` не умеет обнулять поле через `exclude_none=True`).
-   Перед формированием уведомления из `changes` убираются изменения цен (`KOPECKS`), у которых
-   `threshold_breached = False`: в лог они пишутся как есть, но уведомление по ценам шлётся только
-   при пробитии порога падения относительно baseline (мелкие снижения и рост не уведомляют).
+   Перед формированием уведомления из `changes` убираются ценовые (`KOPECKS`) изменения, кроме тех, у
+   которых `threshold_breached = True` **и** цена изменилась с прошлой проверки (`old_value !=
+   new_value`) — `filter_notifiable_changes`. В лог они пишутся как есть (в том числе «1370 → 1370» с
+   `threshold_breached`, пока цена стабильно ниже порога от baseline), но уведомление по цене шлётся один
+   раз — когда цена упала и порог пробит; мелкие снижения, рост и стабильно низкая цена не уведомляют.
    Если после фильтра ничего не осталось — `notify()` не вызывается.
+   В payload уведомления кладётся `task_id` проверочной задачи тика — по нему админка находит доставки
+   задачи.
    Если остались изменения — `_finalize_check` **не зовёт** `notify()` сам, а
    возвращает готовый набор `**kwargs` для него; `process_pending_results` копит эти наборы по
    всем автоматизациям батча и вызывает `notification_service.notify(event_code='automation.
@@ -358,6 +362,19 @@ checked_at DESC)`, `WHERE rn <= 5`), а не по отдельному запр�
   шириной `step_seconds` (`bucket_start` — начало корзины, UTC; у динамики `at` — конец интервала).
   Корзины без изменений достраиваются нулями (`fill_empty_buckets`). Самый первый тик автоматизации
   изменением не считается.
+
+## Админка (список, сводка, управление)
+
+- `AutomationService.list_automations_admin(filters: AdminAutomationFilters, limit, offset)` — автоматизации
+  всех пользователей, новые сверху (`AutomationRepository.get_page_admin`/`count_admin` через общий
+  `_apply_admin_filters`): `automation_id`, `user_id`, `marketplace`, `status`, `in_stock`, `overdue`,
+  `has_error`, `search` (`ILIKE` по `name`/`article`/`input_value`), период по `created_at`.
+- `pause_automation`/`resume_automation`/`delete_automation`/`get_automation` принимают `user_id=None` —
+  админский вызов без проверки владельца.
+- `get_admin_summary(date_from, date_to)`: `active`/`paused`/`overdue`/`with_error` — состояние **на сейчас**,
+  период не применяют; `checks`/`failed_checks` — тики `automation_check_log` за период по `checked_at`.
+  **Просроченная автоматизация** — `ACTIVE`, `next_check_at <= now()` и `pending_task_id IS NULL` — то же
+  условие, что у `claim_due_for_dispatch` (`_overdue_conditions`): диспетчер её ещё не взял.
 
 ## Не входит в эту итерацию
 

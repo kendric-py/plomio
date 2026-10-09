@@ -352,3 +352,19 @@ webhook (`POST /api/notifications/telegram/webhook`, `config.REST.PUBLIC_BASE_UR
   итерация.
 - Админский CRUD каталога `notification_events` — заполняется только миграциями.
 - Каналы кроме Telegram.
+
+## Доставки задачи (админка)
+
+`NotificationService.list_deliveries_for_task(task_id)` → `NotificationDeliveryRepository.get_by_task_id`:
+доставки, у которых `payload.task_id == task_id` (`task.completed`/`task.failed` кладёт `task_id` сам, а
+`automation.change_detected` — `task_id` проверочной задачи тика, `AutomationService._finalize_check`). Поиск
+идёт по индексу `ix_notification_deliveries_payload_task_id` (выражение `payload->>'task_id'`, миграция
+`d7a1c3e5b902`). Используется `GET /api/admin/tasks/{task_id}`. `list_deliveries_for_automation(automation_id, limit, offset)` — вся история уведомлений автоматизации
+(`payload.automation_id`, индекс `ix_notification_deliveries_payload_automation_id`, та же миграция),
+`GET /api/admin/automations/{id}/notifications`.
+
+Доставки автоматизаций, созданные **до**
+появления `task_id` в payload, подбираются по времени: `automation.change_detected` той же автоматизации
+(`payload.automation_id`), поставленный в течение `LEGACY_DELIVERY_WINDOW` (5 мин) после `finished_at`
+проверочной задачи (свип результатов отрабатывает за секунды). Эвристика действует только для доставок
+без `task_id`.

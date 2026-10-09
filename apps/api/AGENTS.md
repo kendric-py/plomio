@@ -136,6 +136,44 @@ REST API. Точка входа для клиентов (фронтенд, вн�
     объяснением, почему без этого `claim_next` не забрал бы её обратно.
     `exclude_task_item` пока не имеет REST-ручки.
 
+- `routers/task_admin/{endpoints,dependencies,schema}.py` (`admin_router`, `/api/admin/tasks`,
+  `Depends(get_current_admin_user)`; доменная часть — [`packages/task/AGENTS.md`](../../packages/task/AGENTS.md#админский-мониторинг)):
+  - `GET /summary` — `AdminTaskSummaryResponse`: только `tasks` — **пользовательские** задачи по статусам +
+    `total` за период (`date_from`/`date_to` по `created_at`). «Просроченные задачи» — `EXPIRED`. Проверочные
+    задачи автоматизаций считаются в `GET /api/admin/automations/summary`. Регистрируется **до** `/{task_id}`.
+  - `GET /` — страница задач всех пользователей (`AdminTaskListResponse`, `limit` 1..500, по умолчанию 50).
+    Фильтры (AND, `dependencies.py::get_admin_task_filters`): `task_id`, `item_id`, `automation_id`, `purpose`
+    (`task`|`automation`), `user_id`, `marketplace`, `status`, `parse_type`, `date_from`/`date_to`. Элемент
+    списка (`AdminTaskListItemResponse`) — `TaskDetailResponse` + `failed_items[]` (до 3 упавших элементов
+    с `error_reason` и `input_value` — оригинальные причины ошибок).
+  - `GET /{task_id}` — `AdminTaskDetailResponse`: задача + прогресс + аренда воркера + все элементы с
+    `cursor`/`error_reason` + `notifications[]` (уведомления задачи: канал, статус `PENDING`/`SENT`/`FAILED`,
+    `sent_at`, `failure_reason`, `event_code` и `payload` — причина; см.
+    [`packages/notifications/AGENTS.md`](../../packages/notifications/AGENTS.md#доставки-задачи-админка)).
+    `GET /{task_id}/results` — результаты без проверки владельца.
+  - `POST /{task_id}/cancel|pause|resume|restart` и `POST /{task_id}/items/{item_id}/exclude` → `404`
+    (нет задачи/элемента), `409` (недопустимый статус), `402` (нет кредитов у владельца); `resume` и
+    `restart` принимают `ttl_seconds`. Модуль в `container.wire(modules=[...])`.
+
+- `routers/automation_admin/{endpoints,dependencies,schema}.py` (`admin_router`, `/api/admin/automations`,
+  `Depends(get_current_admin_user)`) — раздел «Автоматизации» админки (отдельно от «Задач»):
+  - `GET /summary` — `AdminAutomationSummaryResponse`: `automations` (`active`/`paused`/`overdue`/`with_error` —
+    на сейчас; `checks`/`failed_checks` — тики за период) и `check_tasks` (проверочные задачи по статусам за
+    период). **Просроченная автоматизация** — `ACTIVE`, `next_check_at <= now()`, `pending_task_id IS NULL`.
+    Регистрируется **до** `/{automation_id}`.
+  - `GET /` — автоматизации всех пользователей (`AdminAutomationListResponse`, `limit` 1..500, по умолчанию 50,
+    новые сверху; элемент — `AutomationResponse` + `user_id`, `pending_task_id`, `is_overdue`). Фильтры (AND,
+    `dependencies.py::get_admin_automation_filters`): `automation_id`, `user_id`, `marketplace`, `status`,
+    `in_stock`, `overdue=true`, `has_error=true`, `search` (подстрока в названии/артикуле/ссылке, без
+    регистра), `date_from`/`date_to` по `created_at`.
+  - `GET /{automation_id}` — `AdminAutomationResponse` (деталь с `last_info` + `user_id`, `pending_task_id`,
+    `is_overdue`); `POST /{id}/pause`, `POST /{id}/resume` (элемент списка), `DELETE /{id}` (`204`) — без
+    проверки владельца (`AutomationService.*(user_id=None)`). `404` — нет автоматизации.
+  - `GET /{automation_id}/notifications` — вся история уведомлений (по `payload.automation_id`, новые сверху,
+    `limit` 1..200, по умолчанию 20 + `meta`), элементы той же формы, что `notifications[]` у
+    `GET /api/admin/tasks/{id}`. Проверочные задачи автоматизации — `GET /api/admin/tasks/?automation_id=`.
+  Модуль в `container.wire(modules=[...])`.
+
 - `routers/billing/endpoints.py` + `routers/billing/schema.py` — два роутера в одном файле:
   `router` (`/api/billing`, owner-only, `Depends(get_current_user)`) — `GET /balance`,
   `GET /transactions/by-reference` (траты, сгруппированные по `reference_type`+`reference_id`,

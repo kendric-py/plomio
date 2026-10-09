@@ -9,12 +9,14 @@ from sqlalchemy.orm import aliased
 from core.enums import Marketplace
 from core.repository import BaseRepository
 from packages.automation.src.entities import (
+    AdminAutomationFilters,
     AutomationCheckLogEntity,
     AutomationEntity,
     AutomationListFilters,
     AutomationPriceChangeBucketEntity,
     AutomationPricePointEntity,
 )
+from packages.automation.src.enums import AutomationStatus
 from packages.automation.src.models import Automation, AutomationCheckLog
 
 # Общая основа графиков цены: успешные тики со снимком + значения предыдущего успешного тика
@@ -185,6 +187,81 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
         database_objects = await self.session.scalars(select_statement)
         return self._to_entities(database_objects=database_objects)
 
+    async def count_by_status(self) -> dict[AutomationStatus, int]:
+        statement = select(self.model.status, func.count(self.model.id)).group_by(self.model.status)
+        rows = await self.session.execute(statement)
+        return {row[0]: row[1] for row in rows}
+
+    async def get_page_admin(
+        self, filters: AdminAutomationFilters, limit: int, offset: int,
+    ) -> list[AutomationEntity]:
+        statement = self._apply_admin_filters(statement=select(self.model), filters=filters)
+        statement = (
+            statement.order_by(self.model.created_at.desc(), self.model.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        database_objects = await self.session.scalars(statement)
+        return self._to_entities(database_objects=database_objects)
+
+    async def count_admin(self, filters: AdminAutomationFilters) -> int:
+        statement = self._apply_admin_filters(
+            statement=select(func.count(self.model.id)), filters=filters,
+        )
+        return await self.session.scalar(statement)
+
+    def _apply_admin_filters(self, statement: Select, filters: AdminAutomationFilters) -> Select:
+        """Общие фильтры админского списка — для выборки и count, чтобы не разъезжались."""
+        if filters.automation_id is not None:
+            statement = statement.where(self.model.id == filters.automation_id)
+        if filters.user_id is not None:
+            statement = statement.where(self.model.user_id == filters.user_id)
+        if filters.marketplace is not None:
+            statement = statement.where(self.model.marketplace == filters.marketplace)
+        if filters.status is not None:
+            statement = statement.where(self.model.status == filters.status)
+        if filters.in_stock is not None:
+            statement = statement.where(self.model.in_stock == filters.in_stock)
+        if filters.overdue:
+            statement = statement.where(*self._overdue_conditions())
+        if filters.has_error:
+            statement = statement.where(self.model.last_check_error.is_not(None))
+        if filters.search:
+            pattern = f'%{filters.search}%'
+            statement = statement.where(
+                or_(
+                    self.model.name.ilike(pattern),
+                    self.model.article.ilike(pattern),
+                    self.model.input_value.ilike(pattern),
+                ),
+            )
+        if filters.date_from is not None:
+            statement = statement.where(self.model.created_at >= filters.date_from)
+        if filters.date_to is not None:
+            statement = statement.where(self.model.created_at <= filters.date_to)
+        return statement
+
+    def _overdue_conditions(self) -> tuple:
+        """Просроченные: активные, чей `next_check_at` уже наступил, а диспетчер ещё не взял их в
+        работу — то же условие, по которому `claim_due_for_dispatch` выбирает их к диспатчу."""
+        return (
+            self.model.status == AutomationStatus.ACTIVE,
+            self.model.next_check_at <= datetime.now(tz=timezone.utc),
+            self.model.pending_task_id.is_(None),
+        )
+
+    async def count_with_error(self) -> int:
+        statement = select(func.count(self.model.id)).where(
+            self.model.last_check_error.is_not(None),
+        )
+        return await self.session.scalar(statement)
+
+    async def count_overdue(self) -> int:
+        """Просроченные: активные, чей `next_check_at` уже наступил, а диспетчер ещё не взял их в
+        работу — то же условие, по которому `claim_due_for_dispatch` выбирает их к диспатчу."""
+        statement = select(func.count(self.model.id)).where(*self._overdue_conditions())
+        return await self.session.scalar(statement)
+
     async def set_pending_task(self, automation_id: UUID, task_id: UUID) -> None:
         statement = (
             update(self.model)
@@ -306,6 +383,23 @@ class AutomationCheckLogRepository(BaseRepository[AutomationCheckLog, Automation
         )
         database_objects = await self.session.scalars(statement)
         return self._to_entities(database_objects=database_objects)
+
+    async def count_ticks(
+        self,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+    ) -> tuple[int, int]:
+        """`(всего тиков, неудачных тиков)` за период по `checked_at`."""
+        statement = select(
+            func.count(self.model.id),
+            func.count(self.model.id).filter(self.model.succeeded.is_(False)),
+        )
+        if date_from is not None:
+            statement = statement.where(self.model.checked_at >= date_from)
+        if date_to is not None:
+            statement = statement.where(self.model.checked_at <= date_to)
+        row = (await self.session.execute(statement)).one()
+        return row[0], row[1]
 
     async def count_by_automation_id(self, automation_id: UUID) -> int:
         statement = select(func.count(self.model.id)).where(

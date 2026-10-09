@@ -155,8 +155,37 @@ TTL: задача, не взятая в работу (`claim_next`) до ист�
 чужому `task_id` будет отличаться в зависимости от статуса задачи (`404` vs `409`) — а значит,
 перебором `task_id` можно было бы косвенно узнавать статус чужих задач.
 
-`exclude_task_item` REST-ручки пока не имеет — остальные мутирующие операции сервиса
-(`cancel_task`/`pause_task`/`resume_task`) уже подключены.
+`exclude_task_item` пользовательской REST-ручки не имеет — только админская
+(`POST /api/admin/tasks/{task_id}/items/{item_id}/exclude`).
+
+## Админский мониторинг
+
+Админские операции не привязаны к `user_id` (REST — `/api/admin/tasks`, см.
+[`apps/api/AGENTS.md`](../../apps/api/AGENTS.md)):
+
+- **Фильтры списка** — `AdminTaskFilters` (`entities.py`): `task_id`, `item_id` (находит задачу-родителя
+  через подзапрос по `task_items`), `automation_id` (проверочные задачи конкретной автоматизации), `purpose` (`TaskPurpose`: `task` — `automation_id IS NULL`,
+  `automation` — `IS NOT NULL`), `user_id`, `marketplace`, `status`, `parse_type`, период по
+  `created_at`. `TaskRepository.get_page`/`count_by_filters` строятся через общий
+  `_apply_admin_filters`; `TaskService.list_tasks_admin` отдаёт строки той же формы, что `list_tasks`, плюс
+  `failed_items` — до 3 упавших элементов задачи (`TaskItemRepository.get_failed_by_task_ids`, один запрос на
+  страницу): оригинальная причина ошибки лежит в `TaskItem.error_reason`, а в `Task.error_reason` — только
+  `item_failed`.
+- **Сводка** — `TaskService.get_summary(date_from, date_to)`: один `GROUP BY status, automation_id IS NOT
+  NULL` (`TaskRepository.count_grouped_by_status`), раздельно пользовательские задачи и проверки
+  автоматизаций, все статусы (нулями, если нет). «Просроченная задача» = статус `EXPIRED`.
+- **Деталь** — `get_task_admin`: задача, все `TaskItem` по `position` и прогресс.
+- **Действия** — `cancel_task`/`pause_task` принимают `user_id=None` (без проверки владельца,
+  `resume_task(task_id, ttl, user_id=None)`); проверка баланса в `resume_task` идёт по владельцу
+  **задачи** (`task.user_id`), а не по вызывающему. `exclude_task_item` — без изменений.
+- **`restart_task(task_id, ttl)`** — `FAILED`/`EXPIRED` → `QUEUED`: `TaskItem` в `FAILED` → `PENDING`
+  (`TaskItemRepository.reset_failed_items`, курсор и `result_count` сохраняются), задача получает новый
+  `queue_expires_at` и теряет `finished_at`/`error_reason`/lease (`TaskRepository.reset_for_restart`,
+  сырой `UPDATE` — `BaseRepository.update` не умеет обнулять). Баланс владельца проверяется как в
+  `resume_task`. Другой статус → `InvalidTaskTransitionError`.
+- Ограничение: при удалении автоматизации `Task.automation_id` обнуляется (`SET NULL`), и такие задачи
+  в сводке/фильтре считаются пользовательскими. Аудит админских действий не пишется:
+  `audit_logs.target_id` — `int`, а `Task.id` — `UUID`.
 
 ## Тарификация — `packages/billing`
 

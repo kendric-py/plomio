@@ -19,6 +19,14 @@ class TaskStatus(str, Enum):
     CANCELLED = 'CANCELLED'
 
 
+class TaskPurpose(str, Enum):
+    """Назначение задачи для админского мониторинга: пользовательская или проверочная задача
+    автоматизации (`Task.automation_id IS NOT NULL`)."""
+
+    TASK = 'task'
+    AUTOMATION = 'automation'
+
+
 class TaskItemStatus(str, Enum):
     PENDING = 'PENDING'
     RUNNING = 'RUNNING'

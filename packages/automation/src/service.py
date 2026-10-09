@@ -6,6 +6,7 @@ from core.exceptions import DuplicatedObjectError, ObjectNotFoundError
 from core.marketplace_article import extract_article
 from core.transaction_manager import AsyncTransactionManager
 from packages.automation.src.entities import (
+    AdminAutomationFilters,
     AutomationCheckLogEntity,
     AutomationCreateData,
     AutomationEntity,
@@ -63,6 +64,27 @@ TRACKED_FIELD_VARIABLE_NAMES: dict[TrackedField, str] = {
     TrackedField.REVIEW_COUNT: 'review_count',
     TrackedField.SELLER_NAME: 'seller_name',
 }
+
+_KOPECKS_FIELD_VALUES = frozenset(
+    field.value for field, kind, _baseline, _payload in TRACKED_FIELDS
+    if kind == TrackedFieldKind.KOPECKS
+)
+
+
+def filter_notifiable_changes(changes: list[dict]) -> list[dict]:
+    """Изменения, о которых стоит уведомлять. Не-ценовые поля — все. Ценовые (`KOPECKS`) — только
+    если порог падения относительно baseline пробит **и** цена изменилась с прошлой проверки
+    (`old_value != new_value`): пока цена стабильно ниже порога, `threshold_breached` истинно на
+    каждом тике (сравнение идёт с фиксированным baseline), и без второго условия пользователь
+    получал бы одно и то же уведомление «1370 → 1370» каждую проверку. Первая проверка
+    (`old_value is None`) считается изменением."""
+
+    return [
+        change for change in changes
+        if change['field'] not in _KOPECKS_FIELD_VALUES
+        or (change['threshold_breached'] and change['old_value'] != change['new_value'])
+    ]
+
 
 DISPATCH_PRIORITY = 5
 DISPATCH_TTL = timedelta(minutes=10)
@@ -294,10 +316,13 @@ class AutomationService:
             await self.transaction_manager.commit()
         return updated_automation
 
-    async def pause_automation(self, automation_id: UUID, user_id: int) -> AutomationEntity:
+    async def pause_automation(
+        self, automation_id: UUID, user_id: int | None = None,
+    ) -> AutomationEntity:
+        """`user_id=None` — админский вызов без проверки владельца (так же resume/delete)."""
         async with self.transaction_manager(use_automation_repository=True) as transaction:
             automation = await transaction.automation_repository.get_by_id(entity_id=automation_id)
-            if automation.user_id != user_id:
+            if user_id is not None and automation.user_id != user_id:
                 raise ObjectNotFoundError
 
             updated_automation = await transaction.automation_repository.update(
@@ -306,10 +331,12 @@ class AutomationService:
             await self.transaction_manager.commit()
         return updated_automation
 
-    async def resume_automation(self, automation_id: UUID, user_id: int) -> AutomationEntity:
+    async def resume_automation(
+        self, automation_id: UUID, user_id: int | None = None,
+    ) -> AutomationEntity:
         async with self.transaction_manager(use_automation_repository=True) as transaction:
             automation = await transaction.automation_repository.get_by_id(entity_id=automation_id)
-            if automation.user_id != user_id:
+            if user_id is not None and automation.user_id != user_id:
                 raise ObjectNotFoundError
 
             updated_automation = await transaction.automation_repository.update(
@@ -322,10 +349,10 @@ class AutomationService:
             await self.transaction_manager.commit()
         return updated_automation
 
-    async def delete_automation(self, automation_id: UUID, user_id: int) -> None:
+    async def delete_automation(self, automation_id: UUID, user_id: int | None = None) -> None:
         async with self.transaction_manager(use_automation_repository=True) as transaction:
             automation = await transaction.automation_repository.get_by_id(entity_id=automation_id)
-            if automation.user_id != user_id:
+            if user_id is not None and automation.user_id != user_id:
                 raise ObjectNotFoundError
 
             await transaction.automation_repository.delete(entity_id=automation_id)
@@ -334,9 +361,10 @@ class AutomationService:
     async def get_automation(
         self,
         automation_id: UUID,
-        user_id: int,
+        user_id: int | None = None,
     ) -> tuple[AutomationEntity, dict | None]:
-        """Returns the automation alongside `last_info` — the `snapshot` of its last succeeded
+        """`user_id=None` — админский доступ без проверки владельца.
+        Returns the automation alongside `last_info` — the `snapshot` of its last succeeded
         check (`AutomationCheckLogRepository.get_latest_succeeded`), `None` if no check has
         succeeded yet. Separate from the automation row itself: `Automation` only carries
         derived/scalar fields (`in_stock`, baseline_*) updated by `finalize_check`, not the full
@@ -347,7 +375,7 @@ class AutomationService:
             use_automation_check_log_repository=True,
         ) as transaction:
             automation = await transaction.automation_repository.get_by_id(entity_id=automation_id)
-            if automation.user_id != user_id:
+            if user_id is not None and automation.user_id != user_id:
                 raise ObjectNotFoundError
 
             latest_succeeded = (
@@ -430,6 +458,47 @@ class AutomationService:
                 automation_id=automation_id,
             )
         return items, total
+
+    async def list_automations_admin(
+        self,
+        filters: AdminAutomationFilters,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[AutomationEntity], int]:
+        """Админский список автоматизаций всех пользователей, новые сверху."""
+        async with self.transaction_manager(use_automation_repository=True) as transaction:
+            items = await transaction.automation_repository.get_page_admin(
+                filters=filters, limit=limit, offset=offset,
+            )
+            total = await transaction.automation_repository.count_admin(filters=filters)
+        return items, total
+
+    async def get_admin_summary(
+        self,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+    ) -> dict[str, int]:
+        """Сводка автоматизаций для админки. `active`/`paused`/`overdue` — состояние на сейчас
+        (просрочка = `ACTIVE`, `next_check_at` наступил, диспетчер ещё не взял), не зависит от
+        периода; `checks`/`failed_checks` — тики проверок за период (`checked_at`)."""
+        async with self.transaction_manager(
+            use_automation_repository=True,
+            use_automation_check_log_repository=True,
+        ) as transaction:
+            by_status = await transaction.automation_repository.count_by_status()
+            overdue = await transaction.automation_repository.count_overdue()
+            with_error = await transaction.automation_repository.count_with_error()
+            checks, failed_checks = await transaction.automation_check_log_repository.count_ticks(
+                date_from=date_from, date_to=date_to,
+            )
+        return {
+            'active': by_status.get(AutomationStatus.ACTIVE, 0),
+            'paused': by_status.get(AutomationStatus.PAUSED, 0),
+            'overdue': overdue,
+            'with_error': with_error,
+            'checks': checks,
+            'failed_checks': failed_checks,
+        }
 
     async def get_price_dynamics(
         self,
@@ -700,21 +769,16 @@ class AutomationService:
         )
 
         notify_call: dict | None = None
-        kopecks_fields = {
-            field.value for field, kind, _baseline, _payload in TRACKED_FIELDS
-            if kind == TrackedFieldKind.KOPECKS
-        }
-        # Ценовые изменения уведомляют только при пробитии порога падения относительно baseline —
-        # любое другое движение цены (рост, мелкое снижение) в лог пишем как есть, но уведомлять не
-        # о чем.
-        changes = [
-            change for change in changes
-            if not (change['field'] in kopecks_fields and not change['threshold_breached'])
-        ]
+        # Ценовые изменения уведомляют только при пробитии порога падения относительно baseline и
+        # только если цена изменилась с прошлой проверки (см. `filter_notifiable_changes`) — всё
+        # остальное в лог пишем как есть, но уведомлять не о чем.
+        changes = filter_notifiable_changes(changes=changes)
         threshold_breached = any(change['threshold_breached'] for change in changes)
         if changes:
             notify_payload = {
                 'automation_id': str(automation.id),
+                # Проверочная задача этого тика — по ней админка находит доставки задачи.
+                'task_id': str(automation.pending_task_id),
                 'product_name': product_name,
                 'link': product_link,
                 'automation_link': (

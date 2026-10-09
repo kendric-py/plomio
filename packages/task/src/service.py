@@ -9,7 +9,7 @@ from packages.billing.src.enums import PricingDimension, ReferenceType
 from packages.billing.src.exceptions import InsufficientCreditsError
 from packages.billing.src.service import BillingService
 from packages.notifications.src.service import NotificationService
-from packages.task.src.entities import TaskEntity, TaskItemEntity
+from packages.task.src.entities import AdminTaskFilters, TaskEntity, TaskItemEntity
 from packages.task.src.enums import ParseType, TaskItemStatus, TaskStatus
 from packages.task.src.exceptions import (
     InvalidTaskTransitionError,
@@ -18,6 +18,7 @@ from packages.task.src.exceptions import (
 
 PAUSABLE_STATUSES = (TaskStatus.QUEUED, TaskStatus.RUNNING)
 CANCELLABLE_STATUSES = (TaskStatus.QUEUED, TaskStatus.PAUSED, TaskStatus.RUNNING)
+RESTARTABLE_STATUSES = (TaskStatus.FAILED, TaskStatus.EXPIRED)
 ACTIVE_ITEM_STATUSES = (TaskItemStatus.PENDING, TaskItemStatus.FAILED)
 TERMINAL_ITEM_STATUSES = (TaskItemStatus.SUCCEEDED, TaskItemStatus.FAILED, TaskItemStatus.EXCLUDED)
 
@@ -96,10 +97,10 @@ class TaskService:
             )
         return created_task
 
-    async def cancel_task(self, task_id: UUID, user_id: int) -> TaskEntity:
+    async def cancel_task(self, task_id: UUID, user_id: int | None = None) -> TaskEntity:
         async with self.transaction_manager(use_task_repository=True) as transaction:
             task = await transaction.task_repository.get_by_id(entity_id=task_id)
-            if task.user_id != user_id:
+            if user_id is not None and task.user_id != user_id:
                 raise ObjectNotFoundError
             if task.status not in CANCELLABLE_STATUSES:
                 raise InvalidTaskTransitionError
@@ -114,10 +115,10 @@ class TaskService:
             await self.transaction_manager.commit()
         return updated_task
 
-    async def pause_task(self, task_id: UUID, user_id: int) -> TaskEntity:
+    async def pause_task(self, task_id: UUID, user_id: int | None = None) -> TaskEntity:
         async with self.transaction_manager(use_task_repository=True) as transaction:
             task = await transaction.task_repository.get_by_id(entity_id=task_id)
-            if task.user_id != user_id:
+            if user_id is not None and task.user_id != user_id:
                 raise ObjectNotFoundError
             if task.status not in PAUSABLE_STATUSES:
                 raise InvalidTaskTransitionError
@@ -146,10 +147,15 @@ class TaskService:
             await self.transaction_manager.commit()
         return updated_task
 
-    async def resume_task(self, task_id: UUID, user_id: int, ttl: timedelta) -> TaskEntity:
+    async def resume_task(
+        self,
+        task_id: UUID,
+        ttl: timedelta,
+        user_id: int | None = None,
+    ) -> TaskEntity:
         async with self.transaction_manager(use_task_repository=True) as transaction:
             task = await transaction.task_repository.get_by_id(entity_id=task_id)
-            if task.user_id != user_id:
+            if user_id is not None and task.user_id != user_id:
                 raise ObjectNotFoundError
             if task.status != TaskStatus.PAUSED:
                 raise InvalidTaskTransitionError
@@ -163,7 +169,7 @@ class TaskService:
             # auto-paused this way in the first place, since dispatch_due_checks already gates on
             # balance before creating them.
             if task.automation_id is None:
-                if not await self.billing_service.has_positive_balance(user_id=user_id):
+                if not await self.billing_service.has_positive_balance(user_id=task.user_id):
                     raise InsufficientCreditsError
 
             # queue_expires_at is the deadline claim_next checks; the original one (from
@@ -463,6 +469,109 @@ class TaskService:
             for task in tasks
         ]
         return items, total
+
+    async def restart_task(self, task_id: UUID, ttl: timedelta) -> TaskEntity:
+        """Возврат упавшей (`FAILED`) или просроченной (`EXPIRED`) задачи в очередь: упавшие
+        элементы → `PENDING` (курсор и собранное сохраняются, успешные не трогаем), задача →
+        `QUEUED` с новым `queue_expires_at`. Админская операция, владелец не проверяется; баланс
+        владельца — как в `resume_task` (повторный запуск тоже тратит кредиты)."""
+        async with self.transaction_manager(
+            use_task_repository=True,
+            use_task_item_repository=True,
+        ) as transaction:
+            task = await transaction.task_repository.lock_by_id(entity_id=task_id)
+            if task.status not in RESTARTABLE_STATUSES:
+                raise InvalidTaskTransitionError
+            if task.automation_id is None:
+                if not await self.billing_service.has_positive_balance(user_id=task.user_id):
+                    raise InsufficientCreditsError
+
+            await transaction.task_item_repository.reset_failed_items(task_id=task_id)
+            restarted_task = await transaction.task_repository.reset_for_restart(
+                task_id=task_id,
+                queue_expires_at=datetime.now(tz=timezone.utc) + ttl,
+            )
+            await self.transaction_manager.commit()
+        return restarted_task
+
+    async def list_tasks_admin(
+        self,
+        filters: AdminTaskFilters,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[dict], int]:
+        """Админский список без привязки к пользователю; форма строк та же, что у `list_tasks`."""
+        async with self.transaction_manager(
+            use_task_repository=True,
+            use_task_item_repository=True,
+        ) as transaction:
+            tasks = await transaction.task_repository.get_page(
+                filters=filters, limit=limit, offset=offset,
+            )
+            total = await transaction.task_repository.count_by_filters(filters=filters)
+            progress_by_task_id = await transaction.task_item_repository.get_progress_by_task_ids(
+                task_ids=[task.id for task in tasks],
+            )
+            failed_items_by_task_id = await transaction.task_item_repository.get_failed_by_task_ids(
+                task_ids=[task.id for task in tasks],
+            )
+
+        empty_progress = {'total_items': 0, 'processed_items': 0, 'result_count': 0}
+        items = [
+            {
+                **task.model_dump(),
+                **progress_by_task_id.get(task.id, empty_progress),
+                # Оригинальные причины ошибок — на элементах; на задаче только `item_failed`.
+                'failed_items': failed_items_by_task_id.get(task.id, []),
+            }
+            for task in tasks
+        ]
+        return items, total
+
+    async def get_task_admin(self, task_id: UUID) -> dict:
+        """Полная картина задачи для админа: задача, все элементы и агрегированный прогресс."""
+        async with self.transaction_manager(
+            use_task_repository=True,
+            use_task_item_repository=True,
+        ) as transaction:
+            task = await transaction.task_repository.get_by_id(entity_id=task_id)
+            items = await transaction.task_item_repository.retrieve_all_by_filter(
+                entity=TaskItemEntity(task_id=task_id),
+            )
+        items.sort(key=lambda item: item.position)
+        return {
+            'task': task,
+            'items': items,
+            'progress': {
+                'total_items': len(items),
+                'processed_items': sum(
+                    1 for item in items if item.status in TERMINAL_ITEM_STATUSES
+                ),
+                'result_count': sum(item.result_count or 0 for item in items),
+            },
+        }
+
+    async def get_summary(
+        self,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+    ) -> dict[str, dict[str, int]]:
+        """Счётчики задач по статусам за период (`created_at`) отдельно для пользовательских
+        задач (`tasks`) и проверок автоматизаций (`automations`); в каждой группе также `total`.
+        Статусы, которых нет в периоде, возвращаются нулями."""
+        async with self.transaction_manager(use_task_repository=True) as transaction:
+            rows = await transaction.task_repository.count_grouped_by_status(
+                date_from=date_from, date_to=date_to,
+            )
+        summary = {
+            group: {'total': 0, **{status.value: 0 for status in TaskStatus}}
+            for group in ('tasks', 'automations')
+        }
+        for status, is_automation, count in rows:
+            group = summary['automations' if is_automation else 'tasks']
+            group[status.value] += count
+            group['total'] += count
+        return summary
 
     async def ensure_task_owner(self, task_id: UUID, user_id: int) -> TaskEntity:
         async with self.transaction_manager(use_task_repository=True) as transaction:

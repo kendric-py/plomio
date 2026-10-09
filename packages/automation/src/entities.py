@@ -101,6 +101,25 @@ class AutomationListFilters(BaseModel):
     date_to: Optional[datetime] = None
 
 
+class AdminAutomationFilters(BaseModel):
+    """Фильтры админского списка автоматизаций; комбинируются через AND, `None` — не задан. Период —
+    по `created_at`, границы включительные."""
+
+    automation_id: Optional[UUID] = None
+    user_id: Optional[int] = None
+    marketplace: Optional[Marketplace] = None
+    status: Optional[AutomationStatus] = None
+    in_stock: Optional[bool] = None
+    # True — только просроченные (ACTIVE, срок проверки наступил, диспетчер ещё не взял).
+    overdue: Optional[bool] = None
+    # True — только с ошибкой последней проверки.
+    has_error: Optional[bool] = None
+    # Подстрока в названии, артикуле или ссылке товара (без учёта регистра).
+    search: Optional[str] = None
+    date_from: Optional[datetime] = None
+    date_to: Optional[datetime] = None
+
+
 class AutomationPricePointEntity(BaseModel):
     """Точка регулярного ряда динамики цены: состояние карточки на момент `at`."""
 
