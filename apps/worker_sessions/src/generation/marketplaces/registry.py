@@ -3,7 +3,6 @@ from typing import Callable
 
 from apps.worker_sessions.src.config import config
 from apps.worker_sessions.src.entities import ProxyConfig, SessionMessage
-from apps.worker_sessions.src.exceptions import JsRuntimeError
 from apps.worker_sessions.src.generation.marketplaces.ozon.session_js import (
     build_session_message as build_ozon_js,
 )
@@ -42,10 +41,4 @@ def build_session(marketplace: Marketplace, proxy: ProxyConfig | None) -> Sessio
         raise ValueError(f'unsupported marketplace: {marketplace}')
     if _MODE_BY_MARKETPLACE[marketplace]() != 'js_runtime':
         return _BUILDERS[marketplace](proxy)
-    try:
-        return _JS_BUILDERS[marketplace](proxy)
-    except JsRuntimeError as exc:
-        if not config.GENERATION.JS_RUNTIME_FALLBACK_TO_BROWSER:
-            raise
-        logger.warning('[js_runtime_fallback] marketplace=%s error=%s', marketplace, exc)
-        return _BUILDERS[marketplace](proxy)
+    return _JS_BUILDERS[marketplace](proxy)

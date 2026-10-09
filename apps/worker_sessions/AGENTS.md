@@ -56,8 +56,8 @@ WB ~12 с → ~7,5 с на сессию; нижняя граница — сам 
 **по маркетплейсу**: `GENERATION_OZON_MODE` / `GENERATION_WB_MODE` = `browser` (по умолчанию) |
 `js_runtime`. `registry.build_session` берёт builder по режиму; адаптеры —
 `generation/marketplaces/{ozon,wb}/session_js.py`, подключение `js_runtime/ready/*` —
-`generation/js_runtime/loader.py`. При `GENERATION_JS_RUNTIME_FALLBACK_TO_BROWSER=true` (по умолчанию)
-`JsRuntimeError` не роняет попытку — та же сессия делается через Camoufox (в логе `[js_runtime_fallback]`).
+`generation/js_runtime/loader.py`. Фолбэка на браузер нет: `JsRuntimeError`
+завершает попытку ошибкой (её обрабатывает `pool_manager`, как любую ошибку генерации).
 
 - **Идентичность.** js_runtime-сессия говорит как Chrome 154 / TLS `chrome136` (Ozon) и Firefox 135
   (WB). Это пишется в `SessionMessage.extra['impersonate']`; `validation.py` и `apps/worker_parser`

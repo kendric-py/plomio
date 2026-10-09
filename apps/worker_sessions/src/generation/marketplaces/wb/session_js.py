@@ -28,7 +28,10 @@ _solvers_lock = threading.Lock()
 
 def _get_solver():
     solver = getattr(_local, 'solver', None)
-    if solver is None or solver.p.poll() is not None:
+    if solver is not None and solver.p.poll() is not None:
+        _drop_solver(solver)  # dead process: release its pipes and reap it
+        solver = None
+    if solver is None:
         solver = wb_flow_warm.NodeSolver()
         _local.solver = solver
         with _solvers_lock:
@@ -39,6 +42,9 @@ def _get_solver():
 def _drop_solver(solver) -> None:
     solver.close()
     _local.solver = None
+    with _solvers_lock:
+        if solver in _solvers:
+            _solvers.remove(solver)
 
 
 def _close_all() -> None:

@@ -61,8 +61,6 @@ class GenerationConfig(BaseSettings):
     # Node, no browser — apps/worker_sessions/js_runtime). See generation/marketplaces/registry.py.
     OZON_MODE: str = Field(default='browser')
     WB_MODE: str = Field(default='browser')
-    # When a js_runtime attempt fails, retry the same session through Camoufox instead of dropping it.
-    JS_RUNTIME_FALLBACK_TO_BROWSER: bool = Field(default=True)
     NO_PROXY_RETRY_DELAY_SECONDS: float = Field(default=30.0)
     POOL_FULL_RECHECK_DELAY_SECONDS: float = Field(default=15.0)
 

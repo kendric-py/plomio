@@ -14,13 +14,33 @@ class NodeSolver:
         r = json.loads(self.p.stdout.readline())
         if 'error' in r: raise RuntimeError(r['error'])
         return r
-    def close(self): self.p.kill()
+    def close(self):
+        # kill() alone leaves a zombie and the stdin/stdout pipe fds open -> "Too many open files" over time.
+        try:
+            self.p.kill()
+        except OSError:
+            pass
+        for pipe in (self.p.stdin, self.p.stdout):
+            try:
+                pipe.close()
+            except (OSError, ValueError):
+                pass
+        try:
+            self.p.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
 
 SCRIPTS = {}
 STATIC_KEY = '7400bd5df8b843b28254659f10915f31'
 def get_token(solver, proxy=None, impersonate='firefox135', ua=UA, lean=False):
     t0 = time.monotonic()
     s = Session(impersonate=impersonate, proxies={'http': proxy, 'https': proxy} if proxy else None)
+    try:
+        return _get_token(s, solver, t0, lean, ua)
+    finally:
+        s.close()
+
+def _get_token(s, solver, t0, lean, ua):
     if lean:
         key = STATIC_KEY
     else:

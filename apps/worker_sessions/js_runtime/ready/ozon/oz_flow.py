@@ -43,8 +43,20 @@ def forge(body: str, verbose=False) -> str:
 
 
 def get_ozon_cookies(proxy=None, verbose=False, impersonate='chrome136', forge_body=True):
-    t0 = time.monotonic()
+    """On success the returned dict holds the open curl `session`; the caller must close() it."""
     s = Session(impersonate=impersonate, proxies={'http': proxy, 'https': proxy} if proxy else None)
+    try:
+        out = _get_ozon_cookies(s, verbose, forge_body)
+    except BaseException:
+        s.close()
+        raise
+    if 'session' not in out:
+        s.close()
+    return out
+
+
+def _get_ozon_cookies(s, verbose, forge_body):
+    t0 = time.monotonic()
     h = {**CH, 'upgrade-insecure-requests': '1', 'sec-fetch-dest': 'document', 'sec-fetch-mode': 'navigate', 'sec-fetch-site': 'none', 'sec-fetch-user': '?1', 'user-agent': UA, 'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'accept-language': 'ru-RU,ru;q=0.9'}
     r = s.get('https://www.ozon.ru/', headers=h, allow_redirects=True)
     if verbose: print('GET /', r.status_code, len(r.text), list(s.cookies.get_dict()))

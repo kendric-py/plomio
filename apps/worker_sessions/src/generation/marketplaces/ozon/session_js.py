@@ -25,6 +25,8 @@ def build_session_message(proxy: ProxyConfig | None) -> SessionMessage:
     result = oz_flow.get_ozon_cookies(
         proxy=proxy.to_curl_url() if proxy else None, impersonate=OZON_JS_IMPERSONATE,
     )
+    if (curl_session := result.get('session')) is not None:
+        curl_session.close()  # unclosed curl handles/sockets leak fds until the container restarts
     cookies: dict[str, str] = result.get('cookies') or {}
     if not result.get('ok') or not OZON_REQUIRED_COOKIES <= cookies.keys():
         raise JsRuntimeError(
