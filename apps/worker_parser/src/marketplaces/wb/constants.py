@@ -139,4 +139,5 @@ WB_BASKET_RANGES: list[tuple[int, int, str]] = [
     (15750, 16517, 'basket-49.wbbasket.ru'),
     (16518, 17285, 'basket-50.wbbasket.ru'),
     (17286, 18053, 'basket-51.wbbasket.ru'),
+    (18054, 18821, 'basket-52.wbbasket.ru'),
 ]

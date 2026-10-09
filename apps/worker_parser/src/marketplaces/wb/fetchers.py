@@ -5,6 +5,7 @@ from apps.worker_parser.src.entities import Page, WbReviewCursor, WildberriesPag
 from apps.worker_parser.src.exceptions import (
     EmptyPageUnconfirmedError,
     InputResolutionError,
+    RequestError,
     SuspiciousThinResultError,
     UpstreamDataError,
 )
@@ -43,9 +44,11 @@ from apps.worker_parser.src.marketplaces.wb.utils import (
     extract_wb_size_option_id_from_url,
     extract_wb_supplier_id_from_url,
     get_raw_wb_products,
+    get_wb_basket_host_candidates,
     get_wb_card_json_url,
     is_degraded_wb_listing,
     is_wb_blocked_response,
+    remember_wb_basket_host,
 )
 from core.enums import Marketplace
 from packages.result.src.entities import (
@@ -270,6 +273,31 @@ async def fetch_wb_seller_page(
     )
 
 
+async def _fetch_wb_card_json(nm_id: int, product_url: str, ctx: FetchContext) -> dict:
+    """`card.json` лежит на CDN-корзине, номер которой выводится из `nm_id` по таблице диапазонов;
+    таблица отстаёт от WB (новые корзины), и на неверном хосте — 404. Поэтому при 404 пробуем
+    соседние корзины, найденную запоминаем (`remember_wb_basket_host`). Если 404 везде — это
+    настоящее «карточки нет». Любая другая ошибка (блок, 5xx) — как раньше, без перебора."""
+    last_error: RequestError | None = None
+    for host in get_wb_basket_host_candidates(nm_id):
+        try:
+            response = await ctx.request(
+                'GET',
+                get_wb_card_json_url(nm_id, host),
+                extra_headers=build_wb_cdn_headers(ctx.session_message, product_url),
+                retryable_status_codes=WB_RETRYABLE_STATUS_CODES,
+                is_blocked=is_wb_blocked_response,
+            )
+        except RequestError as error:
+            if error.status_code != 404:
+                raise
+            last_error = error
+            continue
+        remember_wb_basket_host(nm_id, host)
+        return response.json()
+    raise last_error
+
+
 async def fetch_wb_product_page(
     product_url: str,
     cursor: None,
@@ -305,15 +333,7 @@ async def fetch_wb_product_page(
         raise UpstreamDataError(f'card API returned no products for nm_id={nm_id}')
     card_api_product = products[0]
 
-    card_json_url = get_wb_card_json_url(nm_id)
-    card_json_response = await ctx.request(
-        'GET',
-        card_json_url,
-        extra_headers=build_wb_cdn_headers(ctx.session_message, product_url),
-        retryable_status_codes=WB_RETRYABLE_STATUS_CODES,
-        is_blocked=is_wb_blocked_response,
-    )
-    card_data = card_json_response.json()
+    card_data = await _fetch_wb_card_json(nm_id, product_url, ctx)
 
     return Page(
         items=[extract_wb_product_page(card_data, card_api_product, nm_id, size_option_id)],
