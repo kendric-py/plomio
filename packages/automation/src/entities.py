@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
@@ -148,3 +149,22 @@ class AutomationCheckLogEntity(BaseModel):
         'чем на price_drop_threshold_percent',
     )
     checked_at: Optional[datetime] = Field(default=None, description='Момент проверки')
+
+
+class AutomationCreateData(BaseModel):
+    """Входные данные одной автоматизации для `AutomationService.bulk_create_automations`."""
+
+    marketplace: Marketplace = Field(description='Маркетплейс товара')
+    input_value: str = Field(description='Ссылка или артикул товара')
+    price_drop_threshold_percent: int = Field(description='Порог падения цены в процентах')
+    check_frequency_minutes: int = Field(description='Периодичность проверки в минутах')
+    history_retention_days: int = Field(description='Срок хранения истории проверок в днях')
+
+
+@dataclass(frozen=True)
+class BulkCreateResult:
+    """Итог по одному элементу пакета: ровно одно из полей заполнено. `error` — класс доменного
+    исключения, которое выбросил бы одиночный `create_automation`."""
+
+    automation: AutomationEntity | None = None
+    error: type[Exception] | None = None

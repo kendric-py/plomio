@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import Select, func, select, text, update
+from sqlalchemy import Select, func, or_, select, text, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -69,6 +70,70 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
 
         database_object = await self.session.scalar(statement)
         return self._to_entity(database_object=database_object) if database_object else None
+
+    async def find_duplicates(
+        self,
+        user_id: int,
+        entities: list[AutomationEntity],
+    ) -> set[int]:
+        """Batch version of `find_duplicate` — one query for the whole batch. Returns indexes into
+        `entities` that already exist for the user (same matching rule: by `article` when
+        extracted, otherwise by exact `input_value`)."""
+
+        if not entities:
+            return set()
+
+        articles = {entity.article for entity in entities if entity.article is not None}
+        raw_inputs = {entity.input_value for entity in entities if entity.article is None}
+        conditions = []
+        if articles:
+            conditions.append(self.model.article.in_(articles))
+        if raw_inputs:
+            conditions.append(self.model.input_value.in_(raw_inputs))
+
+        statement = select(
+            self.model.marketplace, self.model.article, self.model.input_value,
+        ).where(
+            self.model.user_id == user_id,
+            self.model.marketplace.in_({entity.marketplace for entity in entities}),
+            or_(*conditions),
+        )
+        rows = (await self.session.execute(statement)).all()
+        existing_articles = {(row.marketplace, row.article) for row in rows}
+        existing_inputs = {(row.marketplace, row.input_value) for row in rows}
+        return {
+            index
+            for index, entity in enumerate(entities)
+            if (
+                (entity.marketplace, entity.article) in existing_articles
+                if entity.article is not None
+                else (entity.marketplace, entity.input_value) in existing_inputs
+            )
+        }
+
+    async def bulk_create(self, entities: list[AutomationEntity]) -> list[AutomationEntity]:
+        """One multi-row `INSERT ... RETURNING`. Rows that collide on the partial unique index
+        `(user_id, marketplace, article)` (a concurrent request won the race after
+        `find_duplicates`) are skipped via `ON CONFLICT DO NOTHING` instead of failing the whole
+        batch — they are simply absent from the result, the caller compares by `id`. Every entity
+        must come with a preset `id`."""
+
+        if not entities:
+            return []
+
+        statement = (
+            insert(self.model)
+            .values([
+                entity.model_dump(exclude_none=True, exclude_unset=True) for entity in entities
+            ])
+            .on_conflict_do_nothing(
+                index_elements=['user_id', 'marketplace', 'article'],
+                index_where=text('article IS NOT NULL'),
+            )
+            .returning(self.model)
+        )
+        database_objects = await self.session.scalars(statement)
+        return self._to_entities(database_objects=database_objects.all())
 
     async def claim_due_for_dispatch(
         self,

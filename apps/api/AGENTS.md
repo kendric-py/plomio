@@ -177,6 +177,15 @@ REST API. Точка входа для клиентов (фронтенд, вн�
   проверки/списания → 503 (см. [`packages/direct/AGENTS.md`](../../packages/direct/AGENTS.md#тарификация-packagesbilling)). Провайдер `direct_bus`
   (`providers.Singleton(DirectBus)`) — в `container.py`.
 
+`routers/automation/endpoints.py::bulk_create_automations` (`POST /api/automations/bulk`) — до 100
+`CreateAutomationRequest` за запрос (`BulkCreateAutomationsRequest.items`, `min_length=1`,
+`max_length=100`). Один вызов `AutomationService.bulk_create_automations` (пакетный поиск дублей и
+один multi-row `INSERT ... RETURNING` в репозитории, не цикл по `create_automation`), частичный успех:
+ответ всегда `200`, `BulkCreateAutomationsResponse.results[i]` содержит либо `automation`, либо
+`error` (`BulkAutomationErrorCode`: `INVALID_CHECK_FREQUENCY`/`DUPLICATE`/`INSUFFICIENT_CREDITS` — те
+же доменные ошибки, что дают `422`/`409`/`402` у одиночной ручки; роутер мапит класс ошибки из
+`BulkCreateResult.error` через `BULK_ERROR_CODES`). Неожиданные исключения не перехватываются.
+
 `routers/automation/dependencies.py::get_automation_filters` — Depends со всеми опциональными
 фильтрами списка автоматизаций (`status`, `in_stock`, `price_from`/`price_to`, плюс общий
 `get_date_range`), общий для `GET /api/automations/` и `/with-history`; возвращает доменный

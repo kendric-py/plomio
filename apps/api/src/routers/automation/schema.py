@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -87,6 +88,36 @@ class AutomationDetailResponse(AutomationResponse):
         description='Снимок всех восьми отслеживаемых полей карточки на момент последней '
         'успешной проверки; null, если ни одна проверка ещё не завершилась успехом',
     )
+
+
+class BulkCreateAutomationsRequest(BaseModel):
+    items: list[CreateAutomationRequest] = Field(
+        description='Автоматизации для создания (1..100)', min_length=1, max_length=100,
+    )
+
+
+class BulkAutomationErrorCode(str, Enum):
+    INVALID_CHECK_FREQUENCY = 'INVALID_CHECK_FREQUENCY'
+    DUPLICATE = 'DUPLICATE'
+    INSUFFICIENT_CREDITS = 'INSUFFICIENT_CREDITS'
+
+
+class BulkAutomationResult(BaseModel):
+    index: int = Field(description='Позиция элемента в запросе (с 0)')
+    automation: AutomationResponse | None = Field(
+        description='Созданная автоматизация; null, если элемент не создан',
+    )
+    error: BulkAutomationErrorCode | None = Field(
+        description='Причина отказа; null, если элемент создан',
+    )
+
+
+class BulkCreateAutomationsResponse(BaseModel):
+    results: list[BulkAutomationResult] = Field(
+        description='Результат по каждому элементу запроса, в порядке запроса',
+    )
+    created: int = Field(description='Сколько автоматизаций создано')
+    failed: int = Field(description='Сколько элементов отклонено')
 
 
 class AutomationListResponse(BaseModel):

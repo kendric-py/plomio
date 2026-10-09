@@ -122,6 +122,25 @@ Wildberries `in_stock = totalQuantity > 0` — надёжно работает �
   `IntegrityError` → `DuplicatedObjectError` (`core.exceptions`), сервис перехватывает и
   переводит в тот же `DuplicateAutomationError`.
 
+### Массовое создание
+
+`AutomationService.bulk_create_automations(user_id, items: list[AutomationCreateData],
+min_check_frequency_minutes)` → `list[BulkCreateResult]` (индекс в индекс с `items`; в каждом
+элементе либо `automation`, либо `error` — класс исключения, которое бросил бы одиночный
+`create_automation`). Вместо цикла по `create_automation`:
+
+- `AutomationRepository.find_duplicates(user_id, entities)` — один запрос на весь пакет, то же правило
+  сопоставления, что у `find_duplicate` (по `article`, иначе по `input_value`); возвращает индексы
+  дублей.
+- `AutomationRepository.bulk_create(entities)` — один multi-row `INSERT ... ON CONFLICT DO NOTHING
+  RETURNING` (конфликт по частичному уникальному индексу `ux_automations_user_marketplace_article`).
+  Проигравшие гонку строки просто отсутствуют в ответе, их сервис сопоставляет по заранее
+  выставленному `id` и отдаёт как `DuplicateAutomationError`. Все сущности должны прийти с `id`.
+- Дубли внутри самого пакета отсекаются в сервисе до обращения к БД (второй и далее элемент).
+- Порядок проверок как у одиночного метода: частота → баланс → дубли. Баланс проверяется **один
+  раз** на пакет (≤ 0 — отказ всем оставшимся элементам); списание `automation.create` — отдельно по
+  каждой созданной автоматизации (свой `reference_id`), поэтому пакет может увести баланс в минус.
+
 ## Семантика базовой цены (baseline)
 
 Базовая цена — точка отсчёта для сравнения, а не "цена на предыдущей проверке":

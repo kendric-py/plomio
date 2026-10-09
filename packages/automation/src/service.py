@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from core.enums import Marketplace
 from core.exceptions import DuplicatedObjectError, ObjectNotFoundError
@@ -7,10 +7,12 @@ from core.marketplace_article import extract_article
 from core.transaction_manager import AsyncTransactionManager
 from packages.automation.src.entities import (
     AutomationCheckLogEntity,
+    AutomationCreateData,
     AutomationEntity,
     AutomationListFilters,
     AutomationPriceChangeBucketEntity,
     AutomationPricePointEntity,
+    BulkCreateResult,
 )
 from packages.automation.src.enums import AutomationStatus, TrackedField, TrackedFieldKind
 from packages.automation.src.exceptions import DuplicateAutomationError, InvalidCheckFrequencyError
@@ -189,6 +191,84 @@ class AutomationService:
             reference_id=str(created_automation.id),
         )
         return created_automation
+
+    async def bulk_create_automations(
+        self,
+        user_id: int,
+        items: list[AutomationCreateData],
+        min_check_frequency_minutes: int,
+    ) -> list[BulkCreateResult]:
+        """Batch counterpart of `create_automation`: one duplicate lookup and one multi-row INSERT
+        for the whole batch instead of a query per item. Result is index-aligned with `items`;
+        each element is either the created automation or the error class the single-item method
+        would raise. Order of checks matches `create_automation`: frequency, then balance (a
+        non-positive balance rejects every remaining item), then duplicates (against the DB and
+        earlier items of the same batch). The balance is checked once for the batch and each
+        created automation is then charged separately (own `reference_id`), so a batch can push
+        the balance below zero — same as any single charge, see packages/billing/AGENTS.md."""
+
+        results: list[BulkCreateResult | None] = [None] * len(items)
+        candidates: list[tuple[int, AutomationEntity]] = []
+        has_balance = await self.billing_service.has_positive_balance(user_id=user_id)
+        now = datetime.now(tz=timezone.utc)
+        seen: set[tuple[Marketplace, str]] = set()
+
+        for index, item in enumerate(items):
+            if item.check_frequency_minutes < min_check_frequency_minutes:
+                results[index] = BulkCreateResult(error=InvalidCheckFrequencyError)
+                continue
+            if not has_balance:
+                results[index] = BulkCreateResult(error=InsufficientCreditsError)
+                continue
+            article = extract_article(marketplace=item.marketplace, input_value=item.input_value)
+            key = (item.marketplace, article if article is not None else item.input_value)
+            if key in seen:
+                results[index] = BulkCreateResult(error=DuplicateAutomationError)
+                continue
+            seen.add(key)
+            candidates.append((index, AutomationEntity(
+                id=uuid4(),
+                user_id=user_id,
+                marketplace=item.marketplace,
+                input_value=item.input_value,
+                article=article,
+                price_drop_threshold_percent=item.price_drop_threshold_percent,
+                check_frequency_minutes=item.check_frequency_minutes,
+                history_retention_days=item.history_retention_days,
+                next_check_at=now,
+            )))
+
+        if candidates:
+            entities = [entity for _, entity in candidates]
+            async with self.transaction_manager(use_automation_repository=True) as transaction:
+                repository = transaction.automation_repository
+                duplicate_positions = await repository.find_duplicates(
+                    user_id=user_id, entities=entities,
+                )
+                to_insert = [
+                    entity for position, entity in enumerate(entities)
+                    if position not in duplicate_positions
+                ]
+                created = {
+                    automation.id: automation
+                    for automation in await repository.bulk_create(entities=to_insert)
+                }
+                await self.transaction_manager.commit()
+
+            for index, entity in candidates:
+                automation = created.get(entity.id)
+                if automation is None:
+                    results[index] = BulkCreateResult(error=DuplicateAutomationError)
+                    continue
+                results[index] = BulkCreateResult(automation=automation)
+                await self.billing_service.charge(
+                    user_id=user_id,
+                    action_code='automation.create',
+                    reference_type=ReferenceType.AUTOMATION,
+                    reference_id=str(automation.id),
+                )
+
+        return [result for result in results if result is not None]
 
     async def update_baseline(
         self,

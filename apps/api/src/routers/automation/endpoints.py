@@ -15,6 +15,10 @@ from apps.api.src.routers.automation.schema import (
     AutomationResponse,
     AutomationWithHistoryListResponse,
     AutomationWithHistoryResponse,
+    BulkAutomationErrorCode,
+    BulkAutomationResult,
+    BulkCreateAutomationsRequest,
+    BulkCreateAutomationsResponse,
     CreateAutomationRequest,
     PriceChangeFrequencyPointResponse,
     PriceChangeFrequencyResponse,
@@ -28,13 +32,19 @@ from apps.api.src.routers.automation.dependencies import (
 )
 from apps.api.src.routers.schema import DateRange, PaginationMeta
 from core.exceptions import ObjectNotFoundError
-from packages.automation.src.entities import AutomationListFilters
+from packages.automation.src.entities import AutomationCreateData, AutomationListFilters
 from packages.automation.src.exceptions import DuplicateAutomationError, InvalidCheckFrequencyError
 from packages.automation.src.service import AutomationService
 from packages.billing.src.exceptions import InsufficientCreditsError
 from packages.user.src.entities import UserEntity
 
 router = APIRouter(prefix='/automations', tags=['Automations'])
+
+BULK_ERROR_CODES = {
+    InvalidCheckFrequencyError: BulkAutomationErrorCode.INVALID_CHECK_FREQUENCY,
+    DuplicateAutomationError: BulkAutomationErrorCode.DUPLICATE,
+    InsufficientCreditsError: BulkAutomationErrorCode.INSUFFICIENT_CREDITS,
+}
 
 
 @router.post('/', status_code=status.HTTP_201_CREATED)
@@ -75,6 +85,41 @@ async def create_automation(
             detail='Insufficient credits',
         ) from error
     return AutomationResponse.model_validate(obj=automation, from_attributes=True)
+
+
+@router.post('/bulk', status_code=status.HTTP_200_OK)
+@inject
+async def bulk_create_automations(
+    body: BulkCreateAutomationsRequest,
+    current_user: UserEntity = Depends(get_current_user),
+    automation_service: AutomationService = Depends(
+        Provide[DependencyContainer.automation_service],
+    ),
+) -> BulkCreateAutomationsResponse:
+    """Пакет создаётся одним сервисным вызовом (один запрос дублей и один INSERT); отказ элемента
+    не откатывает остальные, причины отказов — в `results[i].error`."""
+    outcomes = await automation_service.bulk_create_automations(
+        user_id=current_user.id,
+        items=[
+            AutomationCreateData.model_validate(obj=item.model_dump()) for item in body.items
+        ],
+        min_check_frequency_minutes=config.AUTOMATION.MIN_CHECK_FREQUENCY_MINUTES,
+    )
+    results = [
+        BulkAutomationResult(
+            index=index,
+            automation=(
+                AutomationResponse.model_validate(obj=outcome.automation, from_attributes=True)
+                if outcome.automation is not None else None
+            ),
+            error=BULK_ERROR_CODES[outcome.error] if outcome.error is not None else None,
+        )
+        for index, outcome in enumerate(outcomes)
+    ]
+    created = sum(result.automation is not None for result in results)
+    return BulkCreateAutomationsResponse(
+        results=results, created=created, failed=len(results) - created,
+    )
 
 
 @router.get('/')
