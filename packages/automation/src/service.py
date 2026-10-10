@@ -353,11 +353,17 @@ class AutomationService:
         return updated_automation
 
     async def delete_automation(self, automation_id: UUID, user_id: int | None = None) -> None:
-        async with self.transaction_manager(use_automation_repository=True) as transaction:
+        async with self.transaction_manager(
+            use_automation_repository=True,
+            use_task_repository=True,
+        ) as transaction:
             automation = await transaction.automation_repository.get_by_id(entity_id=automation_id)
             if user_id is not None and automation.user_id != user_id:
                 raise ObjectNotFoundError
 
+            # Проверочные задачи удаляются вместе с автоматизацией: иначе FK `SET NULL` оставит их
+            # без `automation_id`, и они всплывут в списке задач пользователя как обычные.
+            await transaction.task_repository.delete_by_automation_id(automation_id=automation_id)
             await transaction.automation_repository.delete(entity_id=automation_id)
             await self.transaction_manager.commit()
 

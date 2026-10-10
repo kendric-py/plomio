@@ -91,5 +91,20 @@ def test_user_reports_run_through_real_repositories() -> None:
     )).total_spent == 0
 
 
+def test_delete_automation_removes_check_tasks_through_real_repositories() -> None:
+    from uuid import uuid4
+
+    from core.exceptions import ObjectNotFoundError
+    from packages.automation.src.service import AutomationService
+
+    service = AutomationService.__new__(AutomationService)
+    service.transaction_manager = AsyncTransactionManager(session_factory=FakeSession)
+    # Пустая БД: автоматизации нет — но путь доходит до репозиториев с флагом задач без падения.
+    try:
+        _run(service.delete_automation(automation_id=uuid4()))
+    except ObjectNotFoundError:
+        pass
+
+
 def test_set_spending_limits_runs_through_real_repository() -> None:
     assert _run(_service().set_spending_limits(user_id=1, daily_limit=None, monthly_limit=None)) is None

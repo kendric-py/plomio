@@ -183,8 +183,11 @@ TTL: задача, не взятая в работу (`claim_next`) до ист�
   `queue_expires_at` и теряет `finished_at`/`error_reason`/lease (`TaskRepository.reset_for_restart`,
   сырой `UPDATE` — `BaseRepository.update` не умеет обнулять). Баланс владельца проверяется как в
   `resume_task`. Другой статус → `InvalidTaskTransitionError`.
-- Ограничение: при удалении автоматизации `Task.automation_id` обнуляется (`SET NULL`), и такие задачи
-  в сводке/фильтре считаются пользовательскими. Аудит админских действий не пишется:
+- При удалении автоматизации её проверочные задачи удаляются вместе с ней
+  (`AutomationService.delete_automation` → `TaskRepository.delete_by_automation_id`, `task_items` и
+  `result_items` — каскадом), иначе FK `SET NULL` превращал бы их в «обычные» задачи пользователя.
+  Задачи, осиротевшие до этого изменения (`automation_id IS NULL` при `pricing_dimension_code =
+  'automation_check_frequency'`), остаются — их надо чистить отдельно. Аудит админских действий не пишется:
   `audit_logs.target_id` — `int`, а `Task.id` — `UUID`.
 
 ## Тарификация — `packages/billing`

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import Select, case, func, select, update
+from sqlalchemy import Select, case, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.exceptions import ObjectNotFoundError
@@ -246,6 +246,16 @@ class TaskRepository(BaseRepository[Task, TaskEntity]):
         statement = select(self.model).where(self.model.id.in_(entity_ids))
         database_objects = await self.session.scalars(statement)
         return self._to_entities(database_objects=database_objects)
+
+    async def delete_by_automation_id(self, automation_id: UUID) -> int:
+        """Удаляет все проверочные задачи автоматизации одним `DELETE`; `task_items` и
+        `result_items` уходят следом по `ON DELETE CASCADE`. Нужен при удалении автоматизации:
+        иначе FK `SET NULL` превращает её проверки в «обычные» задачи пользователя."""
+
+        result = await self.session.execute(
+            delete(self.model).where(self.model.automation_id == automation_id),
+        )
+        return result.rowcount
 
     async def lock_by_id(self, entity_id: UUID) -> TaskEntity:
         """Row-level lock (`SELECT ... FOR UPDATE`, blocking — not `skip_locked`), held until the
