@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 from curl_cffi.requests import Session
 import oz_flow as F
 
-s = Session(impersonate='chrome136')
+s = Session(impersonate='chrome146')
 r = s.get('https://www.ozon.ru/', headers={'user-agent': F.UA, 'accept-language': 'ru-RU,ru;q=0.9'})
 m = F.SCRIPT_URL_RE.search(r.text)
 print('status', r.status_code, 'script', m.group(1) if m else None)

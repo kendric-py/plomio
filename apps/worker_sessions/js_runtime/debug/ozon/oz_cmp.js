@@ -4,7 +4,7 @@ function load(f){const b=JSON.parse(fs.readFileSync(f,'utf8'));const d=codec.dec
 const files=fs.readdirSync('raw').filter(f=>/^real_script_v47_3_\d\.json$/.test(f));
 const G=[];for(const f of files){try{G.push(load('raw/'+f))}catch(e){console.log('decode fail',f,e.message.slice(0,50))}}
 console.log('decoded',G.length,'of',files.length,'chains',G.map(g=>g.d.chain).join(','));
-const T=JSON.parse(fs.readFileSync('template_chrome154.json','utf8'));
+const T=JSON.parse(fs.readFileSync('template_chrome155.json','utf8'));
 const g0=G[0].fp;
 console.log('keys genuine v3 :',Object.keys(g0).join(','));
 console.log('keys template v4:',Object.keys(T).join(','));

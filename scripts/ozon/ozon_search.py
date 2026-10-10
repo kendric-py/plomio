@@ -27,13 +27,13 @@ CACHE_DIR = os.path.join(HERE, '.cache')
 BASE_URL = 'https://www.ozon.ru'
 SEARCH_API = BASE_URL + '/api/entrypoint-api.bx/page/json/v2'
 REQUEST_DELAY_S = 1.0
-IMPERSONATE = 'chrome136'
+IMPERSONATE = 'chrome146'
 UA = (
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-    '(KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36'
+    '(KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36'
 )
 CLIENT_HINTS = {
-    'sec-ch-ua': '"Chromium";v="154", "Google Chrome";v="154", "Not A(Brand";v="99"',
+    'sec-ch-ua': '"Not(A:Brand";v="24", "Chromium";v="155", "Google Chrome";v="155"',
     'sec-ch-ua-mobile': '?0',
     'sec-ch-ua-platform': '"Windows"',
 }

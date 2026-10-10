@@ -2,7 +2,7 @@
 // Runs the challenge VM N times on a saved challenge and checks whether oz_forge.js can decode + re-encode each body.
 const cp=require('child_process'),fs=require('fs'),path=require('path');
 const [html,script,n]=[process.argv[2],process.argv[3],+process.argv[4]||10];
-const UA=process.env.UA||'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36';
+const UA=process.env.UA||'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36';
 const codec=require('../../ready/ozon/fpcodec.js');
 let ok=0;
 for(let i=0;i<n;i++){

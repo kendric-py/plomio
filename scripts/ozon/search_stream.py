@@ -39,16 +39,16 @@ except Exception:
     pass
 
 
-def _nav_headers(referer: str) -> dict:
-    return {**oz_flow.CH, 'user-agent': oz_flow.UA,
+def _nav_headers(referer: str, ua: str, ch: dict) -> dict:
+    return {**ch, 'user-agent': ua,
             'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
             'accept-language': 'ru-RU,ru;q=0.9,en;q=0.8', 'sec-fetch-dest': 'document',
             'sec-fetch-mode': 'navigate', 'upgrade-insecure-requests': '1', 'referer': referer,
             'sec-fetch-site': 'same-origin'}
 
 
-def _api_headers(referer: str, parent_request_id: str | None) -> dict:
-    h = {**oz_flow.CH, 'user-agent': oz_flow.UA, 'accept': 'application/json',
+def _api_headers(referer: str, parent_request_id: str | None, ua: str, ch: dict) -> dict:
+    h = {**ch, 'user-agent': ua, 'accept': 'application/json',
          'accept-language': 'ru-RU,ru;q=0.9,en;q=0.8', 'content-type': 'application/json',
          'referer': referer, 'sec-fetch-dest': 'empty', 'sec-fetch-mode': 'cors',
          'sec-fetch-site': 'same-origin', 'x-o3-app-name': 'dweb_client',
@@ -109,7 +109,7 @@ def _new_session():
     if not o['ok']:
         raise RuntimeError('сессия не прошла антибот: %s %s' % (o.get('status'), o.get('resp')))
     print('Сессия готова за %.1f с (%s)\n' % (o['total_s'], o['script'].rsplit('/', 1)[-1]), flush=True)
-    return o['session']
+    return o['session'], o.get('ua') or oz_flow.UA, o.get('ch') or oz_flow.CH
 
 
 def main() -> int:
@@ -118,7 +118,7 @@ def main() -> int:
         print('Пустой запрос — выход.')
         return 1
 
-    session = _new_session()
+    session, ua, ch = _new_session()
     next_url = '/search/?from_global=true&text=' + quote_plus(query)
     referer = OZON_BASE_URL + '/'
     parent_request_id = None
@@ -128,7 +128,7 @@ def main() -> int:
     regens_left = MAX_SESSION_REGENS
 
     # warmup, как в прод-фетчере: навигация на страницу поиска перед первым API-запросом
-    session.get(OZON_BASE_URL + next_url, headers=_nav_headers(referer), timeout=15)
+    session.get(OZON_BASE_URL + next_url, headers=_nav_headers(referer, ua, ch), timeout=15)
     referer = OZON_BASE_URL + next_url
 
     print('Поток названий (раз в %g с). Остановка — Ctrl+C.\n' % PAGE_INTERVAL_S, flush=True)
@@ -137,7 +137,7 @@ def main() -> int:
             t0 = time.monotonic()
             try:
                 resp = session.get(OZON_SEARCH_API, params={'url': next_url},
-                                   headers=_api_headers(referer, parent_request_id), timeout=15)
+                                   headers=_api_headers(referer, parent_request_id, ua, ch), timeout=15)
             except Exception as exc:
                 print('! сбой запроса: %s — повтор через 1 с' % exc, flush=True)
                 time.sleep(1.0)
@@ -149,8 +149,8 @@ def main() -> int:
                     break
                 regens_left -= 1
                 print('! страница заблокирована (HTTP %s) — новая сессия...' % resp.status_code, flush=True)
-                session = _new_session()
-                session.get(OZON_BASE_URL + next_url, headers=_nav_headers(OZON_BASE_URL + '/'), timeout=15)
+                session, ua, ch = _new_session()
+                session.get(OZON_BASE_URL + next_url, headers=_nav_headers(OZON_BASE_URL + '/', ua, ch), timeout=15)
                 continue
             regens_left = MAX_SESSION_REGENS
             payload = resp.json()

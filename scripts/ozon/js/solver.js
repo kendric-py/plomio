@@ -60,7 +60,7 @@ function forge(vmBody) {
   const version = (mine.challenge && mine.challenge.version) || '';
 
   // Prefer a genuine capture of the SAME script build (build constants differ per build).
-  let template = JSON.parse(fs.readFileSync(path.join(DATA, 'template_chrome154.json'), 'utf8'));
+  let template = JSON.parse(fs.readFileSync(path.join(DATA, 'template_chrome155.json'), 'utf8'));
   const perBuild = path.join(DATA, `real_script_v${version}_0.json`);
   if (fs.existsSync(perBuild)) {
     const cap = JSON.parse(fs.readFileSync(perBuild, 'utf8'));

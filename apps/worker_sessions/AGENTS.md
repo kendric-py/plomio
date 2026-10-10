@@ -59,8 +59,11 @@ WB ~12 с → ~7,5 с на сессию; нижняя граница — сам 
 `generation/js_runtime/loader.py`. Фолбэка на браузер нет: `JsRuntimeError`
 завершает попытку ошибкой (её обрабатывает `pool_manager`, как любую ошибку генерации).
 
-- **Идентичность.** js_runtime-сессия говорит как Chrome 154 / TLS `chrome136` (Ozon) и Firefox 135
-  (WB). Это пишется в `SessionMessage.extra['impersonate']`; `validation.py` и `apps/worker_parser`
+- **Идентичность.** js_runtime-сессия говорит TLS `chrome146` (Ozon) / Firefox 135 (WB). UA и
+  Client-Hints Ozon-сессии зависят от поданной сборки челленджа: поток берёт их из genuine-захвата
+  сборки (`raw/real_script_vNN_M_0.json`, сейчас Chrome 154/155) или общего эталона
+  (`template_chrome155.json`) — `oz_flow.identity_for_build`. В `SessionMessage` это попадает как
+  `user_agent`/`sec_ch_ua` + `extra['impersonate']`; `validation.py` и `apps/worker_parser`
   (`create_*_http_session`) берут TLS-профиль оттуда (по умолчанию — прежние значения для
   браузерных сессий). Не хардкодить impersonate мимо этого поля.
 - **Ограничения.** `spa_version` (WB) — константа `WB_FALLBACK_SPA_VERSION`: безбраузерный поток SPA не

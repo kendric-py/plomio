@@ -1,10 +1,10 @@
 {
  "challenge": {
-  "id": "fab_chlg_20261006155235_01M48YNC55EBANN00Z9FN63B97",
-  "version": "47_4",
-  "checkStr": "72b2420959"
+  "id": "fab_chlg_20261010063026_01M4J82WYNHYNYE0RE0MAV8595",
+  "version": "47_1",
+  "checkStr": "a4a359efe9"
  },
- "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+ "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
  "browser": {
   "isFirefox": false,
   "isChrome": true,
@@ -15,7 +15,7 @@
   "isEdgeChromium": false,
   "isBlink": true
  },
- "props": "844|845|1200|302|1055|-1|850|-1|1145|160|353|743|87|420|80",
+ "props": "846|847|1200|302|1057|-1|852|-1|1147|160|354|745|87|422|80",
  "screen_1": {
   "@proto:Screen": {
    "@proto:EventTarget": {},
@@ -54,7 +54,7 @@
    "bottom": 720,
    "left": 0
   },
-  "sx": 22,
+  "sx": 10,
   "sy": 10,
   "sch": 720,
   "scw": 1280
@@ -128,16 +128,16 @@
   "bitness": "64",
   "brands": [
    {
-    "brand": "Chromium",
-    "version": "154"
-   },
-   {
     "brand": "Google Chrome",
-    "version": "154"
+    "version": "155"
    },
    {
-    "brand": "Not A(Brand",
-    "version": "99"
+    "brand": "Chromium",
+    "version": "155"
+   },
+   {
+    "brand": "Not(A:Brand",
+    "version": "24"
    }
   ],
   "formFactors": [
@@ -145,23 +145,23 @@
   ],
   "fullVersionList": [
    {
-    "brand": "Chromium",
-    "version": "154.0.8037.93"
-   },
-   {
     "brand": "Google Chrome",
-    "version": "154.0.8037.93"
+    "version": "155.0.8059.39"
    },
    {
-    "brand": "Not A(Brand",
-    "version": "99.0.0.0"
+    "brand": "Chromium",
+    "version": "155.0.8059.39"
+   },
+   {
+    "brand": "Not(A:Brand",
+    "version": "24.0.0.0"
    }
   ],
   "mobile": false,
   "model": "",
   "platform": "Windows",
   "platformVersion": "10.0.0",
-  "uaFullVersion": "154.0.8037.93",
+  "uaFullVersion": "155.0.8059.39",
   "wow64": false
  },
  "media_devices": {
@@ -458,9 +458,9 @@
      "@proto:EventTarget": "@ref:7",
      "@val:constructor": "_fn_",
      "@get:saveData": false,
-     "@get:downlink": 1.55,
-     "@get:rtt": 150,
-     "@get:effectiveType": "4g",
+     "@get:downlink": 1.25,
+     "@get:rtt": 300,
+     "@get:effectiveType": "3g",
      "@get:onchange": "_n_"
     }
    },
@@ -594,10 +594,10 @@
     "@arr:0": "ru-RU"
    },
    "@get:language": "ru-RU",
-   "@get:userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+   "@get:userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
    "@get:product": "Gecko",
    "@get:platform": "Win32",
-   "@get:appVersion": "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+   "@get:appVersion": "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
    "@get:appName": "Netscape",
    "@get:appCodeName": "Mozilla",
    "@get:cookieEnabled": true,
@@ -658,8 +658,8 @@
    "@get:memory": {
     "@proto:Object": {
      "@get:jsHeapSizeLimit": 4395630592,
-     "@get:usedJSHeapSize": 3645619,
-     "@get:totalJSHeapSize": 6619223
+     "@get:usedJSHeapSize": 3029996,
+     "@get:totalJSHeapSize": 6619800
     }
    },
    "@get:navigation": {
@@ -674,31 +674,31 @@
    },
    "@get:timing": {
     "@proto:PerformanceTiming": {
-     "@get:loadEventEnd": 1791301955609,
-     "@get:loadEventStart": 1791301955604,
-     "@get:domComplete": 1791301955604,
-     "@get:domContentLoadedEventEnd": 1791301955384,
-     "@get:domContentLoadedEventStart": 1791301955383,
-     "@get:domInteractive": 1791301955383,
-     "@get:domLoading": 1791301955078,
-     "@get:responseEnd": 1791301955075,
-     "@get:responseStart": 1791301955075,
-     "@get:requestStart": 1791301954977,
+     "@get:loadEventEnd": 1791613832216,
+     "@get:loadEventStart": 1791613832210,
+     "@get:domComplete": 1791613832210,
+     "@get:domContentLoadedEventEnd": 1791613831546,
+     "@get:domContentLoadedEventStart": 1791613831546,
+     "@get:domInteractive": 1791613831546,
+     "@get:domLoading": 1791613826840,
+     "@get:responseEnd": 1791613826837,
+     "@get:responseStart": 1791613826837,
+     "@get:requestStart": 1791613826486,
      "@get:secureConnectionStart": 0,
-     "@get:connectEnd": 1791301954975,
-     "@get:connectStart": 1791301954975,
-     "@get:domainLookupEnd": 1791301954975,
-     "@get:domainLookupStart": 1791301954975,
-     "@get:fetchStart": 1791301954975,
-     "@get:redirectEnd": 1791301954975,
-     "@get:redirectStart": 1791301954691,
+     "@get:connectEnd": 1791613826485,
+     "@get:connectStart": 1791613826485,
+     "@get:domainLookupEnd": 1791613826485,
+     "@get:domainLookupStart": 1791613826485,
+     "@get:fetchStart": 1791613826485,
+     "@get:redirectEnd": 1791613826485,
+     "@get:redirectStart": 1791613825895,
      "@get:unloadEventEnd": 0,
      "@get:unloadEventStart": 0,
-     "@get:navigationStart": 1791301954691
+     "@get:navigationStart": 1791613825894
     }
    },
    "@get:onresourcetimingbufferfull": "_n_",
-   "@get:timeOrigin": 1791301954691.4
+   "@get:timeOrigin": 1791613825894.5
   }
  },
  "video": {
@@ -729,7 +729,7 @@
  },
  "fn_1": {
   "exc": "TypeError: Function.prototype.toString requires that 'this' be a Function",
-  "stack": "TypeError: Function.prototype.toString requires that 'this' be a Function\n    at Object.toString (<anonymous>)\n    at Object.aQ [as fnCall1] (https://st.ozone.ru/s3/abt-challenge/script_v47_4.js:1:71213)\n    at S.g.<computed>.<computed> (https://st.ozone.ru/s3/abt-challenge/script_v47_4.js:1:25917)\n    at S.runFuncAt (https://st.ozone.ru/s3/abt-challenge/script_v47_4.js:1:29930)\n    at https://st.ozone.ru/s3/abt-challenge/script_v47_4.js:1:27463\n    at async bE (https://st.ozone.ru/s3/abt-challenge/script_v47_4.js:1:111624)"
+  "stack": "TypeError: Function.prototype.toString requires that 'this' be a Function\n    at Object.toString (<anonymous>)\n    at Object.aQ [as fnCall1] (https://st.ozone.ru/s3/abt-challenge/script_v47_1.js:1:71272)\n    at S.g.<computed>.<computed> (https://st.ozone.ru/s3/abt-challenge/script_v47_1.js:1:25976)\n    at S.runFuncAt (https://st.ozone.ru/s3/abt-challenge/script_v47_1.js:1:29989)\n    at https://st.ozone.ru/s3/abt-challenge/script_v47_1.js:1:27522\n    at async bE (https://st.ozone.ru/s3/abt-challenge/script_v47_1.js:1:111654)"
  },
  "fn_2": {
   "f": "111111111111111"
@@ -772,9 +772,9 @@
   "@val:name": "Function",
   "@val:length": 1
  },
- "ts": 1791301955676,
- "nonce": "43a655a",
- "pzs": "sc:N3ZtyQ8yQpOnmcmh-",
+ "ts": 1791613832442,
+ "nonce": "51e99a1",
+ "pzs": "sc:Ud8Ya9olDutzKSy1v",
  "pzc": 0,
  "css": {
   "color-gamut": [
@@ -868,36 +868,36 @@
   ]
  },
  "fonts": "00000001100100011111110011111011010010000011011100011111101011111111000111111",
- "browser_2": "Safari v110.166.232",
+ "browser_2": "YaBrowser v239.71.140",
  "timings": {
-  "challenge": 0.40000003576278687,
-  "user_agent": 0.2999999523162842,
-  "browser": 0.6000000238418579,
-  "props": 2.100000023841858,
-  "screen_1": 1.699999988079071,
-  "screen_2": 0.30000001192092896,
-  "screen_3": 0.699999988079071,
-  "touch": 0.10000002384185791,
-  "battery": 0.5,
-  "location": 0.30000001192092896,
-  "context": 0.5999999642372131,
-  "storage": 0,
-  "hev": 0.2999999523162842,
-  "media_devices": 0.20000004768371582,
-  "navigator": 9.099999964237213,
-  "performance": 1.899999976158142,
-  "video": 0.10000002384185791,
-  "webgl": 9.700000047683716,
-  "canvas": 26.599999964237213,
-  "fn_1": 0.3999999761581421,
-  "fn_2": 0.19999998807907104,
-  "fn_3": 1.300000011920929,
-  "tsnonce": 0.10000002384185791,
-  "pow": 0.09999996423721313,
-  "css": 1.100000023841858,
-  "rtc": 4.699999988079071,
-  "fonts": 114.19999998807907,
-  "browser_2": 0.30000001192092896
+  "challenge": 0.4000000059604645,
+  "user_agent": 0.3999999910593033,
+  "browser": 0.7999999970197678,
+  "props": 2.2999999970197678,
+  "screen_1": 1.5,
+  "screen_2": 0.5,
+  "screen_3": 0.5,
+  "touch": 0.20000000298023224,
+  "battery": 0.19999998807907104,
+  "location": 0.09999999403953552,
+  "context": 0.7000000029802322,
+  "storage": 0.09999999403953552,
+  "hev": 0.30000001192092896,
+  "media_devices": 0.09999999403953552,
+  "navigator": 7.799999997019768,
+  "performance": 1.6000000089406967,
+  "video": 0.29999999701976776,
+  "webgl": 23.299999997019768,
+  "canvas": 31.600000008940697,
+  "fn_1": 0.5,
+  "fn_2": 0.29999999701976776,
+  "fn_3": 0.9000000059604645,
+  "tsnonce": 0,
+  "pow": 0.20000000298023224,
+  "css": 0.7999999970197678,
+  "rtc": 952.0999999940395,
+  "fonts": 111.20000000298023,
+  "browser_2": 0.29999999701976776
  },
- "ctm": 190.30000001192093
+ "ctm": 1293.800000011921
 }

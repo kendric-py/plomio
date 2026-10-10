@@ -14,9 +14,11 @@ logger = logging.getLogger(__name__)
 
 oz_flow = load_flow_module('ozon', 'oz_flow')
 
-# Identity the js_runtime flow speaks as: Chrome 154 user-agent over a chrome136 TLS profile.
-# Consumers (validation, worker_parser) must reuse it — see `extra['impersonate']`.
-OZON_JS_IMPERSONATE = 'chrome136'
+# Identity the js_runtime flow speaks as: TLS `chrome146`; the UA/Client-Hints come from the
+# genuine capture/template of the served build (the flow restarts the challenge with it — a build's
+# capture may speak another Chrome version, e.g. v47_3's is Chrome 154). Consumers (validation,
+# worker_parser) must reuse it — see `extra['impersonate']` and SessionMessage.user_agent.
+OZON_JS_IMPERSONATE = 'chrome146'
 _OZON_JS_PLATFORM = 'Windows'
 
 
@@ -41,8 +43,8 @@ def build_session_message(proxy: ProxyConfig | None) -> SessionMessage:
         marketplace=Marketplace.OZON,
         proxy=proxy,
         cookies=cookies,
-        user_agent=oz_flow.UA,
-        sec_ch_ua=oz_flow.CH['sec-ch-ua'],
+        user_agent=result.get('ua') or oz_flow.UA,
+        sec_ch_ua=(result.get('ch') or oz_flow.CH)['sec-ch-ua'],
         sec_ch_ua_platform=_OZON_JS_PLATFORM,
         extra={
             'app_version': extract_ozon_app_version(result.get('reload_html') or ''),

@@ -75,7 +75,11 @@ def main() -> None:
     args = parser.parse_args()
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=args.headless)
+        # Без --disable-blink-features=AutomationControlled у Chromium navigator.webdriver=true,
+        # и захват рождается отравленным: сервер такие тела отвергает, а использовать их как
+        # эталон форджа нельзя (инцидент 2026-10-10). Для эталона также лучше настоящий
+        # Google Chrome (channel="chrome"), а не сборка Chromium из Playwright.
+        browser = p.chromium.launch(headless=args.headless, args=["--disable-blink-features=AutomationControlled"])
         results = []
         for i in range(args.iterations):
             context = browser.new_context()  # чистый контекст на каждую итерацию

@@ -19,7 +19,7 @@ for i in range(N):
     t0 = time.monotonic()
     try:
         o = get_ozon_cookies()
-        api = check_api(o['session']) if o['ok'] else False
+        api = check_api(o['session'], ua=o.get('ua'), ch=o.get('ch')) if o['ok'] else False
         # which md5 chain did the VM pick for this challenge (and what did the forge use)?
         meta = subprocess.run(
             ['node', '-e', "const c=require('./fpcodec.js');const b=JSON.parse(require('fs').readFileSync('raw/last_vm_body.json','utf8'));const d=c.decode(b.fp,b.token);console.log(d.chain)"],
