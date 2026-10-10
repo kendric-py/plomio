@@ -315,6 +315,16 @@ class CreditTransactionRepository(BaseRepository[CreditTransaction, CreditTransa
         )
         return await self.session.scalar(select(func.count()).select_from(groups))
 
+    async def get_spent_since(self, user_id: int, since: datetime) -> int:
+        """Сколько пользователь потратил с момента `since` (положительное число)."""
+
+        statement = select(func.coalesce(func.sum(-self.model.amount), 0)).where(
+            self.model.user_id == user_id,
+            self.model.amount < 0,
+            self.model.created_at >= since,
+        )
+        return await self.session.scalar(statement)
+
     async def get_daily_spending(
         self, user_id: int, date_from: datetime | None, date_to: datetime | None,
     ) -> list[DailySpendingEntity]:
