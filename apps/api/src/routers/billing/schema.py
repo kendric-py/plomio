@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from apps.api.src.routers.schema import PaginationMeta
 from packages.billing.src.enums import ReferenceType
@@ -55,6 +55,16 @@ class CreditTransactionResponse(BaseModel):
     reference_id: str | None = Field(description='Идентификатор сущности-источника')
     transaction_metadata: dict | None = Field(description='Расшифровка расчёта либо комментарий')
     created_at: datetime = Field(description='Время создания транзакции')
+
+
+class DailySpendingResponse(BaseModel):
+    """Траты за один день (UTC), в кредитах, положительные числа."""
+
+    day: date = Field(description='День (UTC), YYYY-MM-DD')
+    total_spent: int = Field(description='Всего за день')
+    tasks_spent: int = Field(description='Задачи (без проверок автоматизаций)')
+    automations_spent: int = Field(description='Автоматизации: создание и проверки')
+    direct_spent: int = Field(description='Прямые запросы')
 
 
 class CreditTransactionGroupResponse(BaseModel):
@@ -134,3 +144,54 @@ class CreditTransactionGroupListResponse(BaseModel):
 
     items: list[CreditTransactionGroupResponse] = Field(description='Группы на текущей странице')
     meta: PaginationMeta = Field(description='Метаданные пагинации')
+
+
+class CreditTransactionListResponse(BaseModel):
+    """Ответ `GET /api/billing/transactions` — плоский журнал: списания и начисления."""
+
+    items: list[CreditTransactionResponse] = Field(description='Транзакции текущей страницы')
+    meta: PaginationMeta = Field(description='Метаданные пагинации')
+
+
+class DailySpendingListResponse(BaseModel):
+    """Ответ `GET /api/billing/stats/daily` — траты по дням, без пустых дней."""
+
+    items: list[DailySpendingResponse] = Field(description='Дни со списаниями, по возрастанию')
+    date_from: datetime | None = Field(description='Начало периода (включительно), UTC')
+    date_to: datetime | None = Field(description='Конец периода (включительно), UTC')
+
+
+class ReferenceSpendingResponse(BaseModel):
+    """Ответ `GET /api/billing/spending/{reference_type}/{reference_id}`."""
+
+    total_spent: int = Field(description='Потрачено на сущность, в кредитах (положительное число)')
+    transactions_count: int = Field(description='Число списаний')
+
+
+class SpendingLimitsResponse(BaseModel):
+    """Лимиты расходов пользователя и сколько уже потрачено в текущих периодах (UTC)."""
+
+    daily_limit: int | None = Field(description='Лимит за сутки, кредитов; null — не задан')
+    monthly_limit: int | None = Field(description='Лимит за календарный месяц; null — не задан')
+    spent_today: int = Field(description='Потрачено с начала текущих суток')
+    spent_this_month: int = Field(description='Потрачено с начала текущего месяца')
+    is_limit_reached: bool = Field(
+        description='Лимит исчерпан: новые задачи, автоматизации и прямые запросы заблокированы',
+    )
+
+
+class UpdateSpendingLimitsRequest(BaseModel):
+    """Тело `PUT /api/billing/limits` — оба лимита заменяются целиком; `null` снимает лимит."""
+
+    daily_limit: int | None = Field(default=None, ge=1, description='Лимит за сутки, кредитов')
+    monthly_limit: int | None = Field(default=None, ge=1, description='Лимит за месяц, кредитов')
+
+    @model_validator(mode='after')
+    def _daily_not_above_monthly(self) -> 'UpdateSpendingLimitsRequest':
+        if (
+            self.daily_limit is not None
+            and self.monthly_limit is not None
+            and self.daily_limit > self.monthly_limit
+        ):
+            raise ValueError('daily_limit must not exceed monthly_limit')
+        return self

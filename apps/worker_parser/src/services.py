@@ -30,6 +30,11 @@ def build_services(
             transaction_manager=AsyncTransactionManager(session_factory=session_factory),
             billing_service=BillingService(
                 transaction_manager=AsyncTransactionManager(session_factory=session_factory),
+                notification_service=NotificationService(
+                    transaction_manager=AsyncTransactionManager(session_factory=session_factory),
+                ),
+                frontend_base_url=config.FRONTEND_BASE_URL,
+                low_balance_threshold=config.BILLING_LOW_BALANCE_THRESHOLD,
             ),
             notification_service=NotificationService(
                 transaction_manager=AsyncTransactionManager(session_factory=session_factory),

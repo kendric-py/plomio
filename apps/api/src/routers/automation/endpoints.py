@@ -35,7 +35,7 @@ from core.exceptions import ObjectNotFoundError
 from packages.automation.src.entities import AutomationCreateData, AutomationListFilters
 from packages.automation.src.exceptions import DuplicateAutomationError, InvalidCheckFrequencyError
 from packages.automation.src.service import AutomationService
-from packages.billing.src.exceptions import InsufficientCreditsError
+from packages.billing.src.exceptions import InsufficientCreditsError, SpendingLimitExceededError
 from packages.user.src.entities import UserEntity
 
 router = APIRouter(prefix='/automations', tags=['Automations'])
@@ -44,6 +44,7 @@ BULK_ERROR_CODES = {
     InvalidCheckFrequencyError: BulkAutomationErrorCode.INVALID_CHECK_FREQUENCY,
     DuplicateAutomationError: BulkAutomationErrorCode.DUPLICATE,
     InsufficientCreditsError: BulkAutomationErrorCode.INSUFFICIENT_CREDITS,
+    SpendingLimitExceededError: BulkAutomationErrorCode.SPENDING_LIMIT,
 }
 
 
@@ -82,7 +83,7 @@ async def create_automation(
     except InsufficientCreditsError as error:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail='Insufficient credits',
+            detail=error.detail,
         ) from error
     return AutomationResponse.model_validate(obj=automation, from_attributes=True)
 

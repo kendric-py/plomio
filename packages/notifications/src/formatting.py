@@ -164,7 +164,40 @@ def format_task_failed(payload: dict) -> str:
     return '\n'.join(lines)
 
 
+def format_task_paused_insufficient_credits(payload: dict) -> str:
+    lines = [
+        f"⏸ Задача {_escape(payload.get('task_id'))} приостановлена: закончились кредиты "
+        'или достигнут лимит расходов',
+    ]
+    if payload.get('task_link'):
+        lines.append(_escape(payload['task_link']))
+    return '\n'.join(lines)
+
+
+def format_balance_depleted(payload: dict) -> str:
+    lines = [
+        f"🪫 Кредиты закончились (баланс: {_escape(payload.get('balance'))}). "
+        'Новые задачи и проверки автоматизаций не запускаются, пока баланс не пополнен.',
+    ]
+    if payload.get('billing_link'):
+        lines.append(_escape(payload['billing_link']))
+    return '\n'.join(lines)
+
+
+def format_balance_low(payload: dict) -> str:
+    lines = [
+        f"⚠️ Кредитов осталось мало: {_escape(payload.get('balance'))} "
+        f"(порог {_escape(payload.get('threshold'))}).",
+    ]
+    if payload.get('billing_link'):
+        lines.append(_escape(payload['billing_link']))
+    return '\n'.join(lines)
+
+
 MESSAGE_FORMATTERS: dict[str, Callable[[dict], str]] = {
+    'task.paused_insufficient_credits': format_task_paused_insufficient_credits,
+    'billing.balance_depleted': format_balance_depleted,
+    'billing.balance_low': format_balance_low,
     'automation.change_detected': format_automation_change_detected,
     'task.completed': format_task_completed,
     'task.failed': format_task_failed,

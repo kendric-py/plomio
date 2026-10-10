@@ -111,3 +111,24 @@ class CreditTransaction(BaseSQLModel):
         nullable=False,
         server_default=func.now(),
     )
+
+
+class SpendingLimit(BaseSQLModel):
+    """Лимиты расходов пользователя, которые он задаёт себе сам. Одна строка на пользователя
+    (PK = `user_id`); `NULL` в колонке — соответствующего лимита нет. Достижение лимита блокирует
+    новые траты так же, как нулевой баланс (см. `BillingService.can_spend`)."""
+
+    __tablename__ = 'spending_limits'
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey('users.id', ondelete='CASCADE'),
+        primary_key=True,
+    )
+    daily_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    monthly_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

@@ -1,10 +1,10 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from packages.billing.src.enums import ReferenceType
+from packages.billing.src.enums import ReferenceType, TransactionKind
 
 
 class BillingActionEntity(BaseModel):
@@ -112,3 +112,51 @@ class CreditTransactionGroupEntity(BaseModel):
     transactions_count: int = Field(description='Число транзакций в группе')
     first_at: datetime = Field(description='Время первой транзакции группы')
     last_at: datetime = Field(description='Время последней транзакции группы')
+
+
+class TransactionFilters(BaseModel):
+    """Фильтры журнала транзакций пользователя (AND). Любое поле можно не задавать."""
+
+    reference_type: ReferenceType | None = Field(default=None, description='Тип источника')
+    reference_id: str | None = Field(default=None, description='Идентификатор источника')
+    kind: TransactionKind | None = Field(default=None, description='Списания или начисления')
+    date_from: datetime | None = Field(default=None, description='Начало периода, включительно')
+    date_to: datetime | None = Field(default=None, description='Конец периода, включительно')
+
+
+class DailySpendingEntity(BaseModel):
+    """Траты пользователя за один день (UTC), в кредитах, положительные числа."""
+
+    day: date = Field(description='День (UTC)')
+    total_spent: int = Field(description='Всего за день')
+    tasks_spent: int = Field(description='Задачи (без проверок автоматизаций)')
+    automations_spent: int = Field(description='Автоматизации: создание и проверки')
+    direct_spent: int = Field(description='Прямые запросы')
+
+
+class ReferenceSpendingEntity(BaseModel):
+    """Сколько потрачено на одну сущность (задача, автоматизация, прямой запрос)."""
+
+    total_spent: int = Field(description='Потрачено, в кредитах (положительное число)')
+    transactions_count: int = Field(description='Число списаний')
+
+
+class SpendingLimitEntity(BaseModel):
+    user_id: Optional[int] = Field(default=None, description='Идентификатор пользователя')
+    daily_limit: Optional[int] = Field(
+        default=None, description='Лимит расходов за сутки (UTC), в кредитах; None — нет лимита',
+    )
+    monthly_limit: Optional[int] = Field(
+        default=None, description='Лимит расходов за календарный месяц (UTC); None — нет лимита',
+    )
+    updated_at: Optional[datetime] = Field(default=None, description='Время последнего изменения')
+
+
+class SpendingStatusEntity(BaseModel):
+    """Лимиты пользователя вместе с уже потраченным в текущих периодах."""
+
+    daily_limit: Optional[int] = Field(description='Лимит за сутки; None — нет')
+    monthly_limit: Optional[int] = Field(description='Лимит за месяц; None — нет')
+    spent_today: int = Field(description='Потрачено с начала текущих суток (UTC)')
+    spent_this_month: int = Field(description='Потрачено с начала текущего месяца (UTC)')
+    is_limit_reached: bool = Field(description='Хотя бы один из лимитов исчерпан')

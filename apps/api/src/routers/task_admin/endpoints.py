@@ -40,10 +40,8 @@ def _task_not_found() -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Task not found')
 
 
-def _insufficient_credits() -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_402_PAYMENT_REQUIRED, detail='Insufficient credits',
-    )
+def _insufficient_credits(error: InsufficientCreditsError) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=error.detail)
 
 
 async def _task_detail(task_service: TaskService, task: TaskEntity) -> TaskDetailResponse:
@@ -205,7 +203,7 @@ async def resume_task(
     except ObjectNotFoundError as error:
         raise _task_not_found() from error
     except InsufficientCreditsError as error:
-        raise _insufficient_credits() from error
+        raise _insufficient_credits(error) from error
     except InvalidTaskTransitionError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail='Task is not paused',
@@ -228,7 +226,7 @@ async def restart_task(
     except ObjectNotFoundError as error:
         raise _task_not_found() from error
     except InsufficientCreditsError as error:
-        raise _insufficient_credits() from error
+        raise _insufficient_credits(error) from error
     except InvalidTaskTransitionError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -257,5 +255,5 @@ async def exclude_task_item(
             detail='Only FAILED task items can be excluded',
         ) from error
     except InsufficientCreditsError as error:
-        raise _insufficient_credits() from error
+        raise _insufficient_credits(error) from error
     return await _task_detail(task_service, task)

@@ -19,6 +19,7 @@ from apps.api.src.routers.direct.errors import (
 from core.enums import Marketplace
 from packages.auth.src.security import auth_config
 from packages.billing.src.enums import ReferenceType
+from packages.billing.src.exceptions import InsufficientCreditsError
 from packages.billing.src.service import BillingService
 from packages.direct.src.entities import DirectReply, DirectRequest
 from packages.direct.src.enums import DirectRequestType, DirectStatus
@@ -42,14 +43,15 @@ async def require_positive_balance(
     billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
     current_user: UserEntity = Depends(get_current_user),
 ) -> None:
-    """Проверка до обращения к воркеру: при балансе <= 0 запрос к маркетплейсу не уходит вовсе."""
+    """Проверка до обращения к воркеру: при балансе <= 0 или исчерпанном лимите расходов запрос
+    к маркетплейсу не уходит вовсе."""
     try:
-        has_credits = await billing_service.has_positive_balance(user_id=current_user.id)
+        await billing_service.ensure_can_spend(user_id=current_user.id)
+    except InsufficientCreditsError as error:
+        raise insufficient_credits_error(detail=error.detail) from error
     except Exception as error:
         logger.exception('[direct_billing_failed] stage=check user_id=%s', current_user.id)
         raise unavailable_error() from error
-    if not has_credits:
-        raise insufficient_credits_error()
 
 
 async def charge_direct_request(

@@ -42,18 +42,6 @@ class DependencyContainer(DeclarativeContainer):
         transaction_manager=transaction_manager,
     )
 
-    billing_service = providers.Factory(
-        BillingService,
-        transaction_manager=transaction_manager,
-    )
-
-    auth_service = providers.Factory(
-        AuthService,
-        transaction_manager=transaction_manager,
-        billing_service=billing_service,
-        signup_bonus_credits=config.BILLING.SIGNUP_BONUS_CREDITS,
-    )
-
     telegram_notifier = providers.Singleton(
         build_telegram_notifier,
         bot_token=config.TELEGRAM.BOT_TOKEN,
@@ -70,6 +58,21 @@ class DependencyContainer(DeclarativeContainer):
         transaction_manager=transaction_manager,
         telegram_notifier=telegram_notifier,
         telegram_link_store=telegram_link_store,
+    )
+
+    billing_service = providers.Factory(
+        BillingService,
+        transaction_manager=transaction_manager,
+        notification_service=notification_service,
+        frontend_base_url=config.REST.FRONTEND_BASE_URL,
+        low_balance_threshold=config.BILLING.LOW_BALANCE_THRESHOLD,
+    )
+
+    auth_service = providers.Factory(
+        AuthService,
+        transaction_manager=transaction_manager,
+        billing_service=billing_service,
+        signup_bonus_credits=config.BILLING.SIGNUP_BONUS_CREDITS,
     )
 
     task_service = providers.Factory(

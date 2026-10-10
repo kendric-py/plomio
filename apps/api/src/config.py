@@ -132,6 +132,9 @@ class BillingConfig(BaseSettings):
 
     # Сколько кредитов начисляется новому пользователю при регистрации; 0 — не начислять.
     SIGNUP_BONUS_CREDITS: int = Field(default=10000, ge=0)
+    # Порог «мало кредитов»: при пересечении сверху вниз уходит уведомление billing.balance_low;
+    # 0 — не уведомлять (уведомление об исчерпании баланса работает всегда).
+    LOW_BALANCE_THRESHOLD: int = Field(default=100, ge=0)
 
 
 class ProxyConfig(BaseSettings):

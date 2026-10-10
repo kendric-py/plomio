@@ -6,7 +6,6 @@ from core.enums import Marketplace
 from core.exceptions import ObjectNotFoundError
 from core.transaction_manager import AsyncTransactionManager
 from packages.billing.src.enums import PricingDimension, ReferenceType
-from packages.billing.src.exceptions import InsufficientCreditsError
 from packages.billing.src.service import BillingService
 from packages.notifications.src.service import NotificationService
 from packages.task.src.entities import AdminTaskFilters, TaskEntity, TaskItemEntity
@@ -58,8 +57,7 @@ class TaskService:
             pricing_dimension_value = priority
 
         if automation_id is None:
-            if not await self.billing_service.has_positive_balance(user_id=user_id):
-                raise InsufficientCreditsError
+            await self.billing_service.ensure_can_spend(user_id=user_id)
 
         async with self.transaction_manager(
             use_task_repository=True,
@@ -127,6 +125,20 @@ class TaskService:
                 entity=TaskEntity(id=task_id, status=TaskStatus.PAUSED),
             )
             await self.transaction_manager.commit()
+
+        # Проверочные задачи автоматизаций не уведомляют: у них своя логика и нет страницы задачи.
+        if updated_task.automation_id is None:
+            await self.notification_service.notify(
+                user_id=updated_task.user_id,
+                event_code='task.paused_insufficient_credits',
+                payload={
+                    'task_id': str(task_id),
+                    'task_link': (
+                        f'{self.frontend_base_url}/tasks/{task_id}'
+                        if self.frontend_base_url else None
+                    ),
+                },
+            )
         return updated_task
 
     async def pause_task_system(self, task_id: UUID) -> TaskEntity:
@@ -169,8 +181,7 @@ class TaskService:
             # auto-paused this way in the first place, since dispatch_due_checks already gates on
             # balance before creating them.
             if task.automation_id is None:
-                if not await self.billing_service.has_positive_balance(user_id=task.user_id):
-                    raise InsufficientCreditsError
+                await self.billing_service.ensure_can_spend(user_id=task.user_id)
 
             # queue_expires_at is the deadline claim_next checks; the original one (from
             # create_task) is almost certainly already in the past by the time a task that has
@@ -217,8 +228,7 @@ class TaskService:
                 # before commit, so the item exclusion above rolls back too — the user has to
                 # retry the exclude once the balance is topped up, same as they'd retry resume.
                 if task.automation_id is None:
-                    if not await self.billing_service.has_positive_balance(user_id=task.user_id):
-                        raise InsufficientCreditsError
+                    await self.billing_service.ensure_can_spend(user_id=task.user_id)
                 new_status = TaskStatus.QUEUED
             else:
                 new_status = None
@@ -268,8 +278,12 @@ class TaskService:
             dimension_value=task.pricing_dimension_value,
             reference_type=ReferenceType.TASK,
             reference_id=str(task.id),
+            # Проверочные задачи автоматизации: по этому полю billing считает расход на автоматизацию.
+            extra_metadata=(
+                {'automation_id': str(task.automation_id)} if task.automation_id else None
+            ),
         )
-        if not await self.billing_service.has_positive_balance(user_id=task.user_id):
+        if not await self.billing_service.can_spend(user_id=task.user_id):
             await self.pause_task_system(task_id=task.id)
 
     async def complete_item(
@@ -483,8 +497,7 @@ class TaskService:
             if task.status not in RESTARTABLE_STATUSES:
                 raise InvalidTaskTransitionError
             if task.automation_id is None:
-                if not await self.billing_service.has_positive_balance(user_id=task.user_id):
-                    raise InsufficientCreditsError
+                await self.billing_service.ensure_can_spend(user_id=task.user_id)
 
             await transaction.task_item_repository.reset_failed_items(task_id=task_id)
             restarted_task = await transaction.task_repository.reset_for_restart(

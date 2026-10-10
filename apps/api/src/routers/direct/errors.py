@@ -20,10 +20,8 @@ TIMEOUT_DETAIL = 'Request timed out, please try again later'
 INSUFFICIENT_CREDITS_DETAIL = 'Insufficient credits'
 
 
-def insufficient_credits_error() -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=INSUFFICIENT_CREDITS_DETAIL,
-    )
+def insufficient_credits_error(detail: str = INSUFFICIENT_CREDITS_DETAIL) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=detail)
 
 
 def invalid_page_key_error() -> HTTPException:

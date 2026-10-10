@@ -7,6 +7,7 @@ from apps.api.src.routers.direct import dependencies
 from apps.api.src.routers.direct.errors import INSUFFICIENT_CREDITS_DETAIL, UNAVAILABLE_DETAIL
 from core.enums import Marketplace
 from packages.billing.src.enums import ReferenceType
+from packages.billing.src.exceptions import InsufficientCreditsError, SpendingLimitExceededError
 from packages.direct.src.entities import DirectRequest
 from packages.direct.src.enums import DirectRequestType
 
@@ -16,15 +17,19 @@ class FakeUser:
 
 
 class FakeBillingService:
-    def __init__(self, balance_positive=True, fail=False):
+    def __init__(self, balance_positive=True, fail=False, limit_reached=False):
         self.balance_positive = balance_positive
         self.fail = fail
+        self.limit_reached = limit_reached
         self.charges = []
 
-    async def has_positive_balance(self, user_id):
+    async def ensure_can_spend(self, user_id):
         if self.fail:
             raise RuntimeError('db down')
-        return self.balance_positive
+        if not self.balance_positive:
+            raise InsufficientCreditsError
+        if self.limit_reached:
+            raise SpendingLimitExceededError
 
     async def charge(self, **kwargs):
         if self.fail:
@@ -54,6 +59,14 @@ def test_ensure_balance_rejects_with_402():
             FakeBillingService(balance_positive=False), FakeUser(),
         ))
     assert (exc.value.status_code, exc.value.detail) == (402, INSUFFICIENT_CREDITS_DETAIL)
+
+
+def test_ensure_balance_rejects_when_spending_limit_reached():
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(dependencies.require_positive_balance(
+            FakeBillingService(limit_reached=True), FakeUser(),
+        ))
+    assert (exc.value.status_code, exc.value.detail) == (402, 'Spending limit reached')
 
 
 def test_ensure_balance_failure_is_503():

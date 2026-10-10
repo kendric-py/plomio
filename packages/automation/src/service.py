@@ -174,8 +174,7 @@ class AutomationService:
         if check_frequency_minutes < min_check_frequency_minutes:
             raise InvalidCheckFrequencyError
 
-        if not await self.billing_service.has_positive_balance(user_id=user_id):
-            raise InsufficientCreditsError
+        await self.billing_service.ensure_can_spend(user_id=user_id)
 
         article = extract_article(marketplace=marketplace, input_value=input_value)
 
@@ -231,7 +230,11 @@ class AutomationService:
 
         results: list[BulkCreateResult | None] = [None] * len(items)
         candidates: list[tuple[int, AutomationEntity]] = []
-        has_balance = await self.billing_service.has_positive_balance(user_id=user_id)
+        spend_block: type[InsufficientCreditsError] | None = None
+        try:
+            await self.billing_service.ensure_can_spend(user_id=user_id)
+        except InsufficientCreditsError as error:
+            spend_block = type(error)
         now = datetime.now(tz=timezone.utc)
         seen: set[tuple[Marketplace, str]] = set()
 
@@ -239,8 +242,8 @@ class AutomationService:
             if item.check_frequency_minutes < min_check_frequency_minutes:
                 results[index] = BulkCreateResult(error=InvalidCheckFrequencyError)
                 continue
-            if not has_balance:
-                results[index] = BulkCreateResult(error=InsufficientCreditsError)
+            if spend_block is not None:
+                results[index] = BulkCreateResult(error=spend_block)
                 continue
             article = extract_article(marketplace=item.marketplace, input_value=item.input_value)
             key = (item.marketplace, article if article is not None else item.input_value)
@@ -584,7 +587,7 @@ class AutomationService:
         # One batched balance lookup for every distinct user in this dispatch batch instead of one
         # has_positive_balance() round trip per automation — several claimed automations commonly
         # belong to the same user (multiple monitored products).
-        balances_by_user_id = await self.billing_service.get_balances(
+        blocked_reasons = await self.billing_service.get_blocked_user_ids(
             user_ids=list({automation.user_id for automation in claimed_automations}),
         )
 
@@ -594,12 +597,12 @@ class AutomationService:
             # this guard — an automation skipped here for insufficient credits simply sits out
             # this cycle and is reconsidered at its next (already-advanced) next_check_at, not
             # retried immediately; see packages/billing/AGENTS.md.
-            if balances_by_user_id.get(automation.user_id, 0) <= 0:
+            if automation.user_id in blocked_reasons:
                 async with self.transaction_manager(use_automation_repository=True) as transaction:
                     await transaction.automation_repository.finalize_check(
                         automation_id=automation.id,
                         last_checked_at=datetime.now(tz=timezone.utc),
-                        last_check_error='insufficient_credits',
+                        last_check_error=blocked_reasons[automation.user_id],
                         baseline_updates={},
                     )
                     await self.transaction_manager.commit()

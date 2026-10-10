@@ -11,6 +11,7 @@ from packages.billing.src.repository import (
     CreditTransactionRepository,
     CreditWalletRepository,
     PricingMultiplierRuleRepository,
+    SpendingLimitRepository,
 )
 from packages.cron.src.repository import CronJobRunRepository
 from packages.notifications.src.repository import (
@@ -46,6 +47,7 @@ REPOSITORIES = {
     'use_credit_transaction_repository': (
         'credit_transaction_repository', CreditTransactionRepository,
     ),
+    'use_spending_limit_repository': ('spending_limit_repository', SpendingLimitRepository),
     'use_notification_event_repository': (
         'notification_event_repository', NotificationEventRepository,
     ),
@@ -73,6 +75,7 @@ class AsyncTransactionManager:
     pricing_multiplier_rule_repository: PricingMultiplierRuleRepository
     credit_wallet_repository: CreditWalletRepository
     credit_transaction_repository: CreditTransactionRepository
+    spending_limit_repository: SpendingLimitRepository
     notification_event_repository: NotificationEventRepository
     notification_setting_repository: NotificationSettingRepository
     notification_delivery_repository: NotificationDeliveryRepository
@@ -94,6 +97,7 @@ class AsyncTransactionManager:
         self.use_pricing_multiplier_rule_repository = False
         self.use_credit_wallet_repository = False
         self.use_credit_transaction_repository = False
+        self.use_spending_limit_repository = False
         self.use_notification_event_repository = False
         self.use_notification_setting_repository = False
         self.use_notification_delivery_repository = False
@@ -114,6 +118,7 @@ class AsyncTransactionManager:
         use_pricing_multiplier_rule_repository: bool = False,
         use_credit_wallet_repository: bool = False,
         use_credit_transaction_repository: bool = False,
+        use_spending_limit_repository: bool = False,
         use_notification_event_repository: bool = False,
         use_notification_setting_repository: bool = False,
         use_notification_delivery_repository: bool = False,
@@ -132,6 +137,7 @@ class AsyncTransactionManager:
         self.use_pricing_multiplier_rule_repository = use_pricing_multiplier_rule_repository
         self.use_credit_wallet_repository = use_credit_wallet_repository
         self.use_credit_transaction_repository = use_credit_transaction_repository
+        self.use_spending_limit_repository = use_spending_limit_repository
         self.use_notification_event_repository = use_notification_event_repository
         self.use_notification_setting_repository = use_notification_setting_repository
         self.use_notification_delivery_repository = use_notification_delivery_repository

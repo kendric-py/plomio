@@ -176,8 +176,13 @@ REST API. Точка входа для клиентов (фронтенд, вн�
 
 - `routers/billing/endpoints.py` + `routers/billing/schema.py` — два роутера в одном файле:
   `router` (`/api/billing`, owner-only, `Depends(get_current_user)`) — `GET /balance`,
-  `GET /transactions/by-reference` (траты, сгруппированные по `reference_type`+`reference_id`,
-  `PaginationMeta`; плоского списка транзакций нет), `GET /pricing` (прайс для расчёта
+  `GET /transactions` (плоский журнал: списания и начисления), `GET /transactions/export` (CSV, UTF-8 с BOM,
+  `routers/billing/csv_export.py`), `GET /transactions/by-reference` (траты, сгруппированные по
+  `reference_type`+`reference_id`) — все три принимают общие фильтры `reference_type`/`reference_id`/`kind`
+  (`spend`|`grant`)/`date_from`/`date_to` (`dependencies.py::get_transaction_filters`); `GET /stats` и
+  `GET /stats/daily` (траты пользователя за период, итог и по дням), `GET /spending/{reference_type}/{reference_id}`
+  (расход на одну задачу/автоматизацию/direct-запрос; для автоматизации — с её проверками; чужой id даёт нули),
+  `GET`/`PUT /limits` (собственные лимиты расходов и потрачено), `GET /pricing` (прайс для расчёта
   стоимости на фронте: каталог действий + правила множителей, только чтение, `PricingResponse`); `admin_router`
   (`/api/admin/billing`, `Depends(get_current_admin_user)`) — CRUD над каталогом действий
   (`GET`/`PATCH /actions/{action_code}`), `GET /stats` — статистика трат всех пользователей за

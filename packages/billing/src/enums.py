@@ -9,6 +9,13 @@ class ReferenceType(str, Enum):
     DIRECT = 'direct'
 
 
+class TransactionKind(str, Enum):
+    """Вид транзакции для фильтра журнала: списание (`amount < 0`) или начисление (`amount > 0`)."""
+
+    SPEND = 'spend'
+    GRANT = 'grant'
+
+
 class PricingDimension(str, Enum):
     """Известные на сегодня измерения `PricingMultiplierRule.dimension_code`. Не исчерпывающий
     список — новое измерение подключается новыми строками в `pricing_multiplier_rules` и одной

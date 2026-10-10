@@ -1,23 +1,33 @@
 import logging
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from apps.api.src.container import DependencyContainer
 from apps.api.src.routers.auth.dependencies import get_client_ip, get_current_user
-from apps.api.src.routers.billing.dependencies import get_current_admin_user
+from apps.api.src.routers.billing.csv_export import build_transactions_csv
+from apps.api.src.routers.billing.dependencies import (
+    get_current_admin_user,
+    get_transaction_filters,
+)
 from apps.api.src.routers.billing.schema import (
+    SpendingLimitsResponse,
+    UpdateSpendingLimitsRequest,
     BalanceResponse,
     BillingActionListResponse,
     BillingActionResponse,
     CreatePricingRuleRequest,
     CreditTransactionGroupListResponse,
     CreditTransactionGroupResponse,
+    CreditTransactionListResponse,
     CreditTransactionResponse,
+    DailySpendingListResponse,
+    DailySpendingResponse,
     GrantCreditsRequest,
     PricingMultiplierRuleListResponse,
     PricingMultiplierRuleResponse,
     PricingResponse,
+    ReferenceSpendingResponse,
     SpendingStatsResponse,
     UpdateActionCostRequest,
 )
@@ -28,6 +38,8 @@ from packages.audit_log.src.entities import AuditLogEntity
 from packages.audit_log.src.enums import AuditAction, AuditActionType, AuditStatus
 from packages.audit_log.src.service import AuditLogService
 from packages.audit_log.src.utils import build_credit_grant_details
+from packages.billing.src.entities import TransactionFilters
+from packages.billing.src.enums import ReferenceType
 from packages.billing.src.exceptions import OverlappingPricingRuleError
 from packages.billing.src.service import BillingService
 from packages.user.src.entities import UserEntity
@@ -48,16 +60,57 @@ async def get_balance(
     return BalanceResponse(balance=balance)
 
 
+@router.get('/transactions')
+@inject
+async def list_transactions(
+    limit: int = Query(default=100, ge=1, le=500, description='Размер страницы'),
+    offset: int = Query(default=0, ge=0, description='Смещение страницы'),
+    filters: TransactionFilters = Depends(get_transaction_filters),
+    current_user: UserEntity = Depends(get_current_user),
+    billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
+) -> CreditTransactionListResponse:
+    """Плоский журнал пользователя: списания и начисления (бонусы, выдачи админа), новые сверху."""
+    items, total = await billing_service.list_transactions(
+        user_id=current_user.id, limit=limit, offset=offset, filters=filters,
+    )
+    return CreditTransactionListResponse(
+        items=[
+            CreditTransactionResponse.model_validate(obj=item, from_attributes=True)
+            for item in items
+        ],
+        meta=PaginationMeta(total=total, limit=limit, offset=offset),
+    )
+
+
+@router.get('/transactions/export')
+@inject
+async def export_transactions(
+    filters: TransactionFilters = Depends(get_transaction_filters),
+    current_user: UserEntity = Depends(get_current_user),
+    billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
+) -> Response:
+    """Весь журнал пользователя по фильтрам файлом CSV (UTF-8 с BOM — открывается в Excel)."""
+    transactions = await billing_service.list_all_transactions(
+        user_id=current_user.id, filters=filters,
+    )
+    return Response(
+        content=build_transactions_csv(transactions),
+        media_type='text/csv; charset=utf-8',
+        headers={'Content-Disposition': 'attachment; filename="plomio-transactions.csv"'},
+    )
+
+
 @router.get('/transactions/by-reference')
 @inject
 async def list_transactions_by_reference(
     limit: int = Query(default=100, ge=1, le=500, description='Размер страницы'),
     offset: int = Query(default=0, ge=0, description='Смещение страницы'),
+    filters: TransactionFilters = Depends(get_transaction_filters),
     current_user: UserEntity = Depends(get_current_user),
     billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
 ) -> CreditTransactionGroupListResponse:
     items, total = await billing_service.list_transactions_grouped_by_reference(
-        user_id=current_user.id, limit=limit, offset=offset,
+        user_id=current_user.id, limit=limit, offset=offset, filters=filters,
     )
     return CreditTransactionGroupListResponse(
         items=[
@@ -66,6 +119,85 @@ async def list_transactions_by_reference(
         ],
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
     )
+
+
+@router.get('/stats')
+@inject
+async def get_my_spending_stats(
+    date_range: DateRange = Depends(get_date_range),
+    current_user: UserEntity = Depends(get_current_user),
+    billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
+) -> SpendingStatsResponse:
+    """Траты текущего пользователя за период с разбивкой по источникам."""
+    stats = await billing_service.get_user_spending_stats(
+        user_id=current_user.id, date_from=date_range.date_from, date_to=date_range.date_to,
+    )
+    return SpendingStatsResponse(
+        **stats.model_dump(), date_from=date_range.date_from, date_to=date_range.date_to,
+    )
+
+
+@router.get('/stats/daily')
+@inject
+async def get_my_daily_spending(
+    date_range: DateRange = Depends(get_date_range),
+    current_user: UserEntity = Depends(get_current_user),
+    billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
+) -> DailySpendingListResponse:
+    """Траты текущего пользователя по дням (UTC) для графика; дни без списаний не возвращаются."""
+    days = await billing_service.get_daily_spending(
+        user_id=current_user.id, date_from=date_range.date_from, date_to=date_range.date_to,
+    )
+    return DailySpendingListResponse(
+        items=[DailySpendingResponse.model_validate(obj=day, from_attributes=True) for day in days],
+        date_from=date_range.date_from,
+        date_to=date_range.date_to,
+    )
+
+
+@router.get('/spending/{reference_type}/{reference_id}')
+@inject
+async def get_reference_spending(
+    reference_type: ReferenceType,
+    reference_id: str,
+    current_user: UserEntity = Depends(get_current_user),
+    billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
+) -> ReferenceSpendingResponse:
+    """Сколько текущий пользователь потратил на одну задачу, автоматизацию или direct-запрос.
+    Для автоматизации в сумму входят её проверки. Чужой или несуществующий id даёт нули, а не 404:
+    списания фильтруются по `user_id`, так что чужие данные не раскрываются."""
+    spending = await billing_service.get_reference_spending(
+        user_id=current_user.id, reference_type=reference_type, reference_id=reference_id,
+    )
+    return ReferenceSpendingResponse.model_validate(obj=spending, from_attributes=True)
+
+
+@router.get('/limits')
+@inject
+async def get_my_limits(
+    current_user: UserEntity = Depends(get_current_user),
+    billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
+) -> SpendingLimitsResponse:
+    """Собственные лимиты расходов и сколько потрачено в текущих сутках и месяце (UTC)."""
+    spending_status = await billing_service.get_spending_status(user_id=current_user.id)
+    return SpendingLimitsResponse.model_validate(obj=spending_status, from_attributes=True)
+
+
+@router.put('/limits')
+@inject
+async def update_my_limits(
+    body: UpdateSpendingLimitsRequest,
+    current_user: UserEntity = Depends(get_current_user),
+    billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
+) -> SpendingLimitsResponse:
+    """Заменяет оба лимита целиком; `null` снимает лимит. Достигнутый лимит блокирует новые задачи,
+    автоматизации и прямые запросы (402 `Spending limit reached`), уже идущие задачи ставятся на
+    паузу."""
+    await billing_service.set_spending_limits(
+        user_id=current_user.id, daily_limit=body.daily_limit, monthly_limit=body.monthly_limit,
+    )
+    spending_status = await billing_service.get_spending_status(user_id=current_user.id)
+    return SpendingLimitsResponse.model_validate(obj=spending_status, from_attributes=True)
 
 
 @router.get('/pricing')

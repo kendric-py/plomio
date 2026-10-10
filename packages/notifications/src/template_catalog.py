@@ -66,6 +66,27 @@ TEMPLATE_VARIABLES: dict[str, dict[str, NotificationTemplateVariableEntity]] = {
             description='Количество собранных результатов',
         ),
     },
+    'task.paused_insufficient_credits': {
+        'task_id': NotificationTemplateVariableEntity(description='Идентификатор задачи'),
+        'task_link': NotificationTemplateVariableEntity(
+            description='Ссылка на страницу задачи в веб-интерфейсе',
+        ),
+    },
+    'billing.balance_depleted': {
+        'balance': NotificationTemplateVariableEntity(description='Текущий баланс, кредитов'),
+        'billing_link': NotificationTemplateVariableEntity(
+            description='Ссылка на страницу биллинга в веб-интерфейсе',
+        ),
+    },
+    'billing.balance_low': {
+        'balance': NotificationTemplateVariableEntity(description='Текущий баланс, кредитов'),
+        'threshold': NotificationTemplateVariableEntity(
+            description='Порог «мало кредитов», кредитов',
+        ),
+        'billing_link': NotificationTemplateVariableEntity(
+            description='Ссылка на страницу биллинга в веб-интерфейсе',
+        ),
+    },
     'task.failed': {
         'task_id': NotificationTemplateVariableEntity(description='Идентификатор задачи'),
         'error_reason': NotificationTemplateVariableEntity(description='Причина ошибки задачи'),

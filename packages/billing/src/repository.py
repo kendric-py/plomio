@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Select, and_, func, not_, or_, select, true, update
+from sqlalchemy import Date, Select, and_, case, cast, func, literal, not_, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.exceptions import ObjectNotFoundError
@@ -10,15 +10,20 @@ from packages.billing.src.entities import (
     CreditTransactionEntity,
     CreditTransactionGroupEntity,
     CreditWalletEntity,
+    DailySpendingEntity,
     PricingMultiplierRuleEntity,
+    ReferenceSpendingEntity,
+    SpendingLimitEntity,
     SpendingStatsEntity,
+    TransactionFilters,
 )
-from packages.billing.src.enums import PricingDimension, ReferenceType
+from packages.billing.src.enums import PricingDimension, ReferenceType, TransactionKind
 from packages.billing.src.models import (
     BillingAction,
     CreditTransaction,
     CreditWallet,
     PricingMultiplierRule,
+    SpendingLimit,
 )
 
 
@@ -145,24 +150,77 @@ class CreditTransactionRepository(BaseRepository[CreditTransaction, CreditTransa
             session=session,
         )
 
-    async def get_grouped_by_reference(
-        self, user_id: int, limit: int, offset: int,
-    ) -> list[CreditTransactionGroupEntity]:
-        """Списания пользователя, сгруппированные по (`reference_type`, `reference_id`); строки без
-        источника (ручное начисление админом) не входят. Порядок — по последней транзакции группы."""
+    def _source_type(self):
+        """Источник списания для отчётов. Проверочная задача автоматизации пишется как `TASK`, но
+        пользователю это расход на автоматизацию — по `automation_id` в метаданных."""
 
-        last_at = func.max(self.model.created_at)
+        return case(
+            (
+                self.model.transaction_metadata['automation_id'].astext.is_not(None),
+                literal(ReferenceType.AUTOMATION, type_=self.model.reference_type.type),
+            ),
+            else_=self.model.reference_type,
+        )
+
+    def _source_id(self):
+        return func.coalesce(
+            self.model.transaction_metadata['automation_id'].astext, self.model.reference_id,
+        )
+
+    def _apply_filters(self, statement: Select, user_id: int, filters: TransactionFilters | None):
+        statement = statement.where(self.model.user_id == user_id)
+        if filters is None:
+            return statement
+        if filters.reference_type is not None:
+            statement = statement.where(self._source_type() == filters.reference_type)
+        if filters.reference_id is not None:
+            statement = statement.where(self._source_id() == filters.reference_id)
+        if filters.kind == TransactionKind.SPEND:
+            statement = statement.where(self.model.amount < 0)
+        elif filters.kind == TransactionKind.GRANT:
+            statement = statement.where(self.model.amount > 0)
+        if filters.date_from is not None:
+            statement = statement.where(self.model.created_at >= filters.date_from)
+        if filters.date_to is not None:
+            statement = statement.where(self.model.created_at <= filters.date_to)
+        return statement
+
+    def _grouped_source(self, user_id: int, filters: TransactionFilters | None):
+        """Подзапрос «строка журнала + её источник» — группировка идёт по готовым колонкам, а не по
+        выражению с параметрами (иначе Postgres не сопоставит SELECT и GROUP BY)."""
+
+        statement = self._apply_filters(
+            select(
+                self.model.id,
+                self.model.amount,
+                self.model.created_at,
+                self._source_type().label('source_type'),
+                self._source_id().label('source_id'),
+            ),
+            user_id,
+            filters,
+        ).where(self.model.reference_id.is_not(None))
+        return statement.subquery()
+
+    async def get_grouped_by_reference(
+        self, user_id: int, limit: int, offset: int, filters: TransactionFilters | None = None,
+    ) -> list[CreditTransactionGroupEntity]:
+        """Списания пользователя, сгруппированные по источнику; строки без источника (ручное
+        начисление админом) не входят. Расход проверочной задачи автоматизации относится к самой
+        автоматизации, а не к задаче. Порядок — по последней транзакции группы."""
+
+        source = self._grouped_source(user_id, filters)
+        last_at = func.max(source.c.created_at)
         statement = (
             select(
-                self.model.reference_type,
-                self.model.reference_id,
-                func.sum(self.model.amount).label('total_amount'),
-                func.count(self.model.id).label('transactions_count'),
-                func.min(self.model.created_at).label('first_at'),
+                source.c.source_type,
+                source.c.source_id,
+                func.sum(source.c.amount).label('total_amount'),
+                func.count(source.c.id).label('transactions_count'),
+                func.min(source.c.created_at).label('first_at'),
                 last_at.label('last_at'),
             )
-            .where(self.model.user_id == user_id, self.model.reference_id.is_not(None))
-            .group_by(self.model.reference_type, self.model.reference_id)
+            .group_by(source.c.source_type, source.c.source_id)
             .order_by(last_at.desc())
             .limit(limit)
             .offset(offset)
@@ -170,8 +228,8 @@ class CreditTransactionRepository(BaseRepository[CreditTransaction, CreditTransa
         rows = await self.session.execute(statement)
         return [
             CreditTransactionGroupEntity(
-                reference_type=row.reference_type,
-                reference_id=row.reference_id,
+                reference_type=row.source_type,
+                reference_id=row.source_id,
                 total_amount=row.total_amount,
                 transactions_count=row.transactions_count,
                 first_at=row.first_at,
@@ -180,8 +238,29 @@ class CreditTransactionRepository(BaseRepository[CreditTransaction, CreditTransa
             for row in rows
         ]
 
+    async def list_for_user(
+        self, user_id: int, limit: int, offset: int, filters: TransactionFilters | None = None,
+    ) -> list[CreditTransactionEntity]:
+        """Плоский журнал пользователя (списания и начисления), новые сверху."""
+
+        statement = (
+            self._apply_filters(select(self.model), user_id, filters)
+            .order_by(self.model.created_at.desc(), self.model.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = await self.session.scalars(statement)
+        return [self._to_entity(database_object=row) for row in rows]
+
+    async def count_for_user(self, user_id: int, filters: TransactionFilters | None = None) -> int:
+        statement = self._apply_filters(select(func.count(self.model.id)), user_id, filters)
+        return await self.session.scalar(statement)
+
     async def get_spending_stats(
-        self, date_from: datetime | None = None, date_to: datetime | None = None,
+        self,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        user_id: int | None = None,
     ) -> SpendingStatsEntity:
         """Суммы списаний (`amount < 0`, возвращаются положительными) по всем пользователям за
         период (`created_at`, границы включительные).
@@ -210,6 +289,8 @@ class CreditTransactionRepository(BaseRepository[CreditTransaction, CreditTransa
             sum_where(is_automation).label('automations_spent'),
             sum_where(self.model.reference_type == ReferenceType.DIRECT).label('direct_spent'),
         ).where(self.model.amount < 0)
+        if user_id is not None:
+            statement = statement.where(self.model.user_id == user_id)
         if date_from is not None:
             statement = statement.where(self.model.created_at >= date_from)
         if date_to is not None:
@@ -223,11 +304,128 @@ class CreditTransactionRepository(BaseRepository[CreditTransaction, CreditTransa
             direct_spent=row.direct_spent,
         )
 
-    async def count_reference_groups(self, user_id: int) -> int:
+    async def count_reference_groups(
+        self, user_id: int, filters: TransactionFilters | None = None,
+    ) -> int:
+        source = self._grouped_source(user_id, filters)
         groups = (
-            select(self.model.reference_type, self.model.reference_id)
-            .where(self.model.user_id == user_id, self.model.reference_id.is_not(None))
-            .group_by(self.model.reference_type, self.model.reference_id)
+            select(source.c.source_type, source.c.source_id)
+            .group_by(source.c.source_type, source.c.source_id)
             .subquery()
         )
         return await self.session.scalar(select(func.count()).select_from(groups))
+
+    async def get_daily_spending(
+        self, user_id: int, date_from: datetime | None, date_to: datetime | None,
+    ) -> list[DailySpendingEntity]:
+        """Траты пользователя по дням (UTC) с той же классификацией, что в `get_spending_stats`.
+        Дни без списаний в выдачу не входят — пустые дни добавляет клиент."""
+
+        is_automation = self._is_automation_condition()
+        spent = -self.model.amount
+        day = cast(func.timezone('UTC', self.model.created_at), Date).label('day')
+
+        def sum_where(*conditions):
+            return func.coalesce(func.sum(spent).filter(and_(*conditions)), 0)
+
+        statement = (
+            select(
+                day,
+                sum_where(true()).label('total_spent'),
+                sum_where(
+                    self.model.reference_type == ReferenceType.TASK, not_(is_automation),
+                ).label('tasks_spent'),
+                sum_where(is_automation).label('automations_spent'),
+                sum_where(self.model.reference_type == ReferenceType.DIRECT).label('direct_spent'),
+            )
+            .where(self.model.user_id == user_id, self.model.amount < 0)
+            .group_by(day)
+            .order_by(day)
+        )
+        if date_from is not None:
+            statement = statement.where(self.model.created_at >= date_from)
+        if date_to is not None:
+            statement = statement.where(self.model.created_at <= date_to)
+        rows = await self.session.execute(statement)
+        return [
+            DailySpendingEntity(
+                day=row.day,
+                total_spent=row.total_spent,
+                tasks_spent=row.tasks_spent,
+                automations_spent=row.automations_spent,
+                direct_spent=row.direct_spent,
+            )
+            for row in rows
+        ]
+
+    async def get_reference_spending(
+        self, user_id: int, reference_type: ReferenceType, reference_id: str,
+    ) -> ReferenceSpendingEntity:
+        """Расход на одну сущность. Для автоматизации сюда входят и проверочные задачи: их
+        списания идут с `reference_type=TASK`, но в метаданных несут `automation_id`."""
+
+        is_own = and_(
+            self.model.reference_type == reference_type, self.model.reference_id == reference_id,
+        )
+        condition = is_own
+        if reference_type == ReferenceType.AUTOMATION:
+            condition = or_(
+                is_own,
+                self.model.transaction_metadata['automation_id'].astext == reference_id,
+            )
+        statement = select(
+            func.coalesce(func.sum(-self.model.amount), 0).label('total_spent'),
+            func.count(self.model.id).label('transactions_count'),
+        ).where(self.model.user_id == user_id, self.model.amount < 0, condition)
+        row = (await self.session.execute(statement)).one()
+        return ReferenceSpendingEntity(
+            total_spent=row.total_spent, transactions_count=row.transactions_count,
+        )
+
+    def _is_automation_condition(self):
+        return or_(
+            self.model.reference_type == ReferenceType.AUTOMATION,
+            func.coalesce(self.model.transaction_metadata['dimension_code'].astext, '')
+            == PricingDimension.AUTOMATION_CHECK_FREQUENCY.value,
+        )
+
+
+class SpendingLimitRepository(BaseRepository[SpendingLimit, SpendingLimitEntity]):
+    def __init__(self, session: AsyncSession):
+        super().__init__(model=SpendingLimit, entity_object=SpendingLimitEntity, session=session)
+
+    async def get_for_user(self, user_id: int) -> SpendingLimitEntity | None:
+        database_object = await self.session.get(entity=self.model, ident=user_id)
+        return self._to_entity(database_object=database_object) if database_object else None
+
+    async def get_for_users(self, user_ids: list[int]) -> dict[int, SpendingLimitEntity]:
+        """Батч для диспатча автоматизаций: у большинства пользователей лимита нет, поэтому в
+        результате только те, у кого он задан."""
+
+        if not user_ids:
+            return {}
+        rows = await self.session.scalars(select(self.model).where(self.model.user_id.in_(user_ids)))
+        return {row.user_id: self._to_entity(database_object=row) for row in rows}
+
+    async def set_limits(
+        self, user_id: int, daily_limit: int | None, monthly_limit: int | None,
+    ) -> SpendingLimitEntity | None:
+        """Задаёт оба лимита целиком (`None` — снять). Если не осталось ни одного — строка
+        удаляется и возвращается `None`."""
+
+        database_object = await self.session.get(entity=self.model, ident=user_id)
+        if daily_limit is None and monthly_limit is None:
+            if database_object is not None:
+                await self.session.delete(database_object)
+                await self.session.flush()
+            return None
+        if database_object is None:
+            database_object = self.model(
+                user_id=user_id, daily_limit=daily_limit, monthly_limit=monthly_limit,
+            )
+            self.session.add(database_object)
+        else:
+            database_object.daily_limit = daily_limit
+            database_object.monthly_limit = monthly_limit
+        await self.session.flush()
+        return self._to_entity(database_object=database_object)

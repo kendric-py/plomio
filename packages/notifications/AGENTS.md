@@ -96,7 +96,17 @@
   `automation.*` для того же тика, повторное `task.*`-уведомление было бы дублем. См.
   [`packages/task/AGENTS.md`](../task/AGENTS.md).
 
-Оба вызова — вне открытого `async with self.transaction_manager(...)`-блока вызывающего домена
+- **`packages/task`** (`TaskService.pause_task_system`) — задача поставлена на паузу из-за нулевого
+  баланса или исчерпанного лимита расходов: `event_code='task.paused_insufficient_credits'`,
+  `payload={'task_id': ..., 'task_link': ...}`. Проверочные задачи автоматизаций пропускаются.
+- **`packages/billing`** (`BillingService.charge`, после коммита списания) — пересечение порога баланса:
+  `billing.balance_depleted` (`payload={'balance', 'billing_link'}`) и `billing.balance_low`
+  (`+ 'threshold'`). Один раз в момент пересечения, не на каждом списании. Единственный домен, чей
+  вызов идёт из `packages/billing`; зависимость однонаправленная (billing → notifications). Каталог:
+  миграция `b8e2d4f61a37`, шаблонные переменные — `template_catalog.py`, текст по умолчанию —
+  `formatting.py`.
+
+Вызовы — вне открытого `async with self.transaction_manager(...)`-блока вызывающего домена
 (после коммита его собственной транзакции), тот же принцип "композиции сервисов", что описан в
 [`packages/automation/AGENTS.md`](../automation/AGENTS.md#композиция-сервисов-и-транзакции):
 `NotificationService` резолвится DI-контейнером как отдельный `providers.Factory`, со своим

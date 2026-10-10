@@ -822,6 +822,66 @@ string | float | null`, тип зависит от `field`), `threshold_breached
 по периодичности) и `direct.<ТИП_ЗАПРОСА>` (за элемент ответа, без множителей). Число результатов
 заранее неизвестно, поэтому расчёт на фронте — оценка.
 
+### `GET /api/billing/transactions` — плоский журнал
+
+Требует авторизации. Списания **и** начисления (бонус при регистрации, выдачи админа, одобренные запросы
+кредитов), новые сверху. Query: `limit` (1..500, по умолчанию 100), `offset`, и общие фильтры журнала (AND):
+`reference_type` (`task`|`automation`|`direct`), `reference_id`, `kind` (`spend` — только списания, `grant` —
+только начисления), `date_from`/`date_to` ([формат](#фильтр-по-датам)). Те же фильтры принимают
+`GET /api/billing/transactions/by-reference` (группы по источнику) и `GET /api/billing/transactions/export`.
+
+**Ответ `200`** (`CreditTransactionListResponse`): `{ "items": [ /* CreditTransactionResponse */ ], "meta": {...} }`.
+`CreditTransactionResponse`: `id`, `amount` (списание отрицательное), `balance_after`, `action_code` (null у
+начислений), `reference_type`/`reference_id` (null у начислений), `transaction_metadata`, `created_at`.
+У списаний в `transaction_metadata` — расшифровка: `quantity`, `unit_cost`, `multiplier`, `dimension_code`,
+`dimension_value`; у начислений — `comment`.
+
+**Источник проверок автоматизации.** Списания проверочных задач автоматизации идут с `reference_type=task`,
+но во всех отчётах (`/transactions/by-reference`, фильтры `reference_type`/`reference_id`, CSV) они относятся к
+**автоматизации**: источник определяется по `transaction_metadata.automation_id`. Поэтому в группировке у
+автоматизации — создание и все её проверки одной строкой, а фильтр `reference_type=automation&reference_id=<id>`
+возвращает их все. В плоском журнале (`/transactions`) `reference_type` остаётся «как записано» (`task`), а
+`automation_id` лежит в `transaction_metadata`.
+
+### `GET /api/billing/transactions/export` — журнал в CSV
+
+Те же фильтры, без пагинации — отдаёт **весь** журнал по фильтрам файлом `plomio-transactions.csv`
+(`;` как разделитель, UTF-8 с BOM — открывается в Excel). Колонки: дата (UTC), тип (списание/начисление),
+сумма, баланс после, действие, источник, id источника, количество, цена за единицу, множитель, комментарий.
+
+### `GET /api/billing/stats` и `GET /api/billing/stats/daily` — траты пользователя
+
+Требуют авторизации; период — `date_from`/`date_to`. `/stats` — `SpendingStatsResponse` (`total_spent`,
+`tasks_spent`, `automations_spent`, `direct_spent`, эхо периода) только по текущему пользователю.
+`/stats/daily` — `{ "items": [ { "day": "2026-10-09", "total_spent", "tasks_spent", "automations_spent",
+"direct_spent" } ], "date_from", "date_to" }`, по возрастанию, **без пустых дней** (их добавляет клиент);
+день — по UTC. Суммы положительные.
+
+### `GET /api/billing/spending/{reference_type}/{reference_id}` — расход на сущность
+
+Требует авторизации. `reference_type`: `task` / `automation` / `direct`. **Ответ `200`**:
+`{ "total_spent": int, "transactions_count": int }` (положительная сумма списаний). Для `automation` в сумму
+входят создание и все проверки (старые проверки привязаны миграцией). Чужой или несуществующий id даёт нули,
+а не `404`.
+
+### `GET /api/billing/limits`, `PUT /api/billing/limits` — лимиты расходов
+
+Требуют авторизации. Пользователь сам ограничивает траты: сутки (UTC) и календарный месяц (UTC).
+**Ответ** (`SpendingLimitsResponse`): `daily_limit`, `monthly_limit` (int \| null), `spent_today`,
+`spent_this_month`, `is_limit_reached` (bool). `PUT` — тело `{ "daily_limit": int|null, "monthly_limit": int|null }`
+(`≥ 1`; оба поля заменяются целиком, `null` снимает лимит; `daily_limit > monthly_limit` → `422`).
+Исчерпанный лимит блокирует создание задач/автоматизаций и прямые запросы: `402`
+`{"detail": "Spending limit reached"}` (при нулевом балансе — `"Insufficient credits"`); идущие задачи
+ставятся на паузу, диспатч автоматизаций пропускается (`last_check_error = "spending_limit"`). В пакетном
+создании автоматизаций (`POST /api/automations/bulk`) такой элемент получает `error: "SPENDING_LIMIT"`.
+
+### События уведомлений о балансе
+
+В каталог добавлены события (подписка — `PUT /api/notifications/preferences`): `billing.balance_depleted`
+(баланс исчерпан), `billing.balance_low` (упал ниже порога `BILLING_LOW_BALANCE_THRESHOLD`, по умолчанию 100) и
+`task.paused_insufficient_credits` (задача приостановлена из-за кредитов или лимита). Уведомление приходит один
+раз в момент пересечения порога, а не на каждом списании.
+
 ### `GET /api/admin/billing/actions` — каталог тарифицируемых действий
 
 Требует роль `admin`. Без query-параметров.

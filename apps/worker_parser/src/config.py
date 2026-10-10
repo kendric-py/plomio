@@ -95,6 +95,9 @@ class Config(BaseSettings):
     # apps.api.src.config.RestConfig.FRONTEND_BASE_URL — раздельные настройки, так как это отдельный
     # процесс/деплоймент со своим .env, не общий конфиг с apps/api.
     FRONTEND_BASE_URL: str = Field(default_factory=str)
+    # Тот же смысл, что BILLING_LOW_BALANCE_THRESHOLD в apps/api: воркер списывает кредиты за
+    # результаты задач, поэтому именно он замечает пересечение порога.
+    BILLING_LOW_BALANCE_THRESHOLD: int = Field(default=5000, ge=0)
 
     REDIS: RedisConfig = Field(default_factory=RedisConfig)
     POSTGRES: PostgresConfig = Field(default_factory=PostgresConfig)

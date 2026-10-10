@@ -56,7 +56,7 @@ async def create_task(
     except InsufficientCreditsError as error:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail='Insufficient credits',
+            detail=error.detail,
         ) from error
     items = await task_service.get_task_items(task_id=task.id)
     return CreateTaskResponse.model_validate(
@@ -261,7 +261,7 @@ async def resume_task(
     except InsufficientCreditsError as error:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail='Insufficient credits',
+            detail=error.detail,
         ) from error
     except InvalidTaskTransitionError as error:
         raise HTTPException(
