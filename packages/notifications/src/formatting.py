@@ -194,10 +194,18 @@ def format_balance_low(payload: dict) -> str:
     return '\n'.join(lines)
 
 
+def format_sessions_depleted(payload: dict) -> str:
+    return (
+        f"🚨 Нет сессий по маркетплейсу {_escape(payload.get('marketplace'))}: пул пуст, "
+        'парсинг и прямые запросы по нему скоро встанут.'
+    )
+
+
 MESSAGE_FORMATTERS: dict[str, Callable[[dict], str]] = {
     'task.paused_insufficient_credits': format_task_paused_insufficient_credits,
     'billing.balance_depleted': format_balance_depleted,
     'billing.balance_low': format_balance_low,
+    'system.sessions_depleted': format_sessions_depleted,
     'automation.change_detected': format_automation_change_detected,
     'task.completed': format_task_completed,
     'task.failed': format_task_failed,

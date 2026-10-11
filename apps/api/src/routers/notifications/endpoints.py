@@ -24,6 +24,7 @@ from packages.notifications.src.exceptions import (
 from packages.notifications.src.service import NotificationService
 from packages.notifications.src.template_catalog import get_template_variables
 from packages.user.src.entities import UserEntity
+from packages.user.src.enums import UserRole
 
 router = APIRouter(prefix='/notifications', tags=['Notifications'])
 
@@ -31,12 +32,12 @@ router = APIRouter(prefix='/notifications', tags=['Notifications'])
 @router.get('/events')
 @inject
 async def list_events(
-    _current_user: UserEntity = Depends(get_current_user),
+    current_user: UserEntity = Depends(get_current_user),
     notification_service: NotificationService = Depends(
         Provide[DependencyContainer.notification_service],
     ),
 ) -> NotificationEventListResponse:
-    events = await notification_service.list_events()
+    events = await notification_service.list_events(is_admin=current_user.role == UserRole.ADMIN)
     return NotificationEventListResponse(
         items=[
             NotificationEventResponse(
@@ -83,6 +84,7 @@ async def update_preferences(
     try:
         setting = await notification_service.update_preferences(
             user_id=current_user.id,
+            is_admin=current_user.role == UserRole.ADMIN,
             preferences={
                 event_code: NotificationEventPreference(
                     channels=item.channels, fields=item.fields, template=item.template,

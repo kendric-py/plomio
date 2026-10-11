@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.repository import BaseRepository
 from packages.user.src.entities import UserEntity
+from packages.user.src.enums import UserRole
 from packages.user.src.models import User
 
 
@@ -23,6 +24,10 @@ class UserRepository(BaseRepository[User, UserEntity]):
         statement = select(self.model).order_by(self.model.id).limit(limit).offset(offset)
         database_objects = await self.session.scalars(statement)
         return self._to_entities(database_objects=database_objects)
+
+    async def get_ids_by_role(self, role: UserRole) -> list[int]:
+        statement = select(self.model.id).where(self.model.role == role).order_by(self.model.id)
+        return list(await self.session.scalars(statement))
 
     async def count(self) -> int:
         return await self.session.scalar(select(func.count(self.model.id)))

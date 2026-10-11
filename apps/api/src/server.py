@@ -13,6 +13,7 @@ from apps.api.src.jobs.automation_history_retention_sweep import (
     build_automation_history_retention_sweep_job,
 )
 from apps.api.src.jobs.automation_result_sweep import build_automation_result_sweep_job
+from apps.api.src.jobs.session_pool_alert import build_session_pool_alert_job
 from apps.api.src.jobs.task_expiry_sweep import build_task_expiry_sweep_job
 from apps.api.src.jobs.notification_delivery_sweep import build_notification_delivery_sweep_job
 from apps.api.src.jobs.task_lease_reclaim_sweep import build_task_lease_reclaim_sweep_job
@@ -125,6 +126,18 @@ def configure_rest_server() -> FastAPI:
                 cron_job_service=container.cron_job_service(),
             ),
         )
+        session_pool_alert_job = build_session_pool_alert_job(
+            store=container.session_pool_store(),
+            notification_service=container.notification_service(),
+        )
+        session_pool_alert_task = asyncio.create_task(
+            run_periodic(
+                job=CronJobName.SESSION_POOL_ALERT,
+                interval_seconds=config.WORKER_HEALTH.SWEEP_INTERVAL_SECONDS,
+                func=session_pool_alert_job,
+                cron_job_service=container.cron_job_service(),
+            ),
+        )
         # Long polling — временное решение (см. packages/notifications/AGENTS.md, "Привязка
         # Telegram"): безопасно только для одной реплики apps/api, в отличие от cron-джобов выше.
         # Пустой TELEGRAM_BOT_TOKEN — привязка Telegram выключена, задача не запускается.
@@ -146,6 +159,7 @@ def configure_rest_server() -> FastAPI:
         automation_result_sweep_task.cancel()
         automation_history_retention_sweep_task.cancel()
         notification_delivery_sweep_task.cancel()
+        session_pool_alert_task.cancel()
         if telegram_polling_task is not None:
             telegram_polling_task.cancel()
         await asyncio.gather(
@@ -156,6 +170,7 @@ def configure_rest_server() -> FastAPI:
             automation_result_sweep_task,
             automation_history_retention_sweep_task,
             notification_delivery_sweep_task,
+            session_pool_alert_task,
             *([telegram_polling_task] if telegram_polling_task is not None else []),
             return_exceptions=True,
         )

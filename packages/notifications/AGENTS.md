@@ -106,6 +106,16 @@
   миграция `b8e2d4f61a37`, шаблонные переменные — `template_catalog.py`, текст по умолчанию —
   `formatting.py`.
 
+- **`apps/api`** (`jobs/session_pool_alert.py`, cron `SESSION_POOL_ALERT`, интервал —
+  `config.WORKER_HEALTH.SWEEP_INTERVAL_SECONDS`) — в пуле нет живых сессий по маркетплейсу
+  (`SessionPoolStore.live_count == 0`): `NotificationService.notify_admins('system.sessions_depleted',
+  {'marketplace': ...})` — `notify` для каждого администратора, доставка создаётся только тем, кто сам
+  включил событие. Один алерт на опустошение: `SessionPoolStore.mark_depleted` (`SET NX
+  sessions:depleted:{marketplace}`) ставит пометку, `clear_depleted` снимает её, когда сессии вернулись
+  (и при сбое `notify_admins`, чтобы следующий проход попробовал снова). Событие **только для админов**:
+  `events.py::ADMIN_ONLY_EVENT_CODES` — `list_events(is_admin=False)` его скрывает, а
+  `update_preferences(is_admin=False)` отвечает как на неизвестное (`422`). Миграция `c4f8a1d7e2b9`.
+
 Вызовы — вне открытого `async with self.transaction_manager(...)`-блока вызывающего домена
 (после коммита его собственной транзакции), тот же принцип "композиции сервисов", что описан в
 [`packages/automation/AGENTS.md`](../automation/AGENTS.md#композиция-сервисов-и-транзакции):

@@ -87,6 +87,11 @@ TEMPLATE_VARIABLES: dict[str, dict[str, NotificationTemplateVariableEntity]] = {
             description='Ссылка на страницу биллинга в веб-интерфейсе',
         ),
     },
+    'system.sessions_depleted': {
+        'marketplace': NotificationTemplateVariableEntity(
+            description='Маркетплейс, по которому закончились сессии',
+        ),
+    },
     'task.failed': {
         'task_id': NotificationTemplateVariableEntity(description='Идентификатор задачи'),
         'error_reason': NotificationTemplateVariableEntity(description='Причина ошибки задачи'),

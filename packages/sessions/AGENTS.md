@@ -44,6 +44,9 @@
   наблюдались многоминутные простои перед тем, как воркер добирался до живой сессии. Поэтому
   `acquire_session` теперь в начале делает один `ZREMRANGEBYSCORE` (score < now) — массово выкидывает
   все уже протухшие элементы одним запросом, до того как пытаться `ZPOPMIN`.
+- `sessions:depleted:{marketplace}` — пометка «об опустевшем пуле уже сообщили» (`SET NX`,
+  `mark_depleted`/`clear_depleted`), без TTL: снимается, когда в пуле снова есть сессии. Нужна
+  `apps/api/src/jobs/session_pool_alert.py`, чтобы алерт уходил раз на опустошение, а не на каждый тик.
 - `{stream_prefix}:{marketplace}` — Redis Stream, **дополнение** к TTL-пулу выше, не замена —
   источник истины по тому, жива ли сессия, остаётся `session:{marketplace}:{id}` с TTL. См.
   `apps/worker_sessions/AGENTS.md` за полным обоснованием.

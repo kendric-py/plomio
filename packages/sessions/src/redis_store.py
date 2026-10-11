@@ -17,6 +17,10 @@ def _pool_key(marketplace: Marketplace) -> str:
     return f'sessions:pool:{marketplace.value}'
 
 
+def _depleted_key(marketplace: Marketplace) -> str:
+    return f'sessions:depleted:{marketplace.value}'
+
+
 def _stream_key(marketplace: Marketplace, stream_prefix: str) -> str:
     return f'{stream_prefix}:{marketplace.value}'
 
@@ -193,6 +197,16 @@ class SessionPoolStore:
             datetime.fromtimestamp(nearest[0][1], tz=timezone.utc) if nearest else None
         )
         return live_count, nearest_expires_at
+
+    async def mark_depleted(self, marketplace: Marketplace) -> bool:
+        """Атомарно (`SET NX`) помечает, что об опустевшем пуле уже сообщили. `True` — пометка
+        поставлена этим вызовом (уведомлять), `False` — уже стояла (повторно не уведомлять). Один
+        алерт на каждое опустошение, независимо от числа реплик `apps/api`."""
+        return bool(await self._client.set(_depleted_key(marketplace=marketplace), '1', nx=True))
+
+    async def clear_depleted(self, marketplace: Marketplace) -> None:
+        """Снимает пометку, когда в пуле снова есть сессии, — следующее опустошение уведомит снова."""
+        await self._client.delete(_depleted_key(marketplace=marketplace))
 
     async def close(self) -> None:
         await self._client.aclose()

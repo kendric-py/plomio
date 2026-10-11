@@ -10,6 +10,7 @@ from packages.notifications.src.entities import (
     NotificationSettingEntity,
 )
 from packages.notifications.src.enums import NotificationChannel, TelegramLinkOutcome
+from packages.notifications.src.events import ADMIN_ONLY_EVENT_CODES
 from packages.notifications.src.exceptions import (
     InvalidNotificationFieldFilterError,
     InvalidNotificationTemplateError,
@@ -20,6 +21,7 @@ from packages.notifications.src.telegram_client import TelegramNotifier
 from packages.notifications.src.telegram_link_store import TelegramLinkStore
 from packages.notifications.src.template_catalog import get_template_variables
 from packages.user.src.entities import UserEntity
+from packages.user.src.enums import UserRole
 
 
 def derive_gating_fields(template: str, event_code: str) -> set[str]:
@@ -110,6 +112,19 @@ class NotificationService:
             await self.transaction_manager.commit()
         return created_deliveries
 
+    async def notify_admins(self, event_code: str, payload: dict) -> int:
+        """`notify` для каждого администратора — для системных событий без «владельца» (например,
+        пустой пул сессий). Каждый админ получает доставку только если сам включил событие в своих
+        настройках. Возвращает число созданных доставок."""
+
+        async with self.transaction_manager(use_user_repository=True) as transaction:
+            admin_ids = await transaction.user_repository.get_ids_by_role(role=UserRole.ADMIN)
+        created_count = 0
+        for admin_id in admin_ids:
+            deliveries = await self.notify(user_id=admin_id, event_code=event_code, payload=payload)
+            created_count += len(deliveries)
+        return created_count
+
     async def get_preferences(self, user_id: int) -> NotificationSettingEntity:
         async with self.transaction_manager(
             use_notification_setting_repository=True,
@@ -121,7 +136,10 @@ class NotificationService:
         return setting
 
     async def update_preferences(
-        self, user_id: int, preferences: dict[str, NotificationEventPreference],
+        self,
+        user_id: int,
+        preferences: dict[str, NotificationEventPreference],
+        is_admin: bool = False,
     ) -> NotificationSettingEntity:
         async with self.transaction_manager(
             use_notification_event_repository=True,
@@ -132,6 +150,8 @@ class NotificationService:
                     event_code=event_code,
                 )
                 if event is None or not event.is_active:
+                    raise UnknownNotificationEventError
+                if event_code in ADMIN_ONLY_EVENT_CODES and not is_admin:
                     raise UnknownNotificationEventError
                 if preference.fields and not set(preference.fields) <= set(
                     event.available_fields or [],
@@ -201,9 +221,14 @@ class NotificationService:
             )
         return items, total
 
-    async def list_events(self) -> list[NotificationEventEntity]:
+    async def list_events(self, is_admin: bool = False) -> list[NotificationEventEntity]:
+        """Активные события каталога; события только для администраторов отдаются лишь им."""
         async with self.transaction_manager(use_notification_event_repository=True) as transaction:
-            return await transaction.notification_event_repository.list_active()
+            events = await transaction.notification_event_repository.list_active()
+        return [
+            event for event in events
+            if is_admin or event.event_code not in ADMIN_ONLY_EVENT_CODES
+        ]
 
     async def dispatch_pending(self, batch_size: int) -> dict:
         """One sweep pass over PENDING `NotificationDelivery` rows — the actual sending, run
