@@ -30,6 +30,22 @@ def test_overdue_filter_uses_dispatch_condition():
     assert 'pending_task_id IS NULL' in sql
 
 
+def test_overdue_filter_applies_grace():
+    from datetime import timedelta
+
+    sql_no_grace = _sql(AdminAutomationFilters(overdue=True))
+    sql_grace = _sql(AdminAutomationFilters(overdue=True, overdue_grace=timedelta(seconds=90)))
+    assert sql_grace != sql_no_grace
+    assert 'next_check_at <=' in sql_grace
+
+
+def test_overdue_grace_is_three_dispatch_ticks():
+    from apps.api.src.config import config
+    from apps.api.src.routers.automation_admin.dependencies import get_overdue_grace
+
+    assert get_overdue_grace().total_seconds() == 3 * config.AUTOMATION.DISPATCH_INTERVAL_SECONDS
+
+
 def test_overdue_false_is_not_a_filter():
     assert 'WHERE' not in _sql(AdminAutomationFilters(overdue=False))
 

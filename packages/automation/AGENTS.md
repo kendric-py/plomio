@@ -373,8 +373,10 @@ checked_at DESC)`, `WHERE rn <= 5`), а не по отдельному запр�
   админский вызов без проверки владельца.
 - `get_admin_summary(date_from, date_to)`: `active`/`paused`/`overdue`/`with_error` — состояние **на сейчас**,
   период не применяют; `checks`/`failed_checks` — тики `automation_check_log` за период по `checked_at`.
-  **Просроченная автоматизация** — `ACTIVE`, `next_check_at <= now()` и `pending_task_id IS NULL` — то же
-  условие, что у `claim_due_for_dispatch` (`_overdue_conditions`): диспетчер её ещё не взял.
+  **Просроченная автоматизация** — `ACTIVE`, `pending_task_id IS NULL` и `next_check_at <= now() - допуск`
+  (`_overdue_conditions`): условие `claim_due_for_dispatch` с допуском в три тика диспетчера
+  (`3 × config.AUTOMATION.DISPATCH_INTERVAL_SECONDS`, `routers/automation_admin/dependencies.py::get_overdue_grace`),
+  иначе окно между тиками (и очередь после массового добавления) выглядело бы просрочкой.
 
 ## Не входит в эту итерацию
 

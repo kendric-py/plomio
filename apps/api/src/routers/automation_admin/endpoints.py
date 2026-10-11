@@ -1,12 +1,17 @@
-from datetime import datetime, timezone
+from datetime import timedelta
 from uuid import UUID
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from apps.api.src.container import DependencyContainer
-from apps.api.src.routers.automation.schema import AutomationResponse
-from apps.api.src.routers.automation_admin.dependencies import get_admin_automation_filters
+from apps.api.src.routers.automation_admin.dependencies import (
+    automation_not_found,
+    build_detail_response,
+    build_item_response,
+    get_admin_automation_filters,
+    get_overdue_grace,
+)
 from apps.api.src.routers.automation_admin.schema import (
     AdminAutomationItemResponse,
     AdminAutomationListResponse,
@@ -19,8 +24,7 @@ from apps.api.src.routers.dependencies import get_date_range
 from apps.api.src.routers.schema import DateRange, PaginationMeta
 from apps.api.src.routers.task_admin.schema import AdminTaskNotificationResponse
 from core.exceptions import ObjectNotFoundError
-from packages.automation.src.entities import AdminAutomationFilters, AutomationEntity
-from packages.automation.src.enums import AutomationStatus
+from packages.automation.src.entities import AdminAutomationFilters
 from packages.automation.src.service import AutomationService
 from packages.notifications.src.service import NotificationService
 from packages.task.src.service import TaskService
@@ -29,31 +33,11 @@ from packages.user.src.entities import UserEntity
 admin_router = APIRouter(prefix='/admin/automations', tags=['Automations Admin'])
 
 
-def _not_found() -> HTTPException:
-    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Automation not found')
-
-
-def _is_overdue(automation: AutomationEntity) -> bool:
-    return (
-        automation.status == AutomationStatus.ACTIVE
-        and automation.pending_task_id is None
-        and automation.next_check_at <= datetime.now(tz=timezone.utc)
-    )
-
-
-def _item(automation: AutomationEntity) -> AdminAutomationItemResponse:
-    return AdminAutomationItemResponse(
-        **AutomationResponse.model_validate(obj=automation, from_attributes=True).model_dump(),
-        user_id=automation.user_id,
-        pending_task_id=automation.pending_task_id,
-        is_overdue=_is_overdue(automation),
-    )
-
-
 @admin_router.get('/summary')
 @inject
 async def get_automations_summary(
     date_range: DateRange = Depends(get_date_range),
+    overdue_grace: timedelta = Depends(get_overdue_grace),
     _current_admin: UserEntity = Depends(get_current_admin_user),
     task_service: TaskService = Depends(Provide[DependencyContainer.task_service]),
     automation_service: AutomationService = Depends(
@@ -65,6 +49,7 @@ async def get_automations_summary(
     )
     automation_summary = await automation_service.get_admin_summary(
         date_from=date_range.date_from, date_to=date_range.date_to,
+        overdue_grace=overdue_grace,
     )
     return AdminAutomationSummaryResponse.model_validate(
         obj={'automations': automation_summary, 'check_tasks': task_summary['automations']},
@@ -86,7 +71,10 @@ async def list_automations(
         filters=filters, limit=limit, offset=offset,
     )
     return AdminAutomationListResponse(
-        items=[_item(automation) for automation in automations],
+        items=[
+            build_item_response(automation=automation, grace=filters.overdue_grace)
+            for automation in automations
+        ],
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
     )
 
@@ -95,6 +83,7 @@ async def list_automations(
 @inject
 async def get_automation(
     automation_id: UUID,
+    overdue_grace: timedelta = Depends(get_overdue_grace),
     _current_admin: UserEntity = Depends(get_current_admin_user),
     automation_service: AutomationService = Depends(
         Provide[DependencyContainer.automation_service],
@@ -105,13 +94,9 @@ async def get_automation(
             automation_id=automation_id,
         )
     except ObjectNotFoundError as error:
-        raise _not_found() from error
-    return AdminAutomationResponse(
-        **AutomationResponse.model_validate(obj=automation, from_attributes=True).model_dump(),
-        last_info=last_info,
-        user_id=automation.user_id,
-        pending_task_id=automation.pending_task_id,
-        is_overdue=_is_overdue(automation),
+        raise automation_not_found() from error
+    return build_detail_response(
+        automation=automation, last_info=last_info, grace=overdue_grace,
     )
 
 
@@ -119,6 +104,7 @@ async def get_automation(
 @inject
 async def pause_automation(
     automation_id: UUID,
+    overdue_grace: timedelta = Depends(get_overdue_grace),
     _current_admin: UserEntity = Depends(get_current_admin_user),
     automation_service: AutomationService = Depends(
         Provide[DependencyContainer.automation_service],
@@ -127,14 +113,15 @@ async def pause_automation(
     try:
         automation = await automation_service.pause_automation(automation_id=automation_id)
     except ObjectNotFoundError as error:
-        raise _not_found() from error
-    return _item(automation)
+        raise automation_not_found() from error
+    return build_item_response(automation=automation, grace=overdue_grace)
 
 
 @admin_router.post('/{automation_id}/resume')
 @inject
 async def resume_automation(
     automation_id: UUID,
+    overdue_grace: timedelta = Depends(get_overdue_grace),
     _current_admin: UserEntity = Depends(get_current_admin_user),
     automation_service: AutomationService = Depends(
         Provide[DependencyContainer.automation_service],
@@ -143,8 +130,8 @@ async def resume_automation(
     try:
         automation = await automation_service.resume_automation(automation_id=automation_id)
     except ObjectNotFoundError as error:
-        raise _not_found() from error
-    return _item(automation)
+        raise automation_not_found() from error
+    return build_item_response(automation=automation, grace=overdue_grace)
 
 
 @admin_router.delete('/{automation_id}', status_code=status.HTTP_204_NO_CONTENT)
@@ -159,7 +146,7 @@ async def delete_automation(
     try:
         await automation_service.delete_automation(automation_id=automation_id)
     except ObjectNotFoundError as error:
-        raise _not_found() from error
+        raise automation_not_found() from error
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -180,7 +167,7 @@ async def list_automation_notifications(
     try:
         await automation_service.get_automation(automation_id=automation_id)
     except ObjectNotFoundError as error:
-        raise _not_found() from error
+        raise automation_not_found() from error
     items, total = await notification_service.list_deliveries_for_automation(
         automation_id=automation_id, limit=limit, offset=offset,
     )

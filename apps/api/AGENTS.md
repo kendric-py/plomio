@@ -159,7 +159,8 @@ REST API. Точка входа для клиентов (фронтенд, вн�
   `Depends(get_current_admin_user)`) — раздел «Автоматизации» админки (отдельно от «Задач»):
   - `GET /summary` — `AdminAutomationSummaryResponse`: `automations` (`active`/`paused`/`overdue`/`with_error` —
     на сейчас; `checks`/`failed_checks` — тики за период) и `check_tasks` (проверочные задачи по статусам за
-    период). **Просроченная автоматизация** — `ACTIVE`, `next_check_at <= now()`, `pending_task_id IS NULL`.
+    период). **Просроченная автоматизация** — `ACTIVE`, `pending_task_id IS NULL`, `next_check_at` опоздал больше чем на
+    три тика диспетчера (`3 × DISPATCH_INTERVAL_SECONDS`).
     Регистрируется **до** `/{automation_id}`.
   - `GET /` — автоматизации всех пользователей (`AdminAutomationListResponse`, `limit` 1..500, по умолчанию 50,
     новые сверху; элемент — `AutomationResponse` + `user_id`, `pending_task_id`, `is_overdue`). Фильтры (AND,

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import Select, func, or_, select, text, update
@@ -223,7 +223,7 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
         if filters.in_stock is not None:
             statement = statement.where(self.model.in_stock == filters.in_stock)
         if filters.overdue:
-            statement = statement.where(*self._overdue_conditions())
+            statement = statement.where(*self._overdue_conditions(grace=filters.overdue_grace))
         if filters.has_error:
             statement = statement.where(self.model.last_check_error.is_not(None))
         if filters.search:
@@ -241,12 +241,13 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
             statement = statement.where(self.model.created_at <= filters.date_to)
         return statement
 
-    def _overdue_conditions(self) -> tuple:
-        """Просроченные: активные, чей `next_check_at` уже наступил, а диспетчер ещё не взял их в
-        работу — то же условие, по которому `claim_due_for_dispatch` выбирает их к диспатчу."""
+    def _overdue_conditions(self, grace: timedelta) -> tuple:
+        """Просроченные: активные, чей `next_check_at` наступил больше чем `grace` назад, а
+        диспетчер так и не взял их в работу — условие `claim_due_for_dispatch` с допуском на его
+        тик (иначе автоматизация числилась бы просроченной в окне между тиками)."""
         return (
             self.model.status == AutomationStatus.ACTIVE,
-            self.model.next_check_at <= datetime.now(tz=timezone.utc),
+            self.model.next_check_at <= datetime.now(tz=timezone.utc) - grace,
             self.model.pending_task_id.is_(None),
         )
 
@@ -256,10 +257,11 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
         )
         return await self.session.scalar(statement)
 
-    async def count_overdue(self) -> int:
-        """Просроченные: активные, чей `next_check_at` уже наступил, а диспетчер ещё не взял их в
-        работу — то же условие, по которому `claim_due_for_dispatch` выбирает их к диспатчу."""
-        statement = select(func.count(self.model.id)).where(*self._overdue_conditions())
+    async def count_overdue(self, grace: timedelta) -> int:
+        """Просроченные — см. `_overdue_conditions`."""
+        statement = select(func.count(self.model.id)).where(
+            *self._overdue_conditions(grace=grace),
+        )
         return await self.session.scalar(statement)
 
     async def set_pending_task(self, automation_id: UUID, task_id: UUID) -> None:

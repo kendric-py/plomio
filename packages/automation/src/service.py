@@ -486,16 +486,18 @@ class AutomationService:
         self,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
+        overdue_grace: timedelta = timedelta(0),
     ) -> dict[str, int]:
         """Сводка автоматизаций для админки. `active`/`paused`/`overdue` — состояние на сейчас
-        (просрочка = `ACTIVE`, `next_check_at` наступил, диспетчер ещё не взял), не зависит от
-        периода; `checks`/`failed_checks` — тики проверок за период (`checked_at`)."""
+        (просрочка = `ACTIVE`, `next_check_at` опоздал больше чем на `overdue_grace`, диспетчер так и
+        не взял), не зависит от периода; `checks`/`failed_checks` — тики проверок за период
+        (`checked_at`)."""
         async with self.transaction_manager(
             use_automation_repository=True,
             use_automation_check_log_repository=True,
         ) as transaction:
             by_status = await transaction.automation_repository.count_by_status()
-            overdue = await transaction.automation_repository.count_overdue()
+            overdue = await transaction.automation_repository.count_overdue(grace=overdue_grace)
             with_error = await transaction.automation_repository.count_with_error()
             checks, failed_checks = await transaction.automation_check_log_repository.count_ticks(
                 date_from=date_from, date_to=date_to,

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
@@ -112,6 +112,9 @@ class AdminAutomationFilters(BaseModel):
     in_stock: Optional[bool] = None
     # True — только просроченные (ACTIVE, срок проверки наступил, диспетчер ещё не взял).
     overdue: Optional[bool] = None
+    # Допуск просрочки: срок проверки должен опоздать больше чем на это время, иначе окно между
+    # тиками диспетчера выглядит как просрочка.
+    overdue_grace: timedelta = timedelta(0)
     # True — только с ошибкой последней проверки.
     has_error: Optional[bool] = None
     # Подстрока в названии, артикуле или ссылке товара (без учёта регистра).
