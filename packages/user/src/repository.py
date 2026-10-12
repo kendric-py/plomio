@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import func, select
@@ -31,6 +32,16 @@ class UserRepository(BaseRepository[User, UserEntity]):
 
     async def count(self) -> int:
         return await self.session.scalar(select(func.count(self.model.id)))
+
+    async def count_created_since(self, since: datetime) -> int:
+        return await self.session.scalar(
+            select(func.count(self.model.id)).where(self.model.created_at >= since),
+        )
+
+    async def count_active_since(self, since: datetime) -> int:
+        return await self.session.scalar(
+            select(func.count(self.model.id)).where(self.model.last_active_at >= since),
+        )
 
     async def get_by_telegram_id(self, telegram_id: int) -> Optional[UserEntity]:
         statement = select(self.model).where(self.model.telegram_id == telegram_id)

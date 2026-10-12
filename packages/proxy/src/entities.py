@@ -47,6 +47,12 @@ class OutcomeCount(BaseModel):
     count: int = Field(description='Сколько раз встретился за период')
 
 
+class ProxyGenerationRate(BaseModel):
+    proxy_id: int = Field(description='Идентификатор прокси')
+    success: int = Field(description='Успешных генераций за период')
+    total: int = Field(description='Всего генераций за период (без антибот-ошибок)')
+
+
 class OutcomeDayCount(BaseModel):
     day: date = Field(description='День (UTC)')
     outcome: SessionGenerationOutcome = Field(description='Итог генерации')

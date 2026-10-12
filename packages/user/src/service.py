@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy.exc import IntegrityError
@@ -33,6 +34,14 @@ class UserService:
             users = await transaction.user_repository.get_page(limit=limit, offset=offset)
             total = await transaction.user_repository.count()
             return users, total
+
+    async def get_activity_counts(self, since: datetime) -> tuple[int, int, int]:
+        """`(всего пользователей, зарегистрировались с since, были активны с since)`."""
+        async with self.transaction_manager(use_user_repository=True) as transaction:
+            total = await transaction.user_repository.count()
+            created = await transaction.user_repository.count_created_since(since=since)
+            active = await transaction.user_repository.count_active_since(since=since)
+            return total, created, active
 
     async def update_profile(
         self,

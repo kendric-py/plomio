@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
+from core.entities import TimeBucketCount
+from core.enums import BucketUnit
 from core.exceptions import ObjectNotFoundError
 from core.transaction_manager import AsyncTransactionManager
 from packages.notifications.src.entities import (
@@ -9,7 +11,11 @@ from packages.notifications.src.entities import (
     NotificationEventPreference,
     NotificationSettingEntity,
 )
-from packages.notifications.src.enums import NotificationChannel, TelegramLinkOutcome
+from packages.notifications.src.enums import (
+    NotificationChannel,
+    NotificationDeliveryStatus,
+    TelegramLinkOutcome,
+)
 from packages.notifications.src.events import ADMIN_ONLY_EVENT_CODES
 from packages.notifications.src.exceptions import (
     InvalidNotificationFieldFilterError,
@@ -229,6 +235,24 @@ class NotificationService:
             event for event in events
             if is_admin or event.event_code not in ADMIN_ONLY_EVENT_CODES
         ]
+
+    async def get_delivery_counts(
+        self, date_from: datetime | None = None,
+    ) -> dict[NotificationDeliveryStatus, int]:
+        """Число уведомлений по статусам доставки (за период, если задан `date_from`)."""
+        async with self.transaction_manager(use_notification_delivery_repository=True) as transaction:
+            return await transaction.notification_delivery_repository.count_by_status(
+                date_from=date_from,
+            )
+
+    async def get_delivery_series(
+        self, date_from: datetime, unit: BucketUnit,
+    ) -> list[TimeBucketCount]:
+        """Уведомления по интервалам времени постановки в очередь; ключ — статус доставки."""
+        async with self.transaction_manager(use_notification_delivery_repository=True) as transaction:
+            return await transaction.notification_delivery_repository.count_by_bucket(
+                date_from=date_from, unit=unit,
+            )
 
     async def dispatch_pending(self, batch_size: int) -> dict:
         """One sweep pass over PENDING `NotificationDelivery` rows — the actual sending, run

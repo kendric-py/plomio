@@ -151,3 +151,7 @@ Guard перед новой работой — `BillingService.ensure_can_spend(
   разовый бонус при регистрации (`BILLING_SIGNUP_BONUS_CREDITS`, по умолчанию `0`).
 - Тарифы/подписки — намеренно нет; см. [`packages/membership`](../membership/AGENTS.md), отдельная
   и никак не связанная с этим доменная область.
+
+## Сводка «Обзор»
+
+Для страницы «Обзор»: `BillingService.get_spending_series` (списания всех пользователей по интервалам, ключ `spent`) и `count_low_balances` (пользователи с нулевым балансом и ниже порога `low_balance_threshold`). Подробнее — [`apps/api/AGENTS.md`](../../apps/api/AGENTS.md).

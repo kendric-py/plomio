@@ -393,3 +393,7 @@ webhook (`POST /api/notifications/telegram/webhook`, `config.REST.PUBLIC_BASE_UR
 (`payload.automation_id`), поставленный в течение `LEGACY_DELIVERY_WINDOW` (5 мин) после `finished_at`
 проверочной задачи (свип результатов отрабатывает за секунды). Эвристика действует только для доставок
 без `task_id`.
+
+## Сводка «Обзор»
+
+Для страницы «Обзор»: `NotificationService.get_delivery_counts` (счётчики по статусам, опционально за период) и `get_delivery_series` (уведомления по интервалам `created_at`, ключ — статус доставки). Подробнее — [`apps/api/AGENTS.md`](../../apps/api/AGENTS.md).

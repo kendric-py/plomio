@@ -3,6 +3,8 @@ import math
 from datetime import datetime, timezone
 from decimal import Decimal
 
+from core.entities import TimeBucketCount
+from core.enums import BucketUnit
 from core.exceptions import ObjectNotFoundError
 from core.transaction_manager import AsyncTransactionManager
 from packages.billing.src.entities import (
@@ -188,6 +190,23 @@ class BillingService:
         async with self.transaction_manager(use_credit_transaction_repository=True) as transaction:
             return await transaction.credit_transaction_repository.get_spending_stats(
                 date_from=date_from, date_to=date_to,
+            )
+
+    async def get_spending_series(
+        self, date_from: datetime, unit: BucketUnit,
+    ) -> list[TimeBucketCount]:
+        """Списания всех пользователей по интервалам времени (кредиты); ключ — `spent`."""
+        async with self.transaction_manager(use_credit_transaction_repository=True) as transaction:
+            return await transaction.credit_transaction_repository.get_spending_by_bucket(
+                date_from=date_from, unit=unit,
+            )
+
+    async def count_low_balances(self) -> tuple[int, int]:
+        """`(пользователей с нулевым балансом, пользователей с балансом ниже порога)`; порог — из
+        конфига (`low_balance_threshold`)."""
+        async with self.transaction_manager(use_credit_wallet_repository=True) as transaction:
+            return await transaction.credit_wallet_repository.count_balances(
+                low_threshold=self.low_balance_threshold,
             )
 
     async def get_balance(self, user_id: int) -> int:

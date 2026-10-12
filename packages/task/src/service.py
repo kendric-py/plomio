@@ -2,7 +2,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
 
-from core.enums import Marketplace
+from core.entities import TimeBucketCount
+from core.enums import BucketUnit, Marketplace
 from core.exceptions import ObjectNotFoundError
 from core.transaction_manager import AsyncTransactionManager
 from packages.billing.src.enums import PricingDimension, ReferenceType
@@ -585,6 +586,15 @@ class TaskService:
             group[status.value] += count
             group['total'] += count
         return summary
+
+    async def get_finished_series(
+        self, date_from: datetime, unit: BucketUnit,
+    ) -> list[TimeBucketCount]:
+        """Завершённые задачи (успех/ошибка) по интервалам времени завершения; ключ — статус."""
+        async with self.transaction_manager(use_task_repository=True) as transaction:
+            return await transaction.task_repository.count_finished_by_bucket(
+                date_from=date_from, unit=unit,
+            )
 
     async def ensure_task_owner(self, task_id: UUID, user_id: int) -> TaskEntity:
         async with self.transaction_manager(use_task_repository=True) as transaction:

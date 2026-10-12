@@ -1,13 +1,15 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from core.enums import Marketplace
+from core.entities import TimeBucketCount
+from core.enums import BucketUnit, Marketplace
 from core.transaction_manager import AsyncTransactionManager
 from core.exceptions import ObjectNotFoundError
 from packages.proxy.src.entities import (
     OutcomeCount,
     OutcomeDayCount,
     ProxyEntity,
+    ProxyGenerationRate,
     SessionGenerationEntity,
 )
 from packages.proxy.src.enums import ProxyType
@@ -153,6 +155,40 @@ class ProxyService:
                 marketplace=marketplace, date_from=date_from, date_to=date_to,
                 outcomes=[SessionGenerationOutcome.ANTIBOT_INIT], include_antibot=True,
             )
+
+    async def count_proxies(self) -> tuple[int, int]:
+        """`(активные, всего)` прокси."""
+        async with self.transaction_manager(use_proxy_repository=True) as transaction:
+            return await transaction.proxy_repository.count_active()
+
+    async def get_generation_series(
+        self, date_from: datetime, unit: BucketUnit,
+    ) -> list[TimeBucketCount]:
+        """Генерации сессий по интервалам времени (все прокси и маркетплейсы); ключ — итог."""
+        async with self.transaction_manager(use_session_generation_repository=True) as transaction:
+            return await transaction.session_generation_repository.count_by_bucket(
+                date_from=date_from, unit=unit,
+            )
+
+    async def get_worst_proxies(
+        self, date_from: datetime, limit: int, min_total: int,
+    ) -> list[tuple[ProxyEntity, ProxyGenerationRate]]:
+        """Прокси с наименьшей долей успеха за период (без антибот-ошибок), вместе с их данными.
+        Прокси, удалённые между запросами, пропускаются."""
+        async with self.transaction_manager(
+            use_proxy_repository=True, use_session_generation_repository=True,
+        ) as transaction:
+            rates = await transaction.session_generation_repository.worst_proxies(
+                date_from=date_from, limit=limit, min_total=min_total,
+            )
+            result = []
+            for rate in rates:
+                try:
+                    proxy = await transaction.proxy_repository.get_by_id(entity_id=rate.proxy_id)
+                except ObjectNotFoundError:
+                    continue
+                result.append((proxy, rate))
+            return result
 
     async def sweep_generation_retention(self, retention_days: int) -> int:
         """Удаляет генерации старше `retention_days`; возвращает число удалённых строк."""

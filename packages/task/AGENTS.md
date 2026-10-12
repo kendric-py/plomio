@@ -262,3 +262,7 @@ TTL: задача, не взятая в работу (`claim_next`) до ист�
 
 Хранение результатов парсинга (товары/отзывы) — отдельная доменная область `packages/result`.
 `packages/task` хранит только оркестрацию, не сами результаты.
+
+## Сводка «Обзор»
+
+`TaskService.get_finished_series` / `TaskRepository.count_finished_by_bucket` — завершённые задачи (`SUCCEEDED`/`FAILED`) по интервалам `finished_at` для страницы «Обзор» (`TimeBucketCount`, ключ — статус). Подробнее — [`apps/api/AGENTS.md`](../../apps/api/AGENTS.md).

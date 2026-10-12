@@ -1485,6 +1485,32 @@ null, до 20000 символов — оригинальная ошибка дл
 
 ---
 
+## `/api/admin/overview` — сводка по сайту (админ)
+
+### `GET /api/admin/overview/?window=1h|24h|7d` — главная страница админки
+
+Одна ручка вместо десятка запросов; фронтенд опрашивает её каждые 5–30 с. **Query**: `window` —
+окно (по умолчанию `24h`); шаг точек графиков: `1h` — минута, `24h` — час, `7d` — день.
+
+**Ответ**: `window`, `bucket_unit` (`minute`/`hour`/`day`), `date_from`, `generated_at` и блоки:
+- `workers` — `parser`/`sessions`: `online`, `missed`;
+- `tasks` — `queued`, `running` (сейчас), `succeeded`, `failed` (за окно), `series`;
+- `generations` — `total`, `success_percent`, `by_outcome` (`success`/`validation`/`proxy_unavailable`/
+  `other`/`antibot_init` → число), `series`, `pools[]` (как в `GET /api/sessions/pool`);
+- `proxies` — `active`, `total`, `worst[]` (`proxy_id`, `host`, `port`, `success`, `total`,
+  `success_percent`; от 5 генераций за окно, без антибота);
+- `notifications` — `pending` (сейчас), `sent`, `failed` (за окно), `series`;
+- `credits` — `spent`, `tasks_spent`, `automations_spent`, `direct_spent`, `zero_balance_users`,
+  `low_balance_users`, `low_balance_threshold`, `series`;
+- `automations` — `active`, `paused`, `overdue`, `with_error`, `checks`, `failed_checks`;
+- `users` — `total`, `new`, `active`.
+
+`series` — непрерывный ряд `[{bucket, values}]`: `values` содержит все ключи ряда (нули для пустых
+интервалов). Ключи: задачи — `SUCCEEDED`/`FAILED`; генерации — значения итога; уведомления —
+`SENT`/`FAILED`/`PENDING`; кредиты — `spent`.
+
+---
+
 ## `/api/marketplace` — прямые запросы
 
 Синхронные запросы к маркетплейсу: ответ приходит сразу, без задач и без сохранения в БД. Требуют

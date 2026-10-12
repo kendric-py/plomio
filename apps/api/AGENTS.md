@@ -245,6 +245,16 @@ REST API. Точка входа для клиентов (фронтенд, вн�
 `get_date_range`), общий для `GET /api/automations/` и `/with-history`; возвращает доменный
 `AutomationListFilters`.
 
+`routers/overview` (`GET /api/admin/overview?window=1h|24h|7d`, админ) — единая сводка для
+страницы «Обзор»: воркеры (Redis heartbeat), задачи, генерации сессий и пулы, прокси, уведомления,
+кредиты, автоматизации, пользователи. Роутер только собирает данные сервисов доменов (вызовы
+последовательные — у каждого сервиса своя сессия БД); временные ряды считают репозитории через
+`core/buckets.py::bucket_start` (`date_trunc` по UTC) и общую `core/entities.py::TimeBucketCount`.
+`overview/dependencies.py::build_series` достраивает пустые интервалы нулями, чтобы фронтенду не
+нужно было достраивать ось: окно `1h` — точки по минуте, `24h` — по часу, `7d` — по дню
+(`overview/dependencies.py::WINDOWS`). «Худшие прокси» — от 5 генераций за окно, без антибота.
+Реалтайм — опрос фронтенда, без WebSocket.
+
 Новый роутер домена: создать `routers/<domain>/endpoints.py` с `router = APIRouter(prefix='/<domain>',
 tags=[...])`, подключить в `routers/router.py` через `api_router.include_router(router=...)`. Если
 роутер использует `@inject`/`Provide[...]` (напрямую или через зависимость вроде `get_current_user`,

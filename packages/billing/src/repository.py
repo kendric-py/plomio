@@ -3,6 +3,9 @@ from datetime import datetime
 from sqlalchemy import Date, Select, and_, case, cast, func, literal, not_, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.buckets import bucket_start
+from core.entities import TimeBucketCount
+from core.enums import BucketUnit
 from core.exceptions import ObjectNotFoundError
 from core.repository import BaseRepository
 from packages.billing.src.entities import (
@@ -126,6 +129,16 @@ class CreditWalletRepository(BaseRepository[CreditWallet, CreditWalletEntity]):
         )
         rows = await self.session.execute(statement)
         return {row.user_id: row.balance for row in rows}
+
+    async def count_balances(self, low_threshold: int) -> tuple[int, int]:
+        """`(с нулевым или отрицательным балансом, с балансом ниже порога)`."""
+        row = (await self.session.execute(
+            select(
+                func.count().filter(self.model.balance <= 0),
+                func.count().filter(self.model.balance < low_threshold),
+            ).select_from(self.model),
+        )).one()
+        return row[0], row[1]
 
     async def adjust_balance(self, user_id: int, delta: int) -> int:
         """Applies `delta` to the wallet balance and returns the new balance. Caller must already
@@ -324,6 +337,23 @@ class CreditTransactionRepository(BaseRepository[CreditTransaction, CreditTransa
             self.model.created_at >= since,
         )
         return await self.session.scalar(statement)
+
+    async def get_spending_by_bucket(
+        self, date_from: datetime, unit: BucketUnit,
+    ) -> list[TimeBucketCount]:
+        """Списания всех пользователей по интервалам (кредиты, положительные); ключ — `spent`."""
+        bucket = bucket_start(self.model.created_at, unit).label('bucket')
+        statement = (
+            select(bucket, func.coalesce(func.sum(-self.model.amount), 0))
+            .where(self.model.amount < 0, self.model.created_at >= date_from)
+            .group_by(bucket)
+            .order_by(bucket)
+        )
+        rows = await self.session.execute(statement)
+        return [
+            TimeBucketCount(bucket=row_bucket, key='spent', count=total)
+            for row_bucket, total in rows
+        ]
 
     async def get_daily_spending(
         self, user_id: int, date_from: datetime | None, date_to: datetime | None,

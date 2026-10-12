@@ -5,6 +5,9 @@ from uuid import UUID
 from sqlalchemy import Select, case, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.buckets import bucket_start
+from core.entities import TimeBucketCount
+from core.enums import BucketUnit
 from core.exceptions import ObjectNotFoundError
 from core.repository import BaseRepository
 from packages.task.src.entities import AdminTaskFilters, TaskEntity, TaskItemEntity
@@ -150,6 +153,26 @@ class TaskRepository(BaseRepository[Task, TaskEntity]):
             statement = statement.where(self.model.created_at <= date_to)
         rows = await self.session.execute(statement)
         return [(row[0], bool(row[1]), row[2]) for row in rows]
+
+    async def count_finished_by_bucket(
+        self, date_from: datetime, unit: BucketUnit,
+    ) -> list[TimeBucketCount]:
+        """Завершённые задачи (`SUCCEEDED`/`FAILED`) по интервалам `finished_at`; ключ — статус."""
+        bucket = bucket_start(self.model.finished_at, unit).label('bucket')
+        statement = (
+            select(bucket, self.model.status, func.count(self.model.id))
+            .where(
+                self.model.finished_at >= date_from,
+                self.model.status.in_([TaskStatus.SUCCEEDED, TaskStatus.FAILED]),
+            )
+            .group_by(bucket, self.model.status)
+            .order_by(bucket)
+        )
+        rows = await self.session.execute(statement)
+        return [
+            TimeBucketCount(bucket=row_bucket, key=status.value, count=count)
+            for row_bucket, status, count in rows
+        ]
 
     async def reset_for_restart(self, task_id: UUID, queue_expires_at: datetime) -> TaskEntity:
         """Возвращает задачу в очередь: `QUEUED` + новый дедлайн, сброс финала, ошибки и аренды.

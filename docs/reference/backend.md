@@ -33,6 +33,10 @@
   (`from_attributes=True`) и обратно. Даёт `create`/`get_by_id`/`retrieve_all`/`update`/`delete`/
   `retrieve_all_by_filter`/`exists`. Репозиторий доменной области наследует его и добавляет
   специфичные для домена методы выборки (пример — `UserRepository` в `packages/user`).
+- **`core/buckets.py`**, **`core/entities.py`**, **`core/enums.py::BucketUnit`** — временные ряды:
+  `bucket_start(column, unit)` (`date_trunc` по UTC) для `GROUP BY` и `TimeBucketCount(bucket, key,
+  count)` — точка ряда, которую возвращают репозитории (пустые интервалы не отдают, нули
+  достраивает вызывающий — см. `apps/api/src/routers/overview`).
 - **`core/transaction_manager.py`** — `AsyncTransactionManager(session_factory)`: асинхронный
   контекст-менеджер, на входе в `async with` открывает `AsyncSession` и поднимает только запрошенные
   репозитории (`transaction_manager(use_user_repository=True)`), на выходе — коммитит и закрывает

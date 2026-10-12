@@ -4,6 +4,9 @@ from uuid import UUID
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.buckets import bucket_start
+from core.entities import TimeBucketCount
+from core.enums import BucketUnit
 from core.repository import BaseRepository
 from packages.notifications.src.entities import (
     NotificationDeliveryEntity,
@@ -151,6 +154,31 @@ class NotificationDeliveryRepository(
     async def count_by_user_id(self, user_id: int) -> int:
         statement = select(func.count(self.model.id)).where(self.model.user_id == user_id)
         return await self.session.scalar(statement)
+
+    async def count_by_status(
+        self, date_from: datetime | None = None,
+    ) -> dict[NotificationDeliveryStatus, int]:
+        """Число уведомлений по статусам; с `date_from` — только созданные с этого момента."""
+        statement = select(self.model.status, func.count(self.model.id)).group_by(self.model.status)
+        if date_from is not None:
+            statement = statement.where(self.model.created_at >= date_from)
+        rows = await self.session.execute(statement)
+        return {status: count for status, count in rows}
+
+    async def count_by_bucket(self, date_from: datetime, unit: BucketUnit) -> list[TimeBucketCount]:
+        """Уведомления по интервалам `created_at`; ключ — статус доставки."""
+        bucket = bucket_start(self.model.created_at, unit).label('bucket')
+        statement = (
+            select(bucket, self.model.status, func.count(self.model.id))
+            .where(self.model.created_at >= date_from)
+            .group_by(bucket, self.model.status)
+            .order_by(bucket)
+        )
+        rows = await self.session.execute(statement)
+        return [
+            TimeBucketCount(bucket=row_bucket, key=status.value, count=count)
+            for row_bucket, status, count in rows
+        ]
 
     async def claim_pending(self, limit: int) -> list[NotificationDeliveryEntity]:
         """Locks up to `limit` oldest PENDING deliveries (`FOR UPDATE SKIP LOCKED`) for the
