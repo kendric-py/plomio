@@ -5,12 +5,13 @@ from concurrent.futures import ThreadPoolExecutor
 from apps.worker_sessions.src.config import config
 from apps.worker_sessions.src.entities import ProxyConfig, SessionMessage
 from apps.worker_sessions.src.enums import WorkerSessionsStatus
-from apps.worker_sessions.src.exceptions import BrowserInitError
+from apps.worker_sessions.src.exceptions import BrowserInitError, JsRuntimeError
 from apps.worker_sessions.src.generation.marketplaces.registry import build_session
 from apps.worker_sessions.src.generation.process_reaper import run_process_reaper
-from apps.worker_sessions.src.generation.validation import validate_session
+from apps.worker_sessions.src.generation.validation import find_validation_error
 from apps.worker_sessions.src.proxy.client import ProxyRotator
 from core.enums import Marketplace
+from packages.sessions.src.errors import SessionErrorKind
 from packages.sessions.src.redis_store import SessionPoolStore
 from packages.worker_health.src.liveness_reporter import LivenessReporter
 
@@ -19,11 +20,21 @@ logger = logging.getLogger(__name__)
 
 def _build_and_validate(
     marketplace: Marketplace, proxy: ProxyConfig | None,
-) -> tuple[bool, SessionMessage]:
+) -> tuple[SessionErrorKind | None, SessionMessage]:
     """Runs on a worker thread: blocking Camoufox init + blocking curl_cffi validation
-    request. Returns whether the session passed validation, and the session itself."""
+    request. Returns why the session failed validation (`None` — it passed), and the session."""
     session_message = build_session(marketplace=marketplace, proxy=proxy)
-    return validate_session(session_message=session_message), session_message
+    return find_validation_error(session_message=session_message), session_message
+
+
+async def _record_error(
+    store: SessionPoolStore, marketplace: Marketplace, kind: SessionErrorKind,
+) -> None:
+    """Статистика ошибок — вспомогательная: её сбой не должен ломать цикл генерации."""
+    try:
+        await store.record_error(marketplace=marketplace, kind=kind)
+    except Exception:
+        logger.exception('[record_error_failed] marketplace=%s kind=%s', marketplace, kind)
 
 
 async def _generator_worker(
@@ -48,6 +59,10 @@ async def _generator_worker(
                 liveness.set_status(status=WorkerSessionsStatus.WAITING_FOR_PROXY.value)
                 proxy = await rotator.acquire()
                 if proxy is None:
+                    await _record_error(
+                        store=store, marketplace=marketplace,
+                        kind=SessionErrorKind.PROXY_UNAVAILABLE,
+                    )
                     logger.warning(
                         '[proxy_unavailable] %s no proxy available, retrying soon', worker_tag,
                     )
@@ -55,10 +70,10 @@ async def _generator_worker(
                     continue
 
             liveness.set_status(status=WorkerSessionsStatus.GENERATING.value)
-            valid, session_message = await loop.run_in_executor(
+            validation_error, session_message = await loop.run_in_executor(
                 executor, _build_and_validate, marketplace, proxy,
             )
-            if valid:
+            if validation_error is None:
                 await store.save(
                     session_message=session_message,
                     ttl_ms=config.GENERATION.TTL_MS,
@@ -66,15 +81,26 @@ async def _generator_worker(
                     stream_maxlen=config.SESSIONS_STREAM.MAXLEN,
                 )
             else:
+                await _record_error(
+                    store=store, marketplace=marketplace, kind=validation_error,
+                )
                 logger.warning(
                     '[session_dropped] %s marketplace=%s session_id=%s — failed validation',
                     worker_tag, marketplace, session_message.session_id,
                 )
             liveness.set_status(status=WorkerSessionsStatus.READY.value)
         except BrowserInitError as exc:
+            await _record_error(
+                store=store, marketplace=marketplace, kind=SessionErrorKind.ANTIBOT_INIT,
+            )
             logger.error('[browser_init_failed] %s error=%s', worker_tag, exc)
             liveness.set_status(status=WorkerSessionsStatus.READY.value)
-        except Exception:
+        except Exception as exc:
+            kind = (
+                SessionErrorKind.ANTIBOT_INIT
+                if isinstance(exc, JsRuntimeError) else SessionErrorKind.OTHER
+            )
+            await _record_error(store=store, marketplace=marketplace, kind=kind)
             logger.exception('[generator_worker_error] %s', worker_tag)
             liveness.set_status(status=WorkerSessionsStatus.READY.value)
             await asyncio.sleep(5)

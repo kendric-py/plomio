@@ -47,6 +47,14 @@
 - `sessions:depleted:{marketplace}` — пометка «об опустевшем пуле уже сообщили» (`SET NX`,
   `mark_depleted`/`clear_depleted`), без TTL: снимается, когда в пуле снова есть сессии. Нужна
   `apps/api/src/jobs/session_pool_alert.py`, чтобы алерт уходил раз на опустошение, а не на каждый тик.
+- `sessions:errors:{marketplace}` — `LIST` последних `SESSION_ERRORS_KEEP` (10) неудачных попыток
+  генерации, новые слева (`record_error` — `LPUSH` + `LTRIM`, пишет `apps/worker_sessions`;
+  `get_recent_errors` читает `apps/api`). В списке только тип ошибки (`errors.py::SessionErrorKind`:
+  `antibot_init` — не прошёл антибот/упала инициализация браузера или js_runtime, `validation` —
+  сессия заблокирована при проверке запросом к API маркетплейса, `proxy_unavailable` — нет прокси
+  или запрос валидации не дошёл до маркетплейса, `other`); успехи не пишутся. `errors.py::group_errors`
+  группирует их в доли (`SessionErrorShare`: тип, название, число, процент) для API и уведомления,
+  `format_errors_text` — текст «Тип — N %» для переменной `{errors_text}`.
 - `{stream_prefix}:{marketplace}` — Redis Stream, **дополнение** к TTL-пулу выше, не замена —
   источник истины по тому, жива ли сессия, остаётся `session:{marketplace}:{id}` с TTL. См.
   `apps/worker_sessions/AGENTS.md` за полным обоснованием.

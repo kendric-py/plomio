@@ -22,6 +22,7 @@ from apps.worker_sessions.src.generation.marketplaces.wb.constants import (
 )
 from apps.worker_sessions.src.generation.marketplaces.wb.utils import is_wb_blocked_response
 from core.enums import Marketplace
+from packages.sessions.src.errors import SessionErrorKind
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ def _build_curl_session(
     return session
 
 
-def _validate_wb(session_message: SessionMessage) -> bool:
+def _validate_wb(session_message: SessionMessage) -> SessionErrorKind | None:
     """Replays the same request sequence WB's search fetcher makes (homepage warmup, then the
     real search API with real params) — catches sessions that get blocked on the API even
     though they'd pass a homepage-only check."""
@@ -105,7 +106,7 @@ def _validate_wb(session_message: SessionMessage) -> bool:
         )
     except Exception as exc:
         logger.warning('[validation_failed] marketplace=wildberries error=%s', exc)
-        return False
+        return SessionErrorKind.PROXY_UNAVAILABLE
 
     content_type = response.headers.get('content-type', '')
     body_prefix = response.text[:2000].lower()
@@ -116,12 +117,12 @@ def _validate_wb(session_message: SessionMessage) -> bool:
         logger.warning(
             '[validation_blocked] marketplace=wildberries status=%d', response.status_code,
         )
-        return False
+        return SessionErrorKind.VALIDATION
     logger.info('[validation_passed] marketplace=wildberries status=%d', response.status_code)
-    return True
+    return None
 
 
-def _validate_ozon(session_message: SessionMessage) -> bool:
+def _validate_ozon(session_message: SessionMessage) -> SessionErrorKind | None:
     """Replays the same request sequence Ozon's search fetcher makes (search-page navigation
     warmup, then the real entrypoint-api search) — catches sessions that get blocked on the
     API even though they'd pass a homepage-only check.
@@ -184,7 +185,7 @@ def _validate_ozon(session_message: SessionMessage) -> bool:
         )
     except Exception as exc:
         logger.warning('[validation_failed] marketplace=ozon error=%s', exc)
-        return False
+        return SessionErrorKind.PROXY_UNAVAILABLE
 
     content_type = response.headers.get('content-type', '')
     body_prefix = response.text[:2000].lower()
@@ -193,16 +194,22 @@ def _validate_ozon(session_message: SessionMessage) -> bool:
     )
     if is_blocked:
         logger.warning('[validation_blocked] marketplace=ozon status=%d', response.status_code)
-        return False
+        return SessionErrorKind.VALIDATION
     logger.info('[validation_passed] marketplace=ozon status=%d', response.status_code)
-    return True
+    return None
 
 
-_VALIDATORS: dict[Marketplace, Callable[[SessionMessage], bool]] = {
+_VALIDATORS: dict[Marketplace, Callable[[SessionMessage], SessionErrorKind | None]] = {
     Marketplace.WILDBERRIES: _validate_wb,
     Marketplace.OZON: _validate_ozon,
 }
 
 
-def validate_session(session_message: SessionMessage) -> bool:
+def find_validation_error(session_message: SessionMessage) -> SessionErrorKind | None:
+    """`None` — сессия прошла проверку. Иначе причина: запрос не дошёл до маркетплейса
+    (прокси/сеть, `PROXY_UNAVAILABLE`) или маркетплейс заблокировал сессию (`VALIDATION`)."""
     return _VALIDATORS[session_message.marketplace](session_message)
+
+
+def validate_session(session_message: SessionMessage) -> bool:
+    return find_validation_error(session_message=session_message) is None

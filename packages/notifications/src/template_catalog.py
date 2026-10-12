@@ -91,6 +91,17 @@ TEMPLATE_VARIABLES: dict[str, dict[str, NotificationTemplateVariableEntity]] = {
         'marketplace': NotificationTemplateVariableEntity(
             description='Маркетплейс, по которому закончились сессии',
         ),
+        'errors_text': NotificationTemplateVariableEntity(
+            description='Последние ошибки генерации сессий по типам, в процентах (по строке на тип)',
+        ),
+    },
+    'system.sessions_restored': {
+        'marketplace': NotificationTemplateVariableEntity(
+            description='Маркетплейс, по которому снова появились сессии',
+        ),
+        'live_count': NotificationTemplateVariableEntity(
+            description='Сколько живых сессий в пуле сейчас',
+        ),
     },
     'task.failed': {
         'task_id': NotificationTemplateVariableEntity(description='Идентификатор задачи'),

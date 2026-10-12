@@ -208,6 +208,14 @@ REST API. Точка входа для клиентов (фронтенд, вн�
   → `UnknownNotificationEventError` → `422`), `GET /deliveries` (read-only постраничный журнал —
   доставки создаются только доменом, не пользователем).
 
+- `routers/sessions/{endpoints,dependencies,schema}.py` (`/api/sessions`): `GET /pool` — по каждому
+  маркетплейсу `live_count`, `nearest_expires_at` и последние ошибки генерации сессий
+  (`recent_errors_total` до 10 + `recent_errors[]`: тип, название, число, процент — сгруппировано
+  `packages/sessions/src/errors.py::group_errors`); сборку элемента делает
+  `dependencies.py::build_marketplace_pool`. Джоб `SESSION_POOL_ALERT` шлёт админам
+  `system.sessions_depleted` (с разбивкой ошибок) и `system.sessions_restored` — см.
+  [`packages/notifications/AGENTS.md`](../../packages/notifications/AGENTS.md).
+
 - `routers/direct/{endpoints,dependencies,schema,errors}.py` (`endpoints.py` — только обработчики;
   обмен с воркером, `page_key`, проверка баланса и списание — в `dependencies.py`) (`/api/marketplace`, tag `Marketplace`, всё с
   `Depends(get_current_user)`; см. [`packages/direct/AGENTS.md`](../../packages/direct/AGENTS.md)):

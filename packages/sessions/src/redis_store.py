@@ -5,6 +5,7 @@ from core.configs import RedisConfig
 from core.enums import Marketplace
 from core.redis import get_redis_client
 from packages.sessions.src.entities import SessionMessage
+from packages.sessions.src.errors import SESSION_ERRORS_KEEP, SessionErrorKind
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,10 @@ def _pool_key(marketplace: Marketplace) -> str:
 
 def _depleted_key(marketplace: Marketplace) -> str:
     return f'sessions:depleted:{marketplace.value}'
+
+
+def _errors_key(marketplace: Marketplace) -> str:
+    return f'sessions:errors:{marketplace.value}'
 
 
 def _stream_key(marketplace: Marketplace, stream_prefix: str) -> str:
@@ -204,9 +209,32 @@ class SessionPoolStore:
         алерт на каждое опустошение, независимо от числа реплик `apps/api`."""
         return bool(await self._client.set(_depleted_key(marketplace=marketplace), '1', nx=True))
 
-    async def clear_depleted(self, marketplace: Marketplace) -> None:
-        """Снимает пометку, когда в пуле снова есть сессии, — следующее опустошение уведомит снова."""
-        await self._client.delete(_depleted_key(marketplace=marketplace))
+    async def clear_depleted(self, marketplace: Marketplace) -> bool:
+        """Снимает пометку, когда в пуле снова есть сессии, — следующее опустошение уведомит снова.
+        `True` — пометка стояла и снята этим вызовом (сессии только что вернулись)."""
+        return bool(await self._client.delete(_depleted_key(marketplace=marketplace)))
+
+    async def record_error(self, marketplace: Marketplace, kind: SessionErrorKind) -> None:
+        """Пишет неудачную попытку генерации (`worker_sessions`): список `sessions:errors:{mp}` держит
+        только последние `SESSION_ERRORS_KEEP` ошибок, новые слева."""
+        key = _errors_key(marketplace=marketplace)
+        async with self._client.pipeline(transaction=True) as pipeline:
+            pipeline.lpush(key, kind.value)
+            pipeline.ltrim(key, 0, SESSION_ERRORS_KEEP - 1)
+            await pipeline.execute()
+
+    async def get_recent_errors(self, marketplace: Marketplace) -> list[SessionErrorKind]:
+        """Последние ошибки генерации, новые первыми; неизвестные значения пропускаются."""
+        raw_values = await self._client.lrange(
+            _errors_key(marketplace=marketplace), 0, SESSION_ERRORS_KEEP - 1,
+        )
+        kinds = []
+        for raw_value in raw_values:
+            try:
+                kinds.append(SessionErrorKind(raw_value.decode('utf-8')))
+            except ValueError:
+                continue
+        return kinds
 
     async def close(self) -> None:
         await self._client.aclose()

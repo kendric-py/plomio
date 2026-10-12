@@ -38,6 +38,13 @@ apps.worker_sessions.src`.
    на уровне API, а не только главной страницы.
 5. Валидную сессию сохраняет в Redis (`SessionPoolStore.save`, `packages/sessions`).
 
+Каждая неудачная попытка (нет прокси, сбой антибота/инициализации браузера или js_runtime, сессия не
+прошла валидацию, прочее) пишется в `sessions:errors:{marketplace}` через
+`SessionPoolStore.record_error` с типом `SessionErrorKind` — админка показывает последние 10 по
+типам в процентах. Валидация различает причины: запрос не дошёл до маркетплейса (исключение curl,
+`PROXY_UNAVAILABLE`) и маркетплейс заблокировал сессию (`VALIDATION`) — `validation.py::
+find_validation_error`. Сбой самой записи статистики цикл генерации не ломает.
+
 **Прогретые браузеры** (`generation/browser.py::_BrowserPool`): запуск Firefox — главная фиксированная
 стоимость генерации, поэтому один процесс Camoufox живёт на прокси и обслуживает до
 `GENERATION_BROWSER_MAX_USES` сессий, каждая — в новом изолированном `context` (куки не пересекаются).

@@ -2,7 +2,8 @@ from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends
 
 from apps.api.src.container import DependencyContainer
-from apps.api.src.routers.sessions.schema import MarketplaceSessionPool, SessionPoolResponse
+from apps.api.src.routers.sessions.dependencies import build_marketplace_pool
+from apps.api.src.routers.sessions.schema import SessionPoolResponse
 from core.enums import Marketplace
 from packages.sessions.src.redis_store import SessionPoolStore
 
@@ -14,14 +15,8 @@ router = APIRouter(prefix='/sessions', tags=['Sessions'])
 async def get_session_pool(
     store: SessionPoolStore = Depends(Provide[DependencyContainer.session_pool_store]),
 ) -> SessionPoolResponse:
-    pools = []
-    for marketplace in Marketplace:
-        live_count, nearest_expires_at = await store.get_pool_stats(marketplace)
-        pools.append(
-            MarketplaceSessionPool(
-                marketplace=marketplace,
-                live_count=live_count,
-                nearest_expires_at=nearest_expires_at,
-            ),
-        )
+    pools = [
+        await build_marketplace_pool(store=store, marketplace=marketplace)
+        for marketplace in Marketplace
+    ]
     return SessionPoolResponse(marketplaces=pools)
