@@ -498,13 +498,15 @@ Query: `limit` (1..500, по умолчанию 100), `offset` (≥0, по ум�
 - `price_from` / `price_to` — текущая цена `price_kopecks` (без скидки), в копейках, границы
   включительные, `price_from > price_to` → `422`; автоматизации без успешной проверки (цена `null`)
   при заданном фильтре не попадают в выдачу;
+- `search` — поиск по названию или артикулу товара: подстрока без учёта регистра, до 200 символов,
+  пробелы по краям отбрасываются, `%` и `_` ищутся как обычные символы;
 - `date_from` / `date_to` — [фильтр по датам](#фильтр-по-датам), по `created_at`.
 
 **Ответ `200`** (`AutomationListResponse`): `{ "items": [ /* AutomationResponse */ ], "meta": { ... } }`.
 
 ### `GET /api/automations/with-history` — список автоматизаций с последними проверками
 
-Query: `limit`, `offset`, `status`, `in_stock`, `price_from`/`price_to`, `date_from`/`date_to` — те
+Query: `limit`, `offset`, `status`, `in_stock`, `price_from`/`price_to`, `search`, `date_from`/`date_to` — те
 же, что у `GET /api/automations/`, применяются к списку автоматизаций, не к историям внутри него.
 
 Удобно для дашборда списка автоматизаций, где под каждой карточкой сразу нужен мини-график/индикатор

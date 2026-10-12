@@ -91,12 +91,14 @@ class AutomationEntity(BaseModel):
 
 class AutomationListFilters(BaseModel):
     """Опциональные фильтры списка автоматизаций пользователя; `None` — фильтр не задан. Цены — в
-    копейках, границы включительные; период — по `created_at`."""
+    копейках, границы включительные; период — по `created_at`. `search` — подстрока без учёта
+    регистра в названии или артикуле товара."""
 
     status: Optional[AutomationStatus] = None
     in_stock: Optional[bool] = None
     price_from: Optional[int] = None
     price_to: Optional[int] = None
+    search: Optional[str] = None
     date_from: Optional[datetime] = None
     date_to: Optional[datetime] = None
 

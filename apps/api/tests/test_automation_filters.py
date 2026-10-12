@@ -14,6 +14,7 @@ def _filters(**overrides):
         'in_stock': None,
         'price_from': None,
         'price_to': None,
+        'search': None,
         'date_range': DateRange(),
     }
     return get_automation_filters(**{**params, **overrides})
@@ -26,6 +27,7 @@ def test_defaults_are_all_none():
         'in_stock': None,
         'price_from': None,
         'price_to': None,
+        'search': None,
         'date_from': None,
         'date_to': None,
     }
@@ -44,6 +46,11 @@ def test_values_are_passed_through():
     assert filters.in_stock is False
     assert (filters.price_from, filters.price_to) == (100, 500)
     assert filters.date_from == date_from
+
+
+def test_search_is_trimmed_and_blank_is_ignored():
+    assert _filters(search='  кроссовки ').search == 'кроссовки'
+    assert _filters(search='   ').search is None
 
 
 def test_price_from_greater_than_price_to_is_rejected():

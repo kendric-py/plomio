@@ -21,6 +21,10 @@ def get_automation_filters(
     price_to: int | None = Query(
         default=None, ge=0, description='Текущая цена до, в копейках (включительно)',
     ),
+    search: str | None = Query(
+        default=None, max_length=200,
+        description='Поиск по названию или артикулу товара (подстрока, без учёта регистра)',
+    ),
     date_range: DateRange = Depends(get_date_range),
 ) -> AutomationListFilters:
     """Опциональные фильтры списка автоматизаций — общие для `GET /` и `GET /with-history`."""
@@ -34,6 +38,7 @@ def get_automation_filters(
         in_stock=in_stock,
         price_from=price_from,
         price_to=price_to,
+        search=search.strip() if search and search.strip() else None,
         date_from=date_range.date_from,
         date_to=date_range.date_to,
     )

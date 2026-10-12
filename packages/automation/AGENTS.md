@@ -294,7 +294,8 @@ tasks (..., automation_id) VALUES (...)`, эта вторая сессия за�
 чужой/несуществующей автоматизации, как в `packages/task`).
 
 `GET /` и `GET /with-history` принимают опциональные фильтры `status`, `in_stock`,
-`price_from`/`price_to` (по `Automation.price_kopecks`, копейки) и `date_from`/`date_to` (по
+`price_from`/`price_to` (по `Automation.price_kopecks`, копейки), `search` (подстрока без учёта
+регистра в `name` или `article`; `%`/`_` экранируются) и `date_from`/`date_to` (по
 `created_at`), все границы включительные. Домену они передаются одним `AutomationListFilters`
 (`entities.py`) → `list_automations`/`list_automations_with_recent_checks` →
 `AutomationRepository.get_by_user_id`/`count_by_user_id`, общие условия — в `_apply_user_filters`.

@@ -326,6 +326,16 @@ class AutomationRepository(BaseRepository[Automation, AutomationEntity]):
             statement = statement.where(self.model.price_kopecks >= filters.price_from)
         if filters.price_to is not None:
             statement = statement.where(self.model.price_kopecks <= filters.price_to)
+        if filters.search:
+            # `%` и `_` в тексте пользователя — обычные символы, а не шаблон LIKE.
+            escaped = filters.search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+            pattern = f'%{escaped}%'
+            statement = statement.where(
+                or_(
+                    self.model.name.ilike(pattern, escape='\\'),
+                    self.model.article.ilike(pattern, escape='\\'),
+                ),
+            )
         if filters.date_from is not None:
             statement = statement.where(self.model.created_at >= filters.date_from)
         if filters.date_to is not None:
