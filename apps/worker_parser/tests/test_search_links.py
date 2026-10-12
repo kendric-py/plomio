@@ -102,10 +102,24 @@ def test_ozon_link_keeps_filters_and_drops_pagination_state():
     ])
 
 
+def test_ozon_predicted_category_link_is_a_search():
+    link = (
+        'https://www.ozon.ru/category/odezhda-obuv-i-aksessuary-7500/?category_was_predicted=true'
+        '&deny_category_prediction=true&from_global=true&sorting=price&text=%D0%BF%D0%B8%D0%B6%D0%B0%D0%BC%D0%B0'
+    )
+    relative = build_ozon_search_relative_url(link)
+    assert relative.startswith('/category/odezhda-obuv-i-aksessuary-7500/?')
+    assert sorted(ozon_query(relative)) == sorted([
+        ('category_was_predicted', 'true'), ('deny_category_prediction', 'true'),
+        ('from_global', 'true'), ('sorting', 'price'), ('text', 'пижама'),
+    ])
+
+
 @pytest.mark.parametrize('link', [
     'https://evil.example/search/?text=q',
     'https://www.ozon.ru.evil.example/search/?text=q',
-    'https://www.ozon.ru/category/obuv-17777/?text=q',
+    'https://www.ozon.ru/category/obuv-17777/',
+    'https://www.ozon.ru/product/n-5/?text=q',
     'https://www.ozon.ru/search/',
 ])
 def test_ozon_bad_link_is_invalid_input(link):

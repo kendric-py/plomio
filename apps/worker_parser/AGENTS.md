@@ -62,7 +62,7 @@ Ozon-пагинация: `next_url == null` = исчерпано. WB-пагин�
   без них не трогаем, `WB_SEARCH_LINK_IGNORED_PARAMS` — то, что задаёт воркер (`page`, `dest`, `appType`,
   `spp`, ...). С фильтрами `inheritFilters=true`, как у сайта (без них — `false`, как раньше). Разбор
   выполняется на каждой странице (курсор несёт только `page_num`).
-- **Ozon** (`ozon.utils.build_ozon_search_relative_url`): путь должен быть `/search/` с `text`; параметры
+- **Ozon** (`ozon.utils.build_ozon_search_relative_url`): путь `/search/` или `/category/...` (так выглядит ссылка после редиректа Ozon в предсказанную категорию) с `text`; параметры
   (`currency_price`, `sorting`, ...) уходят в `entrypoint-api` в `url=` как есть, кроме пагинации и состояния
   страницы (`OZON_SEARCH_LINK_IGNORED_PARAMS`: `page`, `paginator_token`, `search_page_state`, ...). Ozon может
   редиректить поиск в категорию (`/category/...`) — фильтры при этом сохраняются, пагинация идёт по `nextPage`.

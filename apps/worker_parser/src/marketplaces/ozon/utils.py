@@ -23,8 +23,11 @@ def build_ozon_search_relative_url(value: str) -> str:
     parsed = urlparse(value)
     if parsed.hostname not in OZON_HOSTS:
         raise InputResolutionError(f'not an ozon link: {value[:80]!r}')
-    if parsed.path.rstrip('/') != '/search':
-        raise InputResolutionError('ozon search link must point to /search/')
+    path = parsed.path.rstrip('/') + '/'
+    # Ozon редиректит поиск в предсказанную категорию (`/category/<slug>/?text=...`), и именно эту
+    # ссылку пользователь копирует из адресной строки — она остаётся поиском, пока есть `text`.
+    if path != '/search/' and not path.startswith('/category/'):
+        raise InputResolutionError('ozon search link must point to /search/ or /category/')
     params = [
         (key, param_value)
         for key, param_value in parse_qsl(parsed.query, keep_blank_values=False)
@@ -34,7 +37,7 @@ def build_ozon_search_relative_url(value: str) -> str:
         raise InputResolutionError('ozon search link has no `text` parameter')
     if not any(key == 'from_global' for key, _ in params):
         params.insert(0, ('from_global', 'true'))
-    return '/search/?' + urlencode(params)
+    return f'{path}?' + urlencode(params)
 
 
 def extract_ozon_product_path_from_url(url: str) -> str:
