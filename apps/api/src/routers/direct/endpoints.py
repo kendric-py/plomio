@@ -96,7 +96,11 @@ async def get_product_reviews(
 @inject
 async def search_products(
     marketplace: Marketplace,
-    query: str = Query(min_length=1, max_length=200, description='Текст поискового запроса'),
+    query: str = Query(
+        min_length=1,
+        max_length=1000,
+        description='Текст поискового запроса или ссылка на поиск маркетплейса с фильтрами',
+    ),
     page_key: str | None = Query(default=None, description='Ключ страницы из предыдущего ответа'),
     bus: DirectBus = Depends(Provide[DependencyContainer.direct_bus]),
     billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),

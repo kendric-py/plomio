@@ -1,5 +1,5 @@
 import json
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import urlparse
 
 from apps.worker_parser.src.entities import OzonPaginationCursor, OzonReviewCursor, Page
 from apps.worker_parser.src.fetch_context import FetchContext
@@ -25,6 +25,7 @@ from apps.worker_parser.src.marketplaces.ozon.parsers import (
     extract_ozon_seller_profile,
 )
 from apps.worker_parser.src.marketplaces.ozon.utils import (
+    build_ozon_search_relative_url,
     extract_ozon_product_id_from_path,
     extract_ozon_product_path_from_url,
     is_ozon_blocked_response,
@@ -106,9 +107,10 @@ async def fetch_ozon_search_page(
     ctx: FetchContext,
 ) -> Page[ProductPayload]:
     if cursor is None:
+        relative_url = build_ozon_search_relative_url(query)
         cursor = await _fetch_ozon_listing_warmup_cursor(
-            warmup_url=f'{OZON_BASE_URL}/search/?from_global=true&text={quote_plus(query)}',
-            initial_relative_url=f'/search/?from_global=true&text={quote_plus(query)}',
+            warmup_url=OZON_BASE_URL + relative_url,
+            initial_relative_url=relative_url,
             ctx=ctx,
         )
     return await _fetch_ozon_listing_page(cursor, ctx)

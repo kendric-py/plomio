@@ -38,6 +38,18 @@ WB_SEARCH_PARAMS_BASE: dict[str, Any] = {
     'suppressSpellcheck': 'false',
 }
 
+WB_HOSTS: frozenset[str] = frozenset({'www.wildberries.ru', 'wildberries.ru'})
+
+# Параметры ссылки поиска, которые воркер задаёт сам: текст запроса и страница, а также служебные
+# параметры сессии/региона/клиента. Всё остальное (`sort`, `priceU`, `fbrand`, `fcolor`, `fsize`,
+# `xsubject`, ...) сайт передаёт в API под теми же именами (проверено на живых запросах), поэтому
+# уходит туда без разбора — какие фильтры валидны, решает сам WB.
+WB_SEARCH_LINK_IGNORED_PARAMS: frozenset[str] = frozenset({
+    'search', 'query', 'page', 'resultset', 'dest', 'regions', 'appType', 'curr', 'lang', 'locale',
+    'spp', 'ab_testing', 'suppressSpellcheck', 'inheritFilters', 'autoselectFilters', 'scale',
+    'hide_dtype', 'hide_vflags',
+})
+
 WB_CATEGORY_PARAMS_BASE: dict[str, Any] = {
     'ab_testing': 'false',
     'appType': '1',

@@ -1,5 +1,5 @@
 from datetime import datetime
-from urllib.parse import parse_qs, quote_plus, urlparse
+from urllib.parse import parse_qs, quote_plus, urlencode, urlparse
 
 from apps.worker_parser.src.entities import Page, WbReviewCursor, WildberriesPaginationCursor
 from apps.worker_parser.src.exceptions import (
@@ -48,6 +48,7 @@ from apps.worker_parser.src.marketplaces.wb.utils import (
     get_wb_card_json_url,
     is_degraded_wb_listing,
     is_wb_blocked_response,
+    parse_wb_search_input,
     remember_wb_basket_host,
 )
 from core.enums import Marketplace
@@ -96,7 +97,10 @@ async def fetch_wb_search_page(
     cursor: WildberriesPaginationCursor | None,
     ctx: FetchContext,
 ) -> Page[ProductPayload]:
+    query, filters = parse_wb_search_input(query)
     search_page_url = f'{WB_BASE_URL}/catalog/0/search.aspx?search={quote_plus(query)}'
+    if filters:
+        search_page_url += '&' + urlencode(filters, safe=';')
     if cursor is None:
         await _wb_warmup(ctx)
         await ctx.request(
@@ -113,7 +117,10 @@ async def fetch_wb_search_page(
         cursor = WildberriesPaginationCursor(marketplace=Marketplace.WILDBERRIES, page_num=0)
 
     page_num = cursor.page_num + 1
-    params = {**WB_SEARCH_PARAMS_BASE, 'query': query, 'page': str(page_num)}
+    params = {**WB_SEARCH_PARAMS_BASE, **filters, 'query': query, 'page': str(page_num)}
+    if filters:
+        # Как у сайта при открытой отфильтрованной выдаче (проверено на живых запросах).
+        params['inheritFilters'] = 'true'
     response = await ctx.request(
         'GET',
         WB_SEARCH_API,

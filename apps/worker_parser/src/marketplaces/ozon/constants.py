@@ -2,6 +2,16 @@ OZON_BASE_URL = 'https://www.ozon.ru'
 OZON_SEARCH_API = 'https://www.ozon.ru/api/entrypoint-api.bx/page/json/v2'
 OZON_RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({408, 425, 429, 500, 502, 503, 504})
 OZON_API_TIMEOUT: float = 15.0
+OZON_HOSTS: frozenset[str] = frozenset({'www.ozon.ru', 'ozon.ru'})
+
+# Параметры ссылки поиска, которые нельзя переносить: пагинация и состояние страницы привязаны к
+# конкретной сессии/выдаче (чужие `paginator_token`/`search_page_state` ломают пагинацию), `__rr` —
+# метка антибот-редиректа. Остальное (фильтры `currency_price`, `brand`, `sorting`, ...) уходит в
+# `entrypoint-api` в `url=` как есть.
+OZON_SEARCH_LINK_IGNORED_PARAMS: frozenset[str] = frozenset({
+    'page', 'paginator_token', 'search_page_state', 'start_page_id', 'layout_page_index',
+    'layout_container', 'page_changed', '__rr',
+})
 
 # Snapshot of the real `x-o3-manifest-version` captured from live traffic on 2026-09-23 — kept
 # in sync with the same constant in `apps/worker_sessions` (see that file for why this can't be

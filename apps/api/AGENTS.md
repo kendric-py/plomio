@@ -221,7 +221,7 @@ REST API. Точка входа для клиентов (фронтенд, вн�
   обмен с воркером, `page_key`, проверка баланса и списание — в `dependencies.py`) (`/api/marketplace`, tag `Marketplace`, всё с
   `Depends(get_current_user)`; см. [`packages/direct/AGENTS.md`](../../packages/direct/AGENTS.md)):
   `GET /{marketplace}/product/{article}` (карточка), `GET /{marketplace}/product/{article}/reviews`
-  `GET /{marketplace}/search?query=`, `GET /{marketplace}/category?url=` и
+  `GET /{marketplace}/search?query=` (текст или ссылка на поиск маркетплейса с фильтрами, до 1000 символов), `GET /{marketplace}/category?url=` и
   `GET /{marketplace}/seller?seller=` (числовой id — только Wildberries, либо ссылка; все постраничные: `?page_key=`, в ответе `next_page_key`).
   Запрос уходит воркеру через `DirectBus` (Redis), `api` ждёт ответ до
   `DIRECT_REQUEST_TIMEOUT_SECONDS`. `page_key` формирует и проверяет только этот роутер.

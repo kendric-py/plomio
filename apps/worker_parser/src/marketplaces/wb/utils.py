@@ -1,11 +1,38 @@
 import re
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, parse_qsl, urlparse
 
 from curl_cffi.requests import AsyncSession
 
 from apps.worker_parser.src.entities import SessionMessage
-from apps.worker_parser.src.marketplaces.wb.constants import WB_BASKET_RANGES
+from apps.worker_parser.src.exceptions import InputResolutionError
+from apps.worker_parser.src.marketplaces.wb.constants import (
+    WB_BASKET_RANGES,
+    WB_HOSTS,
+    WB_SEARCH_LINK_IGNORED_PARAMS,
+)
+
+
+def parse_wb_search_input(value: str) -> tuple[str, dict[str, str]]:
+    """Вход поиска → (текст запроса, фильтры). Текст без `http(s)://` — запрос как есть, без
+    фильтров; иначе это ссылка на поиск WB: запрос берётся из `search`, остальные параметры, кроме
+    служебных (`WB_SEARCH_LINK_IGNORED_PARAMS`), — фильтры. Чужой хост или ссылка не на поиск —
+    `InputResolutionError`: ссылка запрашивается сессией с куками WB."""
+    value = value.strip()
+    if not value.lower().startswith(('http://', 'https://')):
+        return value, {}
+    parsed = urlparse(value)
+    if parsed.hostname not in WB_HOSTS:
+        raise InputResolutionError(f'not a wildberries link: {value[:80]!r}')
+    params = parse_qsl(parsed.query, keep_blank_values=False)
+    query = next((param_value for key, param_value in params if key == 'search'), '').strip()
+    if not query:
+        raise InputResolutionError('wildberries search link has no `search` parameter')
+    filters: dict[str, str] = {}
+    for key, param_value in params:
+        if key not in WB_SEARCH_LINK_IGNORED_PARAMS:
+            filters.setdefault(key, param_value)
+    return query, filters
 
 
 def extract_wb_nm_id_from_url(url: str) -> int | None:

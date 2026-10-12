@@ -8,6 +8,7 @@ from core.enums import Marketplace
 @dataclass
 class FakeResponse:
     payload: Any
+    url: str = 'https://www.ozon.ru/'
 
     def json(self) -> Any:
         return self.payload
