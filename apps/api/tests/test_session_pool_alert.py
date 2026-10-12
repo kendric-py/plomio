@@ -11,18 +11,25 @@ from packages.notifications.src.events import (
 )
 from packages.notifications.src.formatting import build_message_text
 from packages.notifications.src.service import NotificationService
-from packages.sessions.src.errors import SessionErrorKind, format_errors_text, group_errors
+from packages.sessions.src.enums import SessionGenerationOutcome
+from packages.sessions.src.errors import (
+    format_errors_text,
+    group_generations,
+    success_percent,
+)
 
 
 class FakeStore:
+    """Заменяет и `SessionPoolStore` (пул), и `ProxyService` (окно последних генераций)."""
+
     def __init__(
-        self, live: dict[Marketplace, int], errors: list[SessionErrorKind] | None = None,
+        self, live: dict[Marketplace, int], errors: list[SessionGenerationOutcome] | None = None,
     ) -> None:
         self.live = live
         self.errors = errors or []
         self.marked: set[Marketplace] = set()
 
-    async def get_recent_errors(self, marketplace):
+    async def get_recent_generations(self, marketplace):
         return self.errors
 
     async def live_count(self, marketplace):
@@ -63,19 +70,19 @@ def _all(count: int) -> dict[Marketplace, int]:
 def test_alert_fires_once_per_outage_and_rearms_after_recovery() -> None:
     store, notifications = FakeStore(_all(0)), FakeNotifications()
 
-    first = _run(sweep_session_pool(store, notifications))
-    second = _run(sweep_session_pool(store, notifications))
+    first = _run(sweep_session_pool(store, notifications, store))
+    second = _run(sweep_session_pool(store, notifications, store))
     assert sorted(first['alerted']) == sorted(m.value for m in Marketplace)
     assert second['alerted'] == []
     assert len(notifications.calls) == len(Marketplace)
 
     store.live = _all(3)
-    recovery = _run(sweep_session_pool(store, notifications))
+    recovery = _run(sweep_session_pool(store, notifications, store))
     assert store.marked == set()
     assert sorted(recovery['restored']) == sorted(m.value for m in Marketplace)
 
     store.live = _all(0)
-    again = _run(sweep_session_pool(store, notifications))
+    again = _run(sweep_session_pool(store, notifications, store))
     assert len(again['alerted']) == len(Marketplace)
 
 
@@ -84,7 +91,8 @@ def test_only_empty_marketplace_is_reported() -> None:
     live[Marketplace.OZON] = 0
     notifications = FakeNotifications()
 
-    result = _run(sweep_session_pool(FakeStore(live), notifications))
+    store = FakeStore(live)
+    result = _run(sweep_session_pool(store, notifications, store))
 
     assert result['alerted'] == [Marketplace.OZON.value]
     assert notifications.calls == [(EVENT_SESSIONS_DEPLETED, {'marketplace': 'ozon', 'errors_text': ''})]
@@ -94,7 +102,7 @@ def test_failed_notify_clears_mark_so_next_pass_retries() -> None:
     store = FakeStore(_all(0))
 
     with pytest.raises(RuntimeError):
-        _run(sweep_session_pool(store, FakeNotifications(fail=True)))
+        _run(sweep_session_pool(store, FakeNotifications(fail=True), store))
 
     assert store.marked == set()
 
@@ -140,15 +148,15 @@ def test_list_events_hides_admin_only_from_clients() -> None:
 def test_restored_notified_once_and_not_without_prior_outage() -> None:
     store, notifications = FakeStore(_all(4)), FakeNotifications()
 
-    quiet = _run(sweep_session_pool(store, notifications))
+    quiet = _run(sweep_session_pool(store, notifications, store))
     assert quiet == {'alerted': [], 'restored': []}
 
     store.live = _all(0)
-    _run(sweep_session_pool(store, notifications))
+    _run(sweep_session_pool(store, notifications, store))
     notifications.calls.clear()
     store.live = _all(2)
-    _run(sweep_session_pool(store, notifications))
-    _run(sweep_session_pool(store, notifications))
+    _run(sweep_session_pool(store, notifications, store))
+    _run(sweep_session_pool(store, notifications, store))
 
     assert len(notifications.calls) == len(Marketplace)
     assert all(code == EVENT_SESSIONS_RESTORED for code, _ in notifications.calls)
@@ -157,21 +165,23 @@ def test_restored_notified_once_and_not_without_prior_outage() -> None:
 
 def test_failed_restore_notify_brings_mark_back_for_retry() -> None:
     store = FakeStore(_all(0))
-    _run(sweep_session_pool(store, FakeNotifications()))
+    _run(sweep_session_pool(store, FakeNotifications(), store))
     store.live = _all(1)
 
     with pytest.raises(RuntimeError):
-        _run(sweep_session_pool(store, FakeNotifications(fail=True)))
+        _run(sweep_session_pool(store, FakeNotifications(fail=True), store))
 
     assert store.marked == set(Marketplace)
 
 
 def test_depleted_alert_carries_grouped_errors() -> None:
-    errors = [SessionErrorKind.VALIDATION] * 7 + [SessionErrorKind.PROXY_UNAVAILABLE] * 2
-    errors += [SessionErrorKind.ANTIBOT_INIT]
+    errors = [SessionGenerationOutcome.VALIDATION] * 7
+    errors += [SessionGenerationOutcome.PROXY_UNAVAILABLE] * 2
+    errors += [SessionGenerationOutcome.ANTIBOT_INIT]
     notifications = FakeNotifications()
 
-    _run(sweep_session_pool(FakeStore(_all(0), errors=errors), notifications))
+    store = FakeStore(_all(0), errors=errors)
+    _run(sweep_session_pool(store, notifications, store))
 
     _, payload = notifications.calls[0]
     assert payload['errors_text'] == (
@@ -181,12 +191,26 @@ def test_depleted_alert_carries_grouped_errors() -> None:
     assert 'Ошибка валидации — 70 %' in text
 
 
-def test_group_errors_orders_by_share_and_handles_empty() -> None:
-    assert group_errors([]) == [] and format_errors_text([]) == ''
-    shares = group_errors([SessionErrorKind.OTHER, SessionErrorKind.ANTIBOT_INIT] * 2)
+def test_alert_text_skips_success_share() -> None:
+    outcomes = [SessionGenerationOutcome.SUCCESS] * 6 + [SessionGenerationOutcome.OTHER] * 4
+
+    assert format_errors_text(group_generations(outcomes)) == 'Прочее — 40 %'
+
+
+def test_group_generations_orders_by_share_and_handles_empty() -> None:
+    assert group_generations([]) == [] and format_errors_text([]) == ''
+    shares = group_generations(
+        [SessionGenerationOutcome.OTHER, SessionGenerationOutcome.ANTIBOT_INIT] * 2,
+    )
     assert [(s.kind, s.percent) for s in shares] == [
-        (SessionErrorKind.ANTIBOT_INIT, 50), (SessionErrorKind.OTHER, 50),
+        (SessionGenerationOutcome.ANTIBOT_INIT, 50), (SessionGenerationOutcome.OTHER, 50),
     ]
+
+
+def test_success_percent() -> None:
+    assert success_percent([]) == 0
+    outcomes = [SessionGenerationOutcome.SUCCESS] * 3 + [SessionGenerationOutcome.VALIDATION]
+    assert success_percent(outcomes) == 75
 
 
 def test_restored_event_is_admin_only_and_has_message() -> None:

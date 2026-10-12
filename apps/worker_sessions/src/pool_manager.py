@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 
 from apps.worker_sessions.src.config import config
@@ -9,9 +10,10 @@ from apps.worker_sessions.src.exceptions import BrowserInitError, JsRuntimeError
 from apps.worker_sessions.src.generation.marketplaces.registry import build_session
 from apps.worker_sessions.src.generation.process_reaper import run_process_reaper
 from apps.worker_sessions.src.generation.validation import find_validation_error
-from apps.worker_sessions.src.proxy.client import ProxyRotator
+from apps.worker_sessions.src.proxy.client import ProxyRotator, report_generation
 from core.enums import Marketplace
-from packages.sessions.src.errors import SessionErrorKind
+from packages.sessions.src.enums import SessionGenerationOutcome
+from packages.sessions.src.errors import SessionErrorKind, outcome_from_error
 from packages.sessions.src.redis_store import SessionPoolStore
 from packages.worker_health.src.liveness_reporter import LivenessReporter
 
@@ -28,13 +30,18 @@ def _build_and_validate(
 
 
 async def _record_error(
-    store: SessionPoolStore, marketplace: Marketplace, kind: SessionErrorKind,
+    marketplace: Marketplace,
+    kind: SessionErrorKind,
+    proxy_id: int | None,
+    traceback_text: str | None = None,
 ) -> None:
-    """Статистика ошибок — вспомогательная: её сбой не должен ломать цикл генерации."""
-    try:
-        await store.record_error(marketplace=marketplace, kind=kind)
-    except Exception:
-        logger.exception('[record_error_failed] marketplace=%s kind=%s', marketplace, kind)
+    """Неудачная генерация → api (БД): тип ошибки, прокси (если был) и оригинальная ошибка."""
+    await report_generation(
+        marketplace=marketplace,
+        outcome=outcome_from_error(kind=kind),
+        proxy_id=proxy_id,
+        traceback_text=traceback_text,
+    )
 
 
 async def _generator_worker(
@@ -48,6 +55,7 @@ async def _generator_worker(
     rotator = ProxyRotator(max_sessions=config.GENERATION.MAX_SESSIONS_PER_PROXY)
 
     while True:
+        proxy_id: int | None = None
         try:
             depth = await store.live_count(marketplace=marketplace)
             if depth >= config.GENERATION.TARGET_POOL_DEPTH:
@@ -58,10 +66,11 @@ async def _generator_worker(
             if config.GENERATION.REQUIRE_PROXY:
                 liveness.set_status(status=WorkerSessionsStatus.WAITING_FOR_PROXY.value)
                 proxy = await rotator.acquire()
+                proxy_id = rotator.proxy_id if proxy is not None else None
                 if proxy is None:
                     await _record_error(
-                        store=store, marketplace=marketplace,
-                        kind=SessionErrorKind.PROXY_UNAVAILABLE,
+                        marketplace=marketplace,
+                        kind=SessionErrorKind.PROXY_UNAVAILABLE, proxy_id=None,
                     )
                     logger.warning(
                         '[proxy_unavailable] %s no proxy available, retrying soon', worker_tag,
@@ -80,9 +89,15 @@ async def _generator_worker(
                     stream_prefix=config.SESSIONS_STREAM.PREFIX,
                     stream_maxlen=config.SESSIONS_STREAM.MAXLEN,
                 )
+                await report_generation(
+                    marketplace=marketplace,
+                    outcome=SessionGenerationOutcome.SUCCESS,
+                    proxy_id=proxy_id,
+                )
             else:
                 await _record_error(
-                    store=store, marketplace=marketplace, kind=validation_error,
+                    marketplace=marketplace, kind=validation_error,
+                    proxy_id=proxy_id,
                 )
                 logger.warning(
                     '[session_dropped] %s marketplace=%s session_id=%s — failed validation',
@@ -91,7 +106,8 @@ async def _generator_worker(
             liveness.set_status(status=WorkerSessionsStatus.READY.value)
         except BrowserInitError as exc:
             await _record_error(
-                store=store, marketplace=marketplace, kind=SessionErrorKind.ANTIBOT_INIT,
+                marketplace=marketplace, kind=SessionErrorKind.ANTIBOT_INIT,
+                proxy_id=proxy_id, traceback_text=traceback.format_exc(),
             )
             logger.error('[browser_init_failed] %s error=%s', worker_tag, exc)
             liveness.set_status(status=WorkerSessionsStatus.READY.value)
@@ -100,7 +116,10 @@ async def _generator_worker(
                 SessionErrorKind.ANTIBOT_INIT
                 if isinstance(exc, JsRuntimeError) else SessionErrorKind.OTHER
             )
-            await _record_error(store=store, marketplace=marketplace, kind=kind)
+            await _record_error(
+                marketplace=marketplace, kind=kind,
+                proxy_id=proxy_id, traceback_text=traceback.format_exc(),
+            )
             logger.exception('[generator_worker_error] %s', worker_tag)
             liveness.set_status(status=WorkerSessionsStatus.READY.value)
             await asyncio.sleep(5)

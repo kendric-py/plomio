@@ -7,3 +7,4 @@ class ProxyType(str, Enum):
 
     HTTP = 'http'
     SOCKS5 = 'socks5'
+

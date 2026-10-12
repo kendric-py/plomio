@@ -38,12 +38,24 @@ apps.worker_sessions.src`.
    на уровне API, а не только главной страницы.
 5. Валидную сессию сохраняет в Redis (`SessionPoolStore.save`, `packages/sessions`).
 
-Каждая неудачная попытка (нет прокси, сбой антибота/инициализации браузера или js_runtime, сессия не
-прошла валидацию, прочее) пишется в `sessions:errors:{marketplace}` через
-`SessionPoolStore.record_error` с типом `SessionErrorKind` — админка показывает последние 10 по
-типам в процентах. Валидация различает причины: запрос не дошёл до маркетплейса (исключение curl,
+Итог каждой попытки — `success` после сохранения сессии, иначе тип ошибки (`SessionErrorKind`: нет
+прокси, сбой антибота/инициализации браузера или js_runtime, сессия не прошла валидацию, прочее) —
+воркер отправляет в api: `proxy/client.py::report_generation` → `POST /api/proxy/generations`
+(`X-Worker-Token`; URL выводится из `PROXY_API_ISSUE_URL`, суффикс `/issue` заменяется на
+`/generations`) с `proxy_id` (`null`, если прокси не использовался), `marketplace`, `outcome` и
+`traceback` (оригинальная ошибка для анализа; у успеха, ошибки валидации и «нет прокси» её нет).
+api пишет это в таблицу `session_generations` ([`packages/proxy`](../../packages/proxy/AGENTS.md)) —
+оттуда админка считает по последним 50 процент успеха и доли ошибок по маркетплейсу, а по `proxy_id` —
+статистику конкретного прокси. Redis для статистики генераций не используется.
+Валидация различает причины: запрос не дошёл до маркетплейса (исключение curl,
 `PROXY_UNAVAILABLE`) и маркетплейс заблокировал сессию (`VALIDATION`) — `validation.py::
-find_validation_error`. Сбой самой записи статистики цикл генерации не ломает.
+find_validation_error`.
+
+`proxy_id` приходит в ответе `GET /api/proxy/issue` и хранится в `ProxyRotator.proxy_id`, а не в
+`ProxyConfig` — тот уходит в `SessionMessage` (wire-контракт с `worker_parser`). Отчёт идёт с
+коротким таймаутом (`REPORT_TIMEOUT_SECONDS`, 10 с) и сбоя не боится: любая ошибка (api недоступен,
+не настроен `PROXY_API_ISSUE_URL`) только логируется и цикл генерации не ломает — но без
+`PROXY_API_ISSUE_URL` (например, локально без api) статистика генераций не пишется вовсе.
 
 **Прогретые браузеры** (`generation/browser.py::_BrowserPool`): запуск Firefox — главная фиксированная
 стоимость генерации, поэтому один процесс Camoufox живёт на прокси и обслуживает до
@@ -188,8 +200,6 @@ Camoufox/Playwright не умеет SOCKS5 с логином/паролем. П�
 код), `debug/` (отладка и проверки), `history/` (справка) — см. [`js_runtime/AGENTS.md`](./js_runtime/AGENTS.md).
 
 ## Не входит в эту итерацию
-
-Ручка выдачи прокси на бэкенде — не существует, `proxy/client.py` работает как заглушка.
 
 Закрыто с момента написания этого раздела (оставлено для истории): получатель HTTP-heartbeat на
 бэкенде теперь есть (`POST /api/worker-health/sessions/heartbeat`, см. выше); протокол получения

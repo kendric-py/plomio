@@ -4,13 +4,15 @@ from typing import Awaitable, Callable
 from core.enums import Marketplace
 from packages.notifications.src.events import EVENT_SESSIONS_DEPLETED, EVENT_SESSIONS_RESTORED
 from packages.notifications.src.service import NotificationService
-from packages.sessions.src.errors import format_errors_text, group_errors
+from packages.proxy.src.service import ProxyService
+from packages.sessions.src.errors import format_errors_text, group_generations
 from packages.sessions.src.redis_store import SessionPoolStore
 
 
 async def sweep_session_pool(
     store: SessionPoolStore,
     notification_service: NotificationService,
+    proxy_service: ProxyService,
 ) -> dict:
     """One pass over the pools. When a marketplace has no live sessions, notifies admins once per
     outage (`SessionPoolStore.mark_depleted` is an atomic `SET NX`, so several `apps/api` replicas
@@ -36,13 +38,15 @@ async def sweep_session_pool(
             continue
         if not await store.mark_depleted(marketplace=marketplace):
             continue
-        recent_errors = await store.get_recent_errors(marketplace=marketplace)
+        recent_generations = await proxy_service.get_recent_generations(marketplace=marketplace)
         try:
             await notification_service.notify_admins(
                 event_code=EVENT_SESSIONS_DEPLETED,
                 payload={
                     'marketplace': marketplace.value,
-                    'errors_text': format_errors_text(group_errors(kinds=recent_errors)),
+                    'errors_text': format_errors_text(
+                        group_generations(outcomes=recent_generations),
+                    ),
                 },
             )
         except Exception:
@@ -56,5 +60,6 @@ async def sweep_session_pool(
 def build_session_pool_alert_job(
     store: SessionPoolStore,
     notification_service: NotificationService,
+    proxy_service: ProxyService,
 ) -> Callable[[], Awaitable[dict]]:
-    return partial(sweep_session_pool, store, notification_service)
+    return partial(sweep_session_pool, store, notification_service, proxy_service)

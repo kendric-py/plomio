@@ -1,14 +1,22 @@
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.enums import Marketplace
 from core.exceptions import DuplicatedObjectError, ObjectNotFoundError
 from core.repository import BaseRepository
-from packages.proxy.src.entities import ProxyEntity
+from packages.proxy.src.entities import (
+    OutcomeCount,
+    OutcomeDayCount,
+    ProxyEntity,
+    SessionGenerationEntity,
+)
 from packages.proxy.src.enums import ProxyType
-from packages.proxy.src.models import Proxy
+from packages.proxy.src.models import Proxy, SessionGeneration
+from packages.sessions.src.enums import SessionGenerationOutcome
 
 
 class ProxyRepository(BaseRepository[Proxy, ProxyEntity]):
@@ -55,3 +63,98 @@ class ProxyRepository(BaseRepository[Proxy, ProxyEntity]):
         # отдельной схемы выбора и даёт равномерное распределение.
         database_object = await self.session.scalar(statement.order_by(func.random()).limit(1))
         return self._to_entity(database_object=database_object) if database_object else None
+
+
+class SessionGenerationRepository(BaseRepository[SessionGeneration, SessionGenerationEntity]):
+    def __init__(self, session: AsyncSession):
+        super().__init__(
+            model=SessionGeneration, entity_object=SessionGenerationEntity, session=session,
+        )
+
+    def _conditions(
+        self,
+        proxy_id: int | None,
+        marketplace: Marketplace | None,
+        date_from: datetime | None,
+        date_to: datetime | None,
+        outcomes: list[SessionGenerationOutcome] | None,
+        include_antibot: bool,
+    ) -> list[ColumnElement[bool]]:
+        conditions: list[ColumnElement[bool]] = []
+        if proxy_id is not None:
+            conditions.append(self.model.proxy_id == proxy_id)
+        if marketplace is not None:
+            conditions.append(self.model.marketplace == marketplace)
+        if date_from is not None:
+            conditions.append(self.model.created_at >= date_from)
+        if date_to is not None:
+            conditions.append(self.model.created_at <= date_to)
+        if outcomes:
+            conditions.append(self.model.outcome.in_(outcomes))
+        if not include_antibot:
+            conditions.append(self.model.outcome != SessionGenerationOutcome.ANTIBOT_INIT)
+        return conditions
+
+    async def recent_outcomes(
+        self, marketplace: Marketplace, limit: int,
+    ) -> list[SessionGenerationOutcome]:
+        """Итоги последних `limit` генераций маркетплейса, новые первыми."""
+        statement = (
+            select(self.model.outcome)
+            .where(self.model.marketplace == marketplace)
+            .order_by(self.model.created_at.desc(), self.model.id.desc())
+            .limit(limit)
+        )
+        return list(await self.session.scalars(statement))
+
+    async def count_by_outcome(
+        self,
+        proxy_id: int | None = None,
+        marketplace: Marketplace | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        outcomes: list[SessionGenerationOutcome] | None = None,
+        include_antibot: bool = True,
+    ) -> list[OutcomeCount]:
+        statement = (
+            select(self.model.outcome, func.count())
+            .where(*self._conditions(
+                proxy_id=proxy_id, marketplace=marketplace, date_from=date_from,
+                date_to=date_to, outcomes=outcomes, include_antibot=include_antibot,
+            ))
+            .group_by(self.model.outcome)
+            .order_by(func.count().desc(), self.model.outcome)
+        )
+        rows = await self.session.execute(statement)
+        return [OutcomeCount(outcome=outcome, count=count) for outcome, count in rows]
+
+    async def count_by_day(
+        self,
+        proxy_id: int | None = None,
+        marketplace: Marketplace | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        outcomes: list[SessionGenerationOutcome] | None = None,
+        include_antibot: bool = True,
+    ) -> list[OutcomeDayCount]:
+        day = func.date(func.timezone('UTC', self.model.created_at)).label('day')
+        statement = (
+            select(day, self.model.outcome, func.count())
+            .where(*self._conditions(
+                proxy_id=proxy_id, marketplace=marketplace, date_from=date_from,
+                date_to=date_to, outcomes=outcomes, include_antibot=include_antibot,
+            ))
+            .group_by(day, self.model.outcome)
+            .order_by(day, self.model.outcome)
+        )
+        rows = await self.session.execute(statement)
+        return [
+            OutcomeDayCount(day=row_day, outcome=outcome, count=count)
+            for row_day, outcome, count in rows
+        ]
+
+    async def delete_older_than(self, threshold: datetime) -> int:
+        result = await self.session.execute(
+            delete(self.model).where(self.model.created_at < threshold),
+        )
+        return result.rowcount or 0

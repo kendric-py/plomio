@@ -1251,8 +1251,19 @@ heartbeat-ручек воркеров).
 ```json
 {
   "marketplaces": [
-    { "marketplace": "ozon", "live_count": 12, "nearest_expires_at": "2026-09-23T12:00:00Z" },
-    { "marketplace": "wildberries", "live_count": 0, "nearest_expires_at": null }
+    {
+      "marketplace": "ozon", "live_count": 12, "nearest_expires_at": "2026-09-23T12:00:00Z",
+      "recent_generations_total": 50, "success_percent": 70,
+      "recent_generations": [
+        { "kind": "success", "label": "Успешно", "count": 35, "percent": 70 },
+        { "kind": "validation", "label": "Ошибка валидации", "count": 10, "percent": 20 },
+        { "kind": "antibot_init", "label": "Антибот при инициализации", "count": 5, "percent": 10 }
+      ]
+    },
+    {
+      "marketplace": "wildberries", "live_count": 0, "nearest_expires_at": null,
+      "recent_generations_total": 0, "success_percent": 0, "recent_generations": []
+    }
   ]
 }
 ```
@@ -1261,7 +1272,11 @@ heartbeat-ручек воркеров).
 
 `MarketplaceSessionPool`: `marketplace` (enum, нижний регистр), `live_count` (int, количество живых —
 не просроченных — сессий в пуле прямо сейчас), `nearest_expires_at` (datetime \| null, момент
-истечения самой "старой" из живых сессий; `null` — живых сессий нет).
+истечения самой "старой" из живых сессий; `null` — живых сессий нет), `recent_generations_total`
+(int, сколько последних генераций учтено, до 50), `success_percent` (int, доля успешных среди них,
+`0` — генераций ещё не было), `recent_generations[]` (`kind`: `success` \| `antibot_init` \|
+`validation` \| `proxy_unavailable` \| `other`; `label`; `count`; `percent` — от
+`recent_generations_total`; самые частые первыми).
 
 Полезно для дашборда "здоровья" системы: `live_count == 0` — новые задачи по этому маркетплейсу скоро
 не смогут начать обрабатываться (воркеру нечем будет запросить сессию).
@@ -1424,16 +1439,49 @@ Path-параметр `proxy_id` (int). **Тело** (`UpdateProxyRequest`) — 
 
 **Ответ** `204 No Content`. `404` — `{"detail": "Proxy not found"}`.
 
+### `GET /api/admin/proxies/{proxy_id}` — один прокси
+
+**Ответ `200`** — `ProxyResponse`. `404` — `{"detail": "Proxy not found"}`. Для страницы деталки.
+
+### `GET /api/admin/proxies/{proxy_id}/generation-stats` — генерации сессий через прокси
+
+Query (все опциональны): `date_from`, `date_to` (ISO8601, включительно, без часового пояса — UTC),
+`outcomes` (повторяющийся параметр: `success` / `antibot_init` / `validation` /
+`proxy_unavailable` / `other` — только эти итоги), `include_antibot` (bool, по умолчанию `false`).
+Антибот-ошибки (`antibot_init`) почти не зависят от прокси, поэтому по умолчанию в статистику **не
+входят** — ни в числитель, ни в знаменатель долей. Генерации хранятся 30 дней — период шире ничего не
+добавит.
+
+**Ответ `200`** (`ProxyGenerationStatsResponse`): `proxy_id`, `include_antibot`, `total` (int, всего
+учтённых генераций), `success_percent` (int, `0`, если генераций не было), `by_outcome[]` (`outcome`,
+`label`, `count`, `percent` — от `total`, для круговой диаграммы; самые частые первыми), `by_day[]`
+(`day` — дата UTC, `outcome`, `count`; по возрастанию дней, дни без генераций не возвращаются).
+`404` — прокси нет.
+
+### `GET /api/admin/proxies/antibot-timeline` — антибот-ошибки по дням
+
+Query: `marketplace` (опционально), `date_from`, `date_to`. **Ответ `200`**:
+`{ "items": [ { "day", "outcome": "antibot_init", "count" } ] }` — по всем прокси. Резкий рост —
+признак смены скриптов антибота, а не проблемы прокси.
+
 ### `GET /api/proxy/issue` — выдача прокси воркеру
 
 **Не для фронтенда** — ручку дёргает `worker_sessions`. Вместо JWT авторизуется заголовком
 `X-Worker-Token` (общий секрет `PROXY_WORKER_TOKEN` на стороне api). Query: `proxy_type`
 (`http`/`socks5`, опционально — выдать только этого типа).
 
-**Ответ `200`**: `proxy_type`, `proxy_host`, `proxy_port`, `proxy_username` (string \| null),
+**Ответ `200`**: `proxy_id`, `proxy_type`, `proxy_host`, `proxy_port`, `proxy_username` (string \| null),
 `proxy_password` (string \| null) — случайный из активных. `404` — `{"detail": "No active proxies
 available"}`; `401` — токен не передан или неверный; `503` — выдача не настроена (`PROXY_WORKER_TOKEN`
 пуст).
+
+### `POST /api/proxy/generations` — итог генерации сессии (воркер)
+
+**Не для фронтенда** — шлёт `worker_sessions`, авторизация `X-Worker-Token`. Вызывается после каждой
+попытки, успешной и нет. **Тело**: `proxy_id` (int \| null — `null`, если прокси не использовался),
+`marketplace` (`ozon`/`wildberries`), `outcome` (`success` или тип ошибки), `traceback` (string \|
+null, до 20000 символов — оригинальная ошибка для анализа). **Ответ** `204`; если `proxy_id` указан,
+но прокси уже удалён, генерация записывается без прокси.
 
 ---
 

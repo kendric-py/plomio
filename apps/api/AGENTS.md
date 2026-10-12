@@ -209,9 +209,10 @@ REST API. Точка входа для клиентов (фронтенд, вн�
   доставки создаются только доменом, не пользователем).
 
 - `routers/sessions/{endpoints,dependencies,schema}.py` (`/api/sessions`): `GET /pool` — по каждому
-  маркетплейсу `live_count`, `nearest_expires_at` и последние ошибки генерации сессий
-  (`recent_errors_total` до 10 + `recent_errors[]`: тип, название, число, процент — сгруппировано
-  `packages/sessions/src/errors.py::group_errors`); сборку элемента делает
+  маркетплейсу `live_count`, `nearest_expires_at` (из Redis) и последние 50 генераций сессий (из БД,
+  `ProxyService.get_recent_generations`; `recent_generations_total` до 50, `success_percent` и
+  `recent_generations[]`: итог — `success` или тип ошибки, название, число, процент — сгруппировано
+  `packages/sessions/src/errors.py::group_generations`); сборку элемента делает
   `dependencies.py::build_marketplace_pool`. Джоб `SESSION_POOL_ALERT` шлёт админам
   `system.sessions_depleted` (с разбивкой ошибок) и `system.sessions_restored` — см.
   [`packages/notifications/AGENTS.md`](../../packages/notifications/AGENTS.md).

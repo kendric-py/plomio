@@ -1,9 +1,11 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field, field_validator
 
 from apps.api.src.routers.schema import PaginationMeta
+from core.enums import Marketplace
 from packages.proxy.src.enums import ProxyType
+from packages.sessions.src.enums import SessionGenerationOutcome
 
 # --- Админские ручки (`/api/admin/proxies`) ---
 
@@ -29,6 +31,23 @@ class ProxyResponse(BaseModel):
     note: str | None = Field(description='Произвольная заметка админа')
     created_at: datetime = Field(description='Время создания')
     updated_at: datetime = Field(description='Время последнего изменения')
+
+
+class GenerationOutcomeShare(BaseModel):
+    """Доля одного итога (успех или тип ошибки) среди генераций сессий за период."""
+
+    outcome: SessionGenerationOutcome = Field(description='Итог генерации: успех или тип ошибки')
+    label: str = Field(description='Название итога')
+    count: int = Field(description='Сколько раз встретился за период')
+    percent: int = Field(description='Доля среди учтённых генераций, %')
+
+
+class GenerationDay(BaseModel):
+    """Число генераций с одним итогом за день (UTC)."""
+
+    day: date = Field(description='День (UTC)')
+    outcome: SessionGenerationOutcome = Field(description='Итог генерации')
+    count: int = Field(description='Сколько раз встретился за день')
 
 
 class ProxyListResponse(BaseModel):
@@ -81,12 +100,54 @@ class UpdateProxyRequest(BaseModel):
         return {name: getattr(self, name) for name in self.model_fields_set}
 
 
-# --- Ручка для воркера (`GET /api/proxy/issue`) ---
+class ProxyGenerationStatsResponse(BaseModel):
+    """Статистика генераций сессий через прокси за период (для круговых графиков и динамики по
+    дням)."""
+
+    proxy_id: int = Field(description='Идентификатор прокси')
+    include_antibot: bool = Field(
+        description='Учтены ли антибот-ошибки (`antibot_init`): они почти не зависят от прокси, '
+        'поэтому по умолчанию исключены — из числителя и из знаменателя долей',
+    )
+    total: int = Field(description='Всего учтённых генераций за период')
+    success_percent: int = Field(
+        description='Доля успешных среди учтённых, %; 0, если генераций не было',
+    )
+    by_outcome: list[GenerationOutcomeShare] = Field(
+        description='Генерации по итогам (успех и типы ошибок): самые частые первыми, '
+        '`percent` — доля от `total`',
+    )
+    by_day: list[GenerationDay] = Field(description='Генерации по дням и итогам, дни по возрастанию')
+
+
+class AntibotTimelineResponse(BaseModel):
+    """Антибот-ошибки генерации по дням (по всем прокси) — индикатор смены скриптов антибота."""
+
+    items: list[GenerationDay] = Field(description='Антибот-ошибки по дням, дни по возрастанию')
+
+
+# --- Ручки для воркера (`GET /api/proxy/issue`, `POST /api/proxy/generations`) ---
+
+
+class RecordGenerationRequest(BaseModel):
+    """Итог попытки генерации сессии (шлёт `worker_sessions`): и успех, и ошибка."""
+
+    proxy_id: int | None = Field(
+        default=None, description='Прокси, через который шла генерация; null — без прокси',
+    )
+    marketplace: Marketplace = Field(description='Маркетплейс, для которого шла генерация')
+    outcome: SessionGenerationOutcome = Field(description='Итог: `success` или тип ошибки')
+    traceback: str | None = Field(
+        default=None,
+        max_length=20000,
+        description='Оригинальная ошибка (трейсбек) для анализа',
+    )
 
 
 class IssuedProxyResponse(BaseModel):
     """Формат, который читает `worker_sessions` (`apps/worker_sessions/src/proxy/client.py`)."""
 
+    proxy_id: int = Field(description='Идентификатор прокси (для записи ошибок генерации)')
     proxy_type: str = Field(description='Тип прокси: http или socks5')
     proxy_host: str = Field(description='Хост прокси')
     proxy_port: int = Field(description='Порт прокси')

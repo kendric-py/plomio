@@ -3,8 +3,11 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
-# Сколько последних ошибок генерации хранится по каждому маркетплейсу — проценты считаются от них.
-SESSION_ERRORS_KEEP = 10
+from packages.sessions.src.enums import SessionGenerationOutcome
+
+# Сколько последних генераций (успехов и ошибок) хранится по каждому маркетплейсу — проценты
+# считаются от них.
+SESSION_GENERATIONS_KEEP = 50
 
 
 class SessionErrorKind(str, Enum):
@@ -21,33 +24,57 @@ SESSION_ERROR_LABELS: dict[SessionErrorKind, str] = {
     SessionErrorKind.OTHER: 'Прочее',
 }
 
+SESSION_OUTCOME_LABELS: dict[SessionGenerationOutcome, str] = {
+    SessionGenerationOutcome.SUCCESS: 'Успешно',
+    **{
+        SessionGenerationOutcome(kind.value): label
+        for kind, label in SESSION_ERROR_LABELS.items()
+    },
+}
 
-class SessionErrorShare(BaseModel):
-    kind: SessionErrorKind = Field(description='Тип ошибки генерации сессии')
-    label: str = Field(description='Название типа ошибки')
-    count: int = Field(description='Сколько раз встретилась среди последних ошибок')
-    percent: int = Field(description='Доля среди последних ошибок, %')
+
+class SessionGenerationShare(BaseModel):
+    kind: SessionGenerationOutcome = Field(description='Итог генерации сессии: успех или тип ошибки')
+    label: str = Field(description='Название итога')
+    count: int = Field(description='Сколько раз встретился среди последних генераций')
+    percent: int = Field(description='Доля среди последних генераций, %')
 
 
-def group_errors(kinds: list[SessionErrorKind]) -> list[SessionErrorShare]:
-    """Группирует последние ошибки по типу: самые частые первыми, при равенстве — в порядке
-    объявления `SessionErrorKind`. Пустой список ошибок → пустой результат."""
-    if not kinds:
+def outcome_from_error(kind: SessionErrorKind) -> SessionGenerationOutcome:
+    return SessionGenerationOutcome(kind.value)
+
+
+def group_generations(outcomes: list[SessionGenerationOutcome]) -> list[SessionGenerationShare]:
+    """Группирует последние генерации по итогу: самые частые первыми, при равенстве — в порядке
+    объявления `SessionGenerationOutcome`. Пустой список → пустой результат."""
+    if not outcomes:
         return []
-    counts = Counter(kinds)
-    order = list(SessionErrorKind)
+    counts = Counter(outcomes)
+    order = list(SessionGenerationOutcome)
     shares = [
-        SessionErrorShare(
-            kind=kind,
-            label=SESSION_ERROR_LABELS[kind],
+        SessionGenerationShare(
+            kind=outcome,
+            label=SESSION_OUTCOME_LABELS[outcome],
             count=count,
-            percent=round(count * 100 / len(kinds)),
+            percent=round(count * 100 / len(outcomes)),
         )
-        for kind, count in counts.items()
+        for outcome, count in counts.items()
     ]
     return sorted(shares, key=lambda share: (-share.count, order.index(share.kind)))
 
 
-def format_errors_text(shares: list[SessionErrorShare]) -> str:
-    """Многострочный текст «Тип — N %» для уведомления; пусто, если ошибок не было."""
-    return '\n'.join(f'{share.label} — {share.percent} %' for share in shares)
+def success_percent(outcomes: list[SessionGenerationOutcome]) -> int:
+    """Доля успешных генераций среди последних, %; 0, если генераций ещё не было."""
+    if not outcomes:
+        return 0
+    return round(outcomes.count(SessionGenerationOutcome.SUCCESS) * 100 / len(outcomes))
+
+
+def format_errors_text(shares: list[SessionGenerationShare]) -> str:
+    """Многострочный текст «Тип — N %» для уведомления (только ошибки, без успеха); пусто, если
+    ошибок не было."""
+    return '\n'.join(
+        f'{share.label} — {share.percent} %'
+        for share in shares
+        if share.kind != SessionGenerationOutcome.SUCCESS
+    )

@@ -13,6 +13,9 @@ from apps.api.src.jobs.automation_history_retention_sweep import (
     build_automation_history_retention_sweep_job,
 )
 from apps.api.src.jobs.automation_result_sweep import build_automation_result_sweep_job
+from apps.api.src.jobs.proxy_failure_retention_sweep import (
+    build_proxy_failure_retention_sweep_job,
+)
 from apps.api.src.jobs.session_pool_alert import build_session_pool_alert_job
 from apps.api.src.jobs.task_expiry_sweep import build_task_expiry_sweep_job
 from apps.api.src.jobs.notification_delivery_sweep import build_notification_delivery_sweep_job
@@ -129,12 +132,25 @@ def configure_rest_server() -> FastAPI:
         session_pool_alert_job = build_session_pool_alert_job(
             store=container.session_pool_store(),
             notification_service=container.notification_service(),
+            proxy_service=container.proxy_service(),
         )
         session_pool_alert_task = asyncio.create_task(
             run_periodic(
                 job=CronJobName.SESSION_POOL_ALERT,
                 interval_seconds=config.WORKER_HEALTH.SWEEP_INTERVAL_SECONDS,
                 func=session_pool_alert_job,
+                cron_job_service=container.cron_job_service(),
+            ),
+        )
+        proxy_failure_retention_sweep_job = build_proxy_failure_retention_sweep_job(
+            proxy_service=container.proxy_service(),
+            retention_days=config.PROXY.FAILURE_RETENTION_DAYS,
+        )
+        proxy_failure_retention_sweep_task = asyncio.create_task(
+            run_periodic(
+                job=CronJobName.PROXY_FAILURE_RETENTION_SWEEP,
+                interval_seconds=config.PROXY.FAILURE_RETENTION_SWEEP_INTERVAL_SECONDS,
+                func=proxy_failure_retention_sweep_job,
                 cron_job_service=container.cron_job_service(),
             ),
         )
@@ -160,6 +176,7 @@ def configure_rest_server() -> FastAPI:
         automation_history_retention_sweep_task.cancel()
         notification_delivery_sweep_task.cancel()
         session_pool_alert_task.cancel()
+        proxy_failure_retention_sweep_task.cancel()
         if telegram_polling_task is not None:
             telegram_polling_task.cancel()
         await asyncio.gather(
@@ -171,6 +188,7 @@ def configure_rest_server() -> FastAPI:
             automation_history_retention_sweep_task,
             notification_delivery_sweep_task,
             session_pool_alert_task,
+            proxy_failure_retention_sweep_task,
             *([telegram_polling_task] if telegram_polling_task is not None else []),
             return_exceptions=True,
         )

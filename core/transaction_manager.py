@@ -19,7 +19,7 @@ from packages.notifications.src.repository import (
     NotificationEventRepository,
     NotificationSettingRepository,
 )
-from packages.proxy.src.repository import ProxyRepository
+from packages.proxy.src.repository import ProxyRepository, SessionGenerationRepository
 from packages.result.src.repository import ResultItemRepository
 from packages.task.src.repository import TaskItemRepository, TaskRepository
 from packages.user.src.repository import UserRepository
@@ -58,6 +58,9 @@ REPOSITORIES = {
         'notification_delivery_repository', NotificationDeliveryRepository,
     ),
     'use_proxy_repository': ('proxy_repository', ProxyRepository),
+    'use_session_generation_repository': (
+        'session_generation_repository', SessionGenerationRepository,
+    ),
 }
 
 
@@ -80,6 +83,7 @@ class AsyncTransactionManager:
     notification_setting_repository: NotificationSettingRepository
     notification_delivery_repository: NotificationDeliveryRepository
     proxy_repository: ProxyRepository
+    session_generation_repository: SessionGenerationRepository
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]):
         self.session_factory = session_factory
@@ -102,6 +106,7 @@ class AsyncTransactionManager:
         self.use_notification_setting_repository = False
         self.use_notification_delivery_repository = False
         self.use_proxy_repository = False
+        self.use_session_generation_repository = False
 
     def __call__(
         self,
@@ -123,6 +128,7 @@ class AsyncTransactionManager:
         use_notification_setting_repository: bool = False,
         use_notification_delivery_repository: bool = False,
         use_proxy_repository: bool = False,
+        use_session_generation_repository: bool = False,
     ) -> 'AsyncTransactionManager':
         self.use_user_repository = use_user_repository
         self.use_audit_log_repository = use_audit_log_repository
@@ -142,6 +148,7 @@ class AsyncTransactionManager:
         self.use_notification_setting_repository = use_notification_setting_repository
         self.use_notification_delivery_repository = use_notification_delivery_repository
         self.use_proxy_repository = use_proxy_repository
+        self.use_session_generation_repository = use_session_generation_repository
         return self
 
     def _init_repositories(self, session: AsyncSession) -> None:

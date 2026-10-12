@@ -149,6 +149,10 @@ class ProxyConfig(BaseSettings):
     # `GET /api/proxy/issue` (тот же, что `PROXY_API_TOKEN` в `.env` воркера). Пусто — выдача
     # прокси выключена (ручка отвечает 503).
     WORKER_TOKEN: str = Field(default_factory=str)
+    # Сколько дней хранятся генерации сессий, успешные и нет (`session_generations`).
+    FAILURE_RETENTION_DAYS: int = Field(default=30)
+    # Как часто удаляем ошибки генерации старше срока хранения.
+    FAILURE_RETENTION_SWEEP_INTERVAL_SECONDS: float = Field(default=3600.0)
 
 
 class Config(BaseSettings):

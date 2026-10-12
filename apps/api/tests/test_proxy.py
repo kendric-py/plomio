@@ -4,7 +4,7 @@ from pydantic import ValidationError
 
 from apps.api.src.config import config
 from apps.api.src.routers.proxy.dependencies import verify_worker_token
-from apps.api.src.routers.proxy.endpoints import _to_response
+from apps.api.src.routers.proxy.dependencies import build_proxy_response
 from apps.api.src.routers.proxy.schema import CreateProxyRequest, UpdateProxyRequest
 from packages.proxy.src.entities import ProxyEntity
 from packages.proxy.src.enums import ProxyType
@@ -79,7 +79,7 @@ def test_admin_response_never_exposes_password():
         created_at='2026-10-01T00:00:00Z',
         updated_at='2026-10-01T00:00:00Z',
     )
-    dumped = _to_response(proxy=entity).model_dump()
+    dumped = build_proxy_response(proxy=entity).model_dump()
     assert dumped['has_password'] is True
     assert 'password' not in dumped
 
@@ -118,3 +118,57 @@ async def test_issue_random_passes_type_filter_and_returns_none_when_empty():
     service = ProxyService(transaction_manager=FakeTransactionManager(repository))
     assert await service.issue_random(proxy_type=ProxyType.SOCKS5) is None
     assert repository.requested_type == ProxyType.SOCKS5
+
+
+def test_generation_stats_shares_include_success():
+    from datetime import date
+
+    from apps.api.src.routers.proxy.dependencies import build_generation_stats
+    from packages.proxy.src.entities import OutcomeCount, OutcomeDayCount
+    from packages.sessions.src.enums import SessionGenerationOutcome
+
+    stats = build_generation_stats(
+        proxy_id=5,
+        include_antibot=False,
+        outcome_counts=[
+            OutcomeCount(outcome=SessionGenerationOutcome.SUCCESS, count=6),
+            OutcomeCount(outcome=SessionGenerationOutcome.VALIDATION, count=3),
+            OutcomeCount(outcome=SessionGenerationOutcome.OTHER, count=1),
+        ],
+        day_counts=[
+            OutcomeDayCount(
+                day=date(2026, 10, 12), outcome=SessionGenerationOutcome.SUCCESS, count=6,
+            ),
+        ],
+    )
+
+    assert stats.total == 10
+    assert stats.success_percent == 60
+    assert [(share.outcome, share.percent) for share in stats.by_outcome] == [
+        (SessionGenerationOutcome.SUCCESS, 60),
+        (SessionGenerationOutcome.VALIDATION, 30),
+        (SessionGenerationOutcome.OTHER, 10),
+    ]
+    assert stats.by_outcome[0].label == 'Успешно'
+    assert stats.by_day[0].count == 6
+
+
+def test_generation_stats_empty():
+    from apps.api.src.routers.proxy.dependencies import build_generation_stats
+
+    stats = build_generation_stats(
+        proxy_id=1, include_antibot=True, outcome_counts=[], day_counts=[],
+    )
+
+    assert stats.total == 0 and stats.success_percent == 0
+    assert stats.by_outcome == [] and stats.by_day == []
+
+
+def test_record_generation_request_allows_missing_proxy():
+    from apps.api.src.routers.proxy.schema import RecordGenerationRequest
+
+    request = RecordGenerationRequest.model_validate(
+        {'marketplace': 'ozon', 'outcome': 'success'},
+    )
+
+    assert request.proxy_id is None and request.traceback is None
