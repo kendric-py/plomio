@@ -157,13 +157,19 @@ class TaskRepository(BaseRepository[Task, TaskEntity]):
     async def count_finished_by_bucket(
         self, date_from: datetime, unit: BucketUnit,
     ) -> list[TimeBucketCount]:
-        """Завершённые задачи (`SUCCEEDED`/`FAILED`) по интервалам `finished_at`; ключ — статус."""
-        bucket = bucket_start(self.model.finished_at, unit).label('bucket')
+        """Завершённые задачи (`SUCCEEDED`/`FAILED`) и просроченные (`EXPIRED`) по интервалам
+        времени завершения; ключ — статус. У просроченных нет `finished_at` (их переводит в
+        `EXPIRED` свип очереди), поэтому берётся `updated_at` — после перехода в терминальный статус
+        строка больше не меняется."""
+        moment = func.coalesce(self.model.finished_at, self.model.updated_at)
+        bucket = bucket_start(moment, unit).label('bucket')
         statement = (
             select(bucket, self.model.status, func.count(self.model.id))
             .where(
-                self.model.finished_at >= date_from,
-                self.model.status.in_([TaskStatus.SUCCEEDED, TaskStatus.FAILED]),
+                moment >= date_from,
+                self.model.status.in_(
+                    [TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.EXPIRED],
+                ),
             )
             .group_by(bucket, self.model.status)
             .order_by(bucket)

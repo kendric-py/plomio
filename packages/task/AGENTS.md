@@ -265,4 +265,4 @@ TTL: задача, не взятая в работу (`claim_next`) до ист�
 
 ## Сводка «Обзор»
 
-`TaskService.get_finished_series` / `TaskRepository.count_finished_by_bucket` — завершённые задачи (`SUCCEEDED`/`FAILED`) по интервалам `finished_at` для страницы «Обзор» (`TimeBucketCount`, ключ — статус). Подробнее — [`apps/api/AGENTS.md`](../../apps/api/AGENTS.md).
+`TaskService.get_finished_series` / `TaskRepository.count_finished_by_bucket` — завершённые (`SUCCEEDED`/`FAILED`, по `finished_at`) и просроченные (`EXPIRED`, по `updated_at` — `finished_at` у них нет) задачи по интервалам для страницы «Обзор» (`TimeBucketCount`, ключ — статус). Подробнее — [`apps/api/AGENTS.md`](../../apps/api/AGENTS.md).

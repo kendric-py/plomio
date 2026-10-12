@@ -127,9 +127,12 @@ async def get_overview(
             running=running,
             succeeded=sum_series(finished, TaskStatus.SUCCEEDED.value),
             failed=sum_series(finished, TaskStatus.FAILED.value),
+            expired=sum_series(finished, TaskStatus.EXPIRED.value),
             series=build_series(
                 points=finished,
-                keys=[TaskStatus.SUCCEEDED.value, TaskStatus.FAILED.value],
+                keys=[
+                    TaskStatus.SUCCEEDED.value, TaskStatus.FAILED.value, TaskStatus.EXPIRED.value,
+                ],
                 date_from=date_from, unit=unit, now=now,
             ),
         ),

@@ -1494,7 +1494,7 @@ null, до 20000 символов — оригинальная ошибка дл
 
 **Ответ**: `window`, `bucket_unit` (`minute`/`hour`/`day`), `date_from`, `generated_at` и блоки:
 - `workers` — `parser`/`sessions`: `online`, `missed`;
-- `tasks` — `queued`, `running` (сейчас), `succeeded`, `failed` (за окно), `series`;
+- `tasks` — `queued`, `running` (сейчас), `succeeded`, `failed`, `expired` (за окно), `series`;
 - `generations` — `total`, `success_percent`, `by_outcome` (`success`/`validation`/`proxy_unavailable`/
   `other`/`antibot_init` → число), `series`, `pools[]` (как в `GET /api/sessions/pool`);
 - `proxies` — `active`, `total`, `worst[]` (`proxy_id`, `host`, `port`, `success`, `total`,
@@ -1506,7 +1506,7 @@ null, до 20000 символов — оригинальная ошибка дл
 - `users` — `total`, `new`, `active`.
 
 `series` — непрерывный ряд `[{bucket, values}]`: `values` содержит все ключи ряда (нули для пустых
-интервалов). Ключи: задачи — `SUCCEEDED`/`FAILED`; генерации — значения итога; уведомления —
+интервалов). Ключи: задачи — `SUCCEEDED`/`FAILED`/`EXPIRED`; генерации — значения итога; уведомления —
 `SENT`/`FAILED`/`PENDING`; кредиты — `spent`.
 
 ---

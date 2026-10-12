@@ -36,8 +36,9 @@ class OverviewTasks(BaseModel):
     running: int = Field(description='Выполняются сейчас')
     succeeded: int = Field(description='Успешно завершены за окно')
     failed: int = Field(description='Завершены с ошибкой за окно')
+    expired: int = Field(description='Просрочены за окно (не взяты в работу до конца TTL очереди)')
     series: list[OverviewPoint] = Field(
-        description='Завершённые задачи по интервалам: ключи `SUCCEEDED`, `FAILED`',
+        description='Завершённые задачи по интервалам: ключи `SUCCEEDED`, `FAILED`, `EXPIRED`',
     )
 
 

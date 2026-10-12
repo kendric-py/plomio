@@ -590,7 +590,7 @@ class TaskService:
     async def get_finished_series(
         self, date_from: datetime, unit: BucketUnit,
     ) -> list[TimeBucketCount]:
-        """Завершённые задачи (успех/ошибка) по интервалам времени завершения; ключ — статус."""
+        """Завершённые (успех/ошибка) и просроченные задачи по интервалам времени; ключ — статус."""
         async with self.transaction_manager(use_task_repository=True) as transaction:
             return await transaction.task_repository.count_finished_by_bucket(
                 date_from=date_from, unit=unit,
