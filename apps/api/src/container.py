@@ -13,6 +13,7 @@ from packages.direct.src.redis_bus import DirectBus
 from packages.notifications.src.service import NotificationService
 from packages.notifications.src.telegram_client import build_telegram_notifier
 from packages.notifications.src.telegram_link_store import TelegramLinkStore
+from packages.direct.src.service import DirectService
 from packages.proxy.src.service import ProxyService
 from packages.result.src.service import ResultService
 from packages.sessions.src.redis_store import SessionPoolStore
@@ -125,5 +126,10 @@ class DependencyContainer(DeclarativeContainer):
 
     proxy_service = providers.Factory(
         ProxyService,
+        transaction_manager=transaction_manager,
+    )
+
+    direct_service = providers.Factory(
+        DirectService,
         transaction_manager=transaction_manager,
     )

@@ -18,6 +18,7 @@ from apps.api.src.routers.overview.dependencies import (
 from apps.api.src.routers.overview.enums import OverviewWindow
 from apps.api.src.routers.overview.schema import (
     OverviewCredits,
+    OverviewDirect,
     OverviewGenerations,
     OverviewNotifications,
     OverviewProxies,
@@ -30,6 +31,9 @@ from apps.api.src.routers.overview.schema import (
 from apps.api.src.routers.sessions.dependencies import build_marketplace_pool
 from core.enums import Marketplace
 from packages.automation.src.service import AutomationService
+from packages.direct.src.entities import DirectRequestFilters
+from packages.direct.src.enums import DirectOutcome
+from packages.direct.src.service import DirectService
 from packages.billing.src.service import BillingService
 from packages.notifications.src.enums import NotificationDeliveryStatus
 from packages.notifications.src.service import NotificationService
@@ -63,6 +67,7 @@ async def get_overview(
         Provide[DependencyContainer.automation_service],
     ),
     user_service: UserService = Depends(Provide[DependencyContainer.user_service]),
+    direct_service: DirectService = Depends(Provide[DependencyContainer.direct_service]),
     session_pool_store: SessionPoolStore = Depends(Provide[DependencyContainer.session_pool_store]),
     heartbeat_store: WorkerHeartbeatStore = Depends(
         Provide[DependencyContainer.worker_heartbeat_store],
@@ -111,6 +116,10 @@ async def get_overview(
     automation_summary = await automation_service.get_admin_summary(
         date_from=date_from, overdue_grace=overdue_grace,
     )
+    direct_summary = await direct_service.get_summary(
+        filters=DirectRequestFilters(date_from=date_from),
+    )
+    direct_points = await direct_service.get_series(date_from=date_from, unit=unit)
     total_users, new_users, active_users = await user_service.get_activity_counts(since=date_from)
 
     queued = task_summary['tasks'][TaskStatus.QUEUED.value] + task_summary['automations'][TaskStatus.QUEUED.value]
@@ -183,5 +192,23 @@ async def get_overview(
             ),
         ),
         automations=automation_summary,
+        direct=OverviewDirect(
+            total=direct_summary.total,
+            success_percent=percent(
+                direct_summary.by_outcome.get(DirectOutcome.OK, 0), direct_summary.total,
+            ),
+            by_outcome={
+                outcome.value: direct_summary.by_outcome.get(outcome, 0)
+                for outcome in DirectOutcome
+            },
+            credits_charged=direct_summary.credits_charged,
+            avg_total_ms=direct_summary.avg_total_ms,
+            p95_total_ms=direct_summary.p95_total_ms,
+            series=build_series(
+                points=direct_points,
+                keys=[outcome.value for outcome in DirectOutcome],
+                date_from=date_from, unit=unit, now=now,
+            ),
+        ),
         users=OverviewUsers(total=total_users, new=new_users, active=active_users),
     )

@@ -82,6 +82,7 @@ async def _generator_worker(
             validation_error, session_message = await loop.run_in_executor(
                 executor, _build_and_validate, marketplace, proxy,
             )
+            session_message.proxy_id = proxy_id
             if validation_error is None:
                 await store.save(
                     session_message=session_message,

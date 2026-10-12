@@ -1485,6 +1485,30 @@ null, до 20000 символов — оригинальная ошибка дл
 
 ---
 
+## `/api/admin/direct-requests` — история direct-запросов (админ)
+
+История хранится без срока и **без результата** запроса (только метаданные). Общие фильтры списка
+и сводки (все необязательные, `AND`): `user_id`, `marketplace`, `request_type`
+(`product_page`/`reviews`/`search`/`category`/`seller`), `outcome` (`OK`/`INVALID_INPUT`/`NOT_FOUND`/
+`UNAVAILABLE`/`ERROR`/`TIMEOUT`/`BILLING_FAILED`), `proxy_id`, `search` (подстрока в запросе или
+точный `request_id`), `date_from`/`date_to` (по времени запроса).
+
+### `GET /api/admin/direct-requests/` — список, новые сверху
+
+**Query**: фильтры выше, `limit` (по умолчанию 50, до 500), `offset`. **Ответ**: `items[]` и `meta`
+(`total`, `limit`, `offset`). Запись: `id`, `request_id`, `user_id` (`null`, если пользователь удалён),
+`marketplace`, `request_type`, `outcome`, `http_status`, `input_value`, `is_next_page`, `items_count`,
+`has_next_page`, `credits_charged`, `proxy_id`, `total_ms`, `attempts`, `queue_ms`, `session_ms`,
+`fetch_ms`, `worker_ms`, `error_detail` (внутренняя причина сбоя — только админу), `created_at`.
+Тайминги воркера и `proxy_id` — `null`, если воркер старой версии или запрос не дошёл до него.
+
+### `GET /api/admin/direct-requests/summary` — агрегат по тем же фильтрам
+
+**Ответ**: `total`, `success_percent`, `by_outcome[]` (`outcome`, `count`), `by_type[]`
+(`request_type`, `count`), `credits_charged`, `avg_total_ms` и `p95_total_ms` (по успешным).
+
+---
+
 ## `/api/admin/overview` — сводка по сайту (админ)
 
 ### `GET /api/admin/overview/?window=1h|24h|7d` — главная страница админки
@@ -1503,6 +1527,9 @@ null, до 20000 символов — оригинальная ошибка дл
 - `credits` — `spent`, `tasks_spent`, `automations_spent`, `direct_spent`, `zero_balance_users`,
   `low_balance_users`, `low_balance_threshold`, `series`;
 - `automations` — `active`, `paused`, `overdue`, `with_error`, `checks`, `failed_checks`;
+- `direct` — `total`, `success_percent`, `by_outcome` (`OK`/`INVALID_INPUT`/`NOT_FOUND`/
+  `UNAVAILABLE`/`ERROR`/`TIMEOUT`/`BILLING_FAILED` → число), `credits_charged`, `avg_total_ms`,
+  `p95_total_ms` (по успешным), `series`;
 - `users` — `total`, `new`, `active`.
 
 `series` — непрерывный ряд `[{bucket, values}]`: `values` содержит все ключи ряда (нули для пустых

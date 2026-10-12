@@ -41,6 +41,8 @@ class ExecutionStats:
     attempts: int = 0
     session_seconds: float = 0.0
     fetch_seconds: float = 0.0
+    # Прокси последней использованной сессии (для истории direct-запросов).
+    proxy_id: int | None = None
 
 
 class FetchFailedError(Exception):
@@ -160,6 +162,8 @@ class PageExecutor:
                 self._handle = await self._provider.acquire(self._options.deadline)
             finally:
                 self.stats.session_seconds += time.monotonic() - started
+            session_message = self._handle.session_message
+            self.stats.proxy_id = session_message.proxy_id if session_message else None
         return self._handle
 
     async def _call_within_deadline(

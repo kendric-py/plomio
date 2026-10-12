@@ -185,8 +185,27 @@ async def handle_direct_request(
             status=DirectStatus.ERROR,
             error=f'internal error: {type(error).__name__}',
         )
+    reply = attach_diagnostics(reply, request, executor.stats, taken_at, worker_started)
     await bus.publish_reply(reply)
     log_request_done(request, reply, executor.stats, taken_at, worker_started)
+
+
+def attach_diagnostics(
+    reply: DirectReply,
+    request: DirectRequest,
+    stats: ExecutionStats,
+    taken_at: float,
+    worker_started: float,
+) -> DirectReply:
+    """Тайминги и прокси для истории запросов в api (клиенту не отдаются)."""
+    return reply.model_copy(update={
+        'attempts': stats.attempts,
+        'queue_ms': round((taken_at - request.created_at) * 1000),
+        'session_ms': round(stats.session_seconds * 1000),
+        'fetch_ms': round(stats.fetch_seconds * 1000),
+        'worker_ms': round((time.monotonic() - worker_started) * 1000),
+        'proxy_id': stats.proxy_id,
+    })
 
 
 def log_request_done(

@@ -212,6 +212,7 @@ def configure_rest_server() -> FastAPI:
             'apps.api.src.routers.notifications.endpoints',
             'apps.api.src.routers.direct.dependencies',
             'apps.api.src.routers.direct.endpoints',
+            'apps.api.src.routers.direct_admin.endpoints',
             'apps.api.src.routers.proxy.endpoints',
             'apps.api.src.routers.overview.endpoints',
         ],

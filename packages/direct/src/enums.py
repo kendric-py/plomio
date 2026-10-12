@@ -18,3 +18,16 @@ class DirectStatus(str, Enum):
     NOT_FOUND = 'not_found'
     UNAVAILABLE = 'unavailable'
     ERROR = 'error'
+
+
+class DirectOutcome(str, Enum):
+    """Итог direct-запроса для истории (`direct_requests`): статусы ответа воркера плюс исходы,
+    которых воркер не видит — таймаут ожидания ответа и сбой списания кредитов."""
+
+    OK = 'OK'
+    INVALID_INPUT = 'INVALID_INPUT'
+    NOT_FOUND = 'NOT_FOUND'
+    UNAVAILABLE = 'UNAVAILABLE'
+    ERROR = 'ERROR'
+    TIMEOUT = 'TIMEOUT'
+    BILLING_FAILED = 'BILLING_FAILED'

@@ -91,6 +91,18 @@ class OverviewCredits(BaseModel):
     series: list[OverviewPoint] = Field(description='Траты по интервалам: ключ `spent`')
 
 
+class OverviewDirect(BaseModel):
+    total: int = Field(description='Direct-запросов за окно')
+    success_percent: int = Field(description='Доля успешных, %; 0, если запросов не было')
+    by_outcome: dict[str, int] = Field(description='Число запросов за окно по итогам')
+    credits_charged: int = Field(description='Списано кредитов за окно')
+    avg_total_ms: int = Field(description='Среднее полное время успешных запросов, мс')
+    p95_total_ms: int = Field(description='95-й перцентиль полного времени успешных, мс')
+    series: list[OverviewPoint] = Field(
+        description='Запросы по интервалам: ключи — итоги (`OK`, `NOT_FOUND`, `TIMEOUT`, ...)',
+    )
+
+
 class OverviewUsers(BaseModel):
     total: int = Field(description='Всего пользователей')
     new: int = Field(description='Зарегистрировались за окно')
@@ -112,6 +124,7 @@ class OverviewResponse(BaseModel):
     generations: OverviewGenerations = Field(description='Генерации сессий')
     proxies: OverviewProxies = Field(description='Прокси')
     notifications: OverviewNotifications = Field(description='Уведомления')
+    direct: OverviewDirect = Field(description='Прямые запросы')
     credits: OverviewCredits = Field(description='Кредиты')
     automations: AutomationsStateSummary = Field(description='Автоматизации')
     users: OverviewUsers = Field(description='Пользователи')

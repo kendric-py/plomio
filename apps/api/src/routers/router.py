@@ -7,6 +7,7 @@ from apps.api.src.routers.automation_admin.endpoints import admin_router as auto
 from apps.api.src.routers.billing.endpoints import admin_router as billing_admin_router
 from apps.api.src.routers.billing.endpoints import router as billing_router
 from apps.api.src.routers.direct.endpoints import router as direct_router
+from apps.api.src.routers.direct_admin.endpoints import admin_router as direct_admin_router
 from apps.api.src.routers.notifications.endpoints import router as notifications_router
 from apps.api.src.routers.overview.endpoints import admin_router as overview_admin_router
 from apps.api.src.routers.proxy.endpoints import admin_router as proxy_admin_router
@@ -36,3 +37,4 @@ api_router.include_router(router=direct_router)
 api_router.include_router(router=proxy_router)
 api_router.include_router(router=proxy_admin_router)
 api_router.include_router(router=overview_admin_router)
+api_router.include_router(router=direct_admin_router)

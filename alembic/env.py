@@ -21,6 +21,7 @@ from packages.billing.src.models import (  # noqa: F401
     SpendingLimit,
 )
 from packages.cron.src.models import CronJobRun  # noqa: F401
+from packages.direct.src.models import DirectRequestRecord  # noqa: F401
 from packages.membership.src.models import Membership  # noqa: F401
 from packages.notifications.src.models import (  # noqa: F401
     NotificationDelivery,

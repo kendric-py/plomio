@@ -36,6 +36,9 @@ class SessionMessage(BaseModel):
     # None only when generated with GENERATION_REQUIRE_PROXY=false (local dev without a proxy
     # API yet) — a direct connection was used instead of an upstream proxy.
     proxy: ProxyConfig | None = Field(default=None)
+    # Id прокси из `packages/proxy` (для истории direct-запросов); не часть `ProxyConfig`, чтобы не
+    # менять wire-контракт прокси. None — сессия без прокси или записана до появления поля.
+    proxy_id: int | None = Field(default=None)
     cookies: dict[str, str] = Field(...)
     user_agent: str = Field(...)
     sec_ch_ua: str = Field(...)

@@ -245,6 +245,13 @@ REST API. Точка входа для клиентов (фронтенд, вн�
 `get_date_range`), общий для `GET /api/automations/` и `/with-history`; возвращает доменный
 `AutomationListFilters`.
 
+`routers/direct/dependencies.py::track_direct_request` — контекст-менеджер вокруг обработки
+direct-запроса: копит `DirectCall` (ответ воркера, число элементов, списание, флаги сбоя) и в фоне
+пишет строку в `direct_requests` (см. [`packages/direct`](../../packages/direct/AGENTS.md#история-запросов-modelspy-repositorypy-servicepy)).
+`dispatch_request`, `parse_reply_items`, `charge_direct_request` принимают `call` и отмечают в нём
+итог. `routers/direct_admin` (`/api/admin/direct-requests/`, `/summary`) — список с фильтрами и
+агрегат для раздела «Мониторинг → Прямые запросы»; в `overview` блок `direct`.
+
 `routers/overview` (`GET /api/admin/overview?window=1h|24h|7d`, админ) — единая сводка для
 страницы «Обзор»: воркеры (Redis heartbeat), задачи, генерации сессий и пулы, прокси, уведомления,
 кредиты, автоматизации, пользователи. Роутер только собирает данные сервисов доменов (вызовы

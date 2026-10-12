@@ -155,6 +155,34 @@
   `worker_ms` — весь путь в воркере).
 - API: `[direct_api] request_id type marketplace article status total_ms`.
 
+## История запросов (`models.py`, `repository.py`, `service.py`)
+
+Таблица `direct_requests` (`DirectRequestRecord`) — append-only журнал: по строке на каждый запрос,
+дошедший до воркера или не дождавшийся его. **Результата (товары, отзывы), `page_key` и курсоров
+в ней нет** — только метаданные: `request_id` (связь с логами `[direct_api]` и
+`credit_transactions.reference_id`), `user_id` (`SET NULL` при удалении пользователя), маркетплейс,
+тип, `outcome`, `http_status`, `input_value` (до 500 символов), `is_next_page`, `items_count`,
+`has_next_page`, `credits_charged`, `proxy_id` (`SET NULL`), `total_ms` и тайминги воркера
+(`attempts`, `queue_ms`, `session_ms`, `fetch_ms`, `worker_ms`), `error_detail` (внутренняя причина
+сбоя до 300 символов — только админу, клиенту не отдаётся), `created_at`. **Срок хранения не
+ограничен** (чистки нет).
+
+`DirectOutcome`: `OK`, `INVALID_INPUT`, `NOT_FOUND`, `UNAVAILABLE`, `ERROR` (статусы воркера),
+`TIMEOUT` (нет ответа за `DIRECT_REQUEST_TIMEOUT_SECONDS`), `BILLING_FAILED` (ответ получен, но
+списание не прошло — клиент получил 503). Неразбираемый ответ воркера пишется как `ERROR`.
+
+Тайминги и `proxy_id` воркер кладёт в необязательные поля `DirectReply` (`attempts`, `queue_ms`,
+`session_ms`, `fetch_ms`, `worker_ms`, `proxy_id`; `apps/worker_parser/src/direct_runner.py::
+attach_diagnostics`) — клиенту они не уходят, воркер старой версии их просто не присылает.
+`proxy_id` берётся из `SessionMessage.proxy_id` (его проставляет `worker_sessions`, см.
+[`packages/sessions`](../sessions/AGENTS.md)); сессии, созданные до появления поля, дают `NULL`.
+
+Пишет `apps/api` (`routers/direct/dependencies.py::track_direct_request`) в фоне, после ответа
+клиенту: задержку не добавляет, сбой записи только логируется (`[direct_history_failed]`) и запрос
+не ломает. Не пишутся запросы, не дошедшие до воркера: 422 валидации (path/query/`page_key`) и 402
+«мало кредитов». `DirectService`: `record_request`, `list_requests`, `get_summary`, `get_series`
+(для страницы «Обзор»).
+
 ## Ограничения MVP
 
 Нет кэша и singleflight по одному товару и rate-limit на пользователя — добавляются поверх, не
