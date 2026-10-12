@@ -35,6 +35,10 @@ def _tracked_field_variables() -> dict[str, NotificationTemplateVariableEntity]:
         variables[f'{name}_new'] = NotificationTemplateVariableEntity(
             field=field, description=f'{description}(Новое)', is_money=is_money,
         )
+        if is_money:
+            variables[f'{name}_baseline'] = NotificationTemplateVariableEntity(
+                field=field, description=f'{description}(Стартовая)', is_money=True,
+            )
     return variables
 
 

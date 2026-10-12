@@ -249,6 +249,11 @@ template`, часть той же карты `preferences`, что `channels`/`f
   тика (`AutomationCheckLogRepository.get_latest_succeeded`, `None` на самом первом успешном тике
   автоматизации, что и рендерится как пустая строка). Имена — `TRACKED_FIELD_VARIABLE_NAMES` в
   `packages/automation/src/service.py`, рядом с `TRACKED_FIELDS`.
+- **Ценовые поля имеют ещё и `_baseline`.** `price_baseline`/`discounted_price_baseline`/
+  `original_price_baseline` («Стартовая») — `Automation.baseline_*_kopecks`. `{field}_old` у всех
+  полей, включая цены, — значение прошлого успешного тика. Но `old_value` ценовых полей в
+  `changes`/`changes_text` уведомления — стартовая цена (если baseline задан), чтобы текст по
+  умолчанию совпадал с порогом. В `automation_check_log.changes` — сравнение с прошлым тиком.
 - Цены (`price_*`/`discounted_price_*`/`original_price_*`) — в `payload` (и в `GET /api/
   notifications/deliveries`) по-прежнему копейки, как везде в API, но **при рендере в шаблон
   подставляются как рубли** ("1 500,00 ₽", не "150000") — см. `is_money` в

@@ -786,6 +786,18 @@ class AutomationService:
         changes = filter_notifiable_changes(changes=changes)
         threshold_breached = any(change['threshold_breached'] for change in changes)
         if changes:
+            # Для ценовых полей «старая» цена в уведомлении — стартовая (baseline), а не цена
+            # прошлой проверки; в лог (`changes` выше) по-прежнему пишется сравнение с прошлым тиком.
+            baseline_by_field = {
+                field.value: getattr(automation, baseline_attribute)
+                for field, kind, baseline_attribute, _payload_attribute in TRACKED_FIELDS
+                if kind == TrackedFieldKind.KOPECKS
+            }
+            changes = [
+                {**change, 'old_value': baseline_by_field[change['field']]}
+                if baseline_by_field.get(change['field']) is not None else change
+                for change in changes
+            ]
             notify_payload = {
                 'automation_id': str(automation.id),
                 # Проверочная задача этого тика — по ней админка находит доставки задачи.
@@ -802,9 +814,11 @@ class AutomationService:
             }
             for field, _kind, _baseline_attribute, _payload_attribute in TRACKED_FIELDS:
                 variable_name = TRACKED_FIELD_VARIABLE_NAMES[field]
-                notify_payload[f'{variable_name}_old'] = (
-                    previous_snapshot.get(field.value) if previous_snapshot else None
-                )
+                previous_value = previous_snapshot.get(field.value) if previous_snapshot else None
+                baseline_value = baseline_by_field.get(field.value)
+                if field.value in baseline_by_field:
+                    notify_payload[f'{variable_name}_baseline'] = baseline_value
+                notify_payload[f'{variable_name}_old'] = previous_value
                 notify_payload[f'{variable_name}_new'] = (
                     snapshot.get(field.value) if snapshot else None
                 )
