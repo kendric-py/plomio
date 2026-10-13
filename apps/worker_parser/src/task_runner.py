@@ -15,6 +15,7 @@ from apps.worker_parser.src.execution import ExecutionOptions, FetchFailedError,
 from apps.worker_parser.src.registry import OPERATIONS, SELLER_PROFILE_FETCHERS, PageOperation
 from apps.worker_parser.src.services import build_services
 from apps.worker_parser.src.session_provider import PoolSessionProvider
+from core.marketplace_article import normalize_product_input
 from packages.result.src.service import ResultService
 from packages.sessions.src.redis_store import SessionPoolStore
 from packages.task.src.entities import TaskEntity, TaskItemEntity
@@ -29,6 +30,11 @@ logger = logging.getLogger(__name__)
 LIMITED_PARSE_TYPES = frozenset({
     ParseType.SEARCH_QUERY, ParseType.CATEGORY, ParseType.SELLER, ParseType.REVIEWS,
 })
+
+# Типы, у которых вход — товар: голый артикул превращается в ссылку на карточку, как в direct
+# (фетчеры работают только со ссылкой). Нужно и для старых автоматизаций/задач, созданных с
+# артикулом.
+PRODUCT_INPUT_PARSE_TYPES = frozenset({ParseType.PRODUCT_PAGE, ParseType.REVIEWS})
 
 
 def restore_cursor(operation: PageOperation, raw_cursor: dict | None) -> BaseModel | None:
@@ -78,6 +84,11 @@ async def process_item_pages(
 ) -> None:
     operation = OPERATIONS[(task.marketplace, task.parse_type)]
     limit_applies = task.parse_type in LIMITED_PARSE_TYPES
+    input_value = (
+        normalize_product_input(task.marketplace, item.input_value)
+        if task.parse_type in PRODUCT_INPUT_PARSE_TYPES
+        else item.input_value
+    )
 
     cursor = restore_cursor(operation, item.cursor)
     seen_keys = initial_seen_keys(cursor)
@@ -92,7 +103,7 @@ async def process_item_pages(
         )
         try:
             page = await executor.fetch_page(
-                operation, item.input_value, cursor, seen_keys, remaining_limit,
+                operation, input_value, cursor, seen_keys, remaining_limit,
             )
         except FetchFailedError as failure:
             await task_service.complete_item(

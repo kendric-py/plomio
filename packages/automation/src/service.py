@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 
 from core.enums import Marketplace
 from core.exceptions import DuplicatedObjectError, ObjectNotFoundError
-from core.marketplace_article import extract_article
+from core.marketplace_article import extract_article, normalize_product_input
 from core.transaction_manager import AsyncTransactionManager
 from packages.automation.src.entities import (
     AdminAutomationFilters,
@@ -177,6 +177,7 @@ class AutomationService:
         await self.billing_service.ensure_can_spend(user_id=user_id)
 
         article = extract_article(marketplace=marketplace, input_value=input_value)
+        input_value = normalize_product_input(marketplace, input_value)
 
         async with self.transaction_manager(use_automation_repository=True) as transaction:
             duplicate = await transaction.automation_repository.find_duplicate(
@@ -255,7 +256,7 @@ class AutomationService:
                 id=uuid4(),
                 user_id=user_id,
                 marketplace=item.marketplace,
-                input_value=item.input_value,
+                input_value=normalize_product_input(item.marketplace, item.input_value),
                 article=article,
                 price_drop_threshold_percent=item.price_drop_threshold_percent,
                 check_frequency_minutes=item.check_frequency_minutes,

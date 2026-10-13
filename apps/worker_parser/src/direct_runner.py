@@ -19,6 +19,7 @@ from apps.worker_parser.src.hot_session import HotSessionSlot
 from apps.worker_parser.src.marketplaces.ozon.utils import extract_ozon_product_id_from_path
 from apps.worker_parser.src.registry import OPERATIONS, PageOperation
 from core.enums import Marketplace
+from core.marketplace_article import normalize_product_input
 from packages.direct.src.entities import DirectReply, DirectRequest
 from packages.direct.src.enums import DirectRequestType, DirectStatus
 from packages.direct.src.redis_bus import DirectBus
@@ -34,12 +35,6 @@ PARSE_TYPE_BY_REQUEST_TYPE = {
     DirectRequestType.SEARCH: ParseType.SEARCH_QUERY,
     DirectRequestType.CATEGORY: ParseType.CATEGORY,
     DirectRequestType.SELLER: ParseType.SELLER,
-}
-
-# Числовой артикул → ссылка на карточку. Ozon принимает путь только с артикулом (проверено).
-PRODUCT_URL_BY_MARKETPLACE = {
-    Marketplace.WILDBERRIES: 'https://www.wildberries.ru/catalog/{article}/detail.aspx',
-    Marketplace.OZON: 'https://www.ozon.ru/product/{article}/',
 }
 
 # Ссылку воркер запрашивает своей сессией (куки маркетплейса), поэтому принимаются только ссылки
@@ -85,7 +80,7 @@ def resolve_input_value(request: DirectRequest) -> str:
     if request.request_type == DirectRequestType.SELLER:
         return resolve_seller_input(request, value)
     if value.isdigit():
-        return PRODUCT_URL_BY_MARKETPLACE[request.marketplace].format(article=value)
+        return normalize_product_input(request.marketplace, value)
     value = resolve_marketplace_url(request, value)
     if (
         request.marketplace == Marketplace.OZON

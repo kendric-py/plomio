@@ -185,6 +185,48 @@ async def test_result_limit_does_not_apply_to_product_page(monkeypatch):
     assert result_service.recorded == [1]
 
 
+@pytest.mark.parametrize('parse_type', [ParseType.PRODUCT_PAGE, ParseType.REVIEWS])
+@pytest.mark.asyncio
+async def test_bare_article_resolved_to_product_url(monkeypatch, parse_type):
+    # Автоматизации и задачи, созданные с голым артикулом: фетчеры работают только со ссылкой.
+    seen_inputs = []
+
+    async def fetch_page(input_value, cursor_value, ctx):
+        seen_inputs.append(input_value)
+        return Page(items=[product(1)])
+
+    install_operation(monkeypatch, fetch_page, parse_type=parse_type)
+    item = make_item()
+    item.input_value = '123456'
+    executor = PageExecutor(StubProvider(), ExecutionOptions())
+
+    await task_runner.process_item_pages(
+        make_task(parse_type=parse_type), item, executor, FakeTaskService(), FakeResultService(),
+    )
+
+    assert seen_inputs == ['https://www.wildberries.ru/catalog/123456/detail.aspx']
+
+
+@pytest.mark.asyncio
+async def test_search_query_digits_are_not_resolved(monkeypatch):
+    seen_inputs = []
+
+    async def fetch_page(input_value, cursor_value, ctx):
+        seen_inputs.append(input_value)
+        return Page(items=[product(1)])
+
+    install_operation(monkeypatch, fetch_page)
+    item = make_item()
+    item.input_value = '123456'
+    executor = PageExecutor(StubProvider(), ExecutionOptions())
+
+    await task_runner.process_item_pages(
+        make_task(), item, executor, FakeTaskService(), FakeResultService(),
+    )
+
+    assert seen_inputs == ['123456']
+
+
 @pytest.mark.asyncio
 async def test_paused_task_stops_without_completing_item(monkeypatch):
     async def fetch_page(input_value, cursor_value, ctx):

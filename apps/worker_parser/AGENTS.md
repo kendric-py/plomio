@@ -172,6 +172,11 @@ push-модель, если она когда-нибудь понадобитс�
   `handle_task_item` вызывает `discard_session()`.
 - Профиль продавца (`SELLER`) выполняется через `executor.run(..., retry=False)` — одна попытка, при
   ошибке сессия выбрасывается, элемент всё равно завершается успешно.
+- **Голый артикул → ссылка** — `core.marketplace_article.normalize_product_input`, общая для обоих
+  режимов: direct (`resolve_input_value`) и задач (`task_runner.process_item_pages`, для
+  `PRODUCT_PAGE`/`REVIEWS` — `PRODUCT_INPUT_PARSE_TYPES`). Фетчеры карточки и отзывов принимают
+  только ссылку (голый артикул Ozon → `HTTP 404`, WB → `invalid_input`). В режиме задач это нужно
+  для задач и автоматизаций, сохранённых с артикулом (новые автоматизации хранят ссылку сразу).
 
 ## Режимы: `WORKER_MODE=tasks|direct`
 
