@@ -237,6 +237,21 @@ TTL: задача, не взятая в работу (`claim_next`) до ист�
   `resume_task`. REST-ручки у метода пока нет (см. `apps/api/AGENTS.md`), но домен обязан быть
   корректен и без неё.
 
+## API-ключи — `packages/api_keys`
+
+`Task.api_key_id` (FK `SET NULL`) — ключ, через который создана задача; у проверочной задачи —
+ключ её автоматизации (передаёт `AutomationService.dispatch_due_checks`). `TaskService` инжектит
+`ApiKeyService`:
+
+- все guard'ы трат (`create_task`, `resume_task`, `exclude_task_item`, `restart_task`) идут через
+  `_ensure_can_spend(user_id, api_key_id)` — баланс/лимиты пользователя и, если задача создана
+  ключом, сам ключ (не отозван, не истёк, лимит не исчерпан); ошибки ключа — подклассы
+  `InsufficientCreditsError` (402);
+- `record_item_progress` передаёт `api_key_id` в `charge`, а после списания ставит задачу на паузу,
+  если нельзя тратить ни пользователю, ни ключу (`_can_continue`).
+
+Подробнее — [`packages/api_keys/AGENTS.md`](../api_keys/AGENTS.md).
+
 ## Уведомления — `packages/notifications`
 
 `TaskService` инжектит `NotificationService` (см. [`packages/notifications/AGENTS.md`](../notifications/AGENTS.md)

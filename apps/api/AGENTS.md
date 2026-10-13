@@ -180,7 +180,8 @@ REST API. Точка входа для клиентов (фронтенд, вн�
   `GET /transactions` (плоский журнал: списания и начисления), `GET /transactions/export` (CSV, UTF-8 с BOM,
   `routers/billing/csv_export.py`), `GET /transactions/by-reference` (траты, сгруппированные по
   `reference_type`+`reference_id`) — все три принимают общие фильтры `reference_type`/`reference_id`/`kind`
-  (`spend`|`grant`)/`date_from`/`date_to` (`dependencies.py::get_transaction_filters`); `GET /stats` и
+  (`spend`|`grant`)/`api_key_id`/`date_from`/`date_to` (`dependencies.py::get_transaction_filters`;
+  `api_key_id` — траты через API-ключ, это же поле есть в строке журнала и колонкой в CSV); `GET /stats` и
   `GET /stats/daily` (траты пользователя за период, итог и по дням), `GET /spending/{reference_type}/{reference_id}`
   (расход на одну задачу/автоматизацию/direct-запрос; для автоматизации — с её проверками; чужой id даёт нули),
   `GET`/`PUT /limits` (собственные лимиты расходов и потрачено), `GET /pricing` (прайс для расчёта
@@ -272,14 +273,43 @@ tags=[...])`, подключить в `routers/router.py` через `api_router
 Домен (`packages/*`) не знает про REST-транспорт; схема — контракт конкретного роута этого app. См.
 [правило в gold-rules.md](../../docs/reference/gold-rules.md#rest-схемы).
 
-## Авторизация в Swagger
+## Авторизация (JWT и API-ключи)
 
-`routers/auth/dependencies.py::get_current_user` — FastAPI-зависимость `HTTPBearer()` +
-`packages.auth.src.security.decode_access_token` + `UserService.get_by_id`. Любой эндпоинт с
-`Depends(get_current_user)` автоматически получает схему безопасности `HTTPBearer` в OpenAPI — в
-Swagger UI (`/docs`) появляется кнопка **Authorize**, куда вставляется access-токен
-(`Bearer <access_token>`, полученный из `POST /api/auth/login`/`register`), и дальше он подставляется
-во все защищённые запросы из UI. Невалидный/просроченный токен или несуществующий пользователь → 401.
+`routers/auth/dependencies.py::get_auth_context` — единая точка: `AuthContext(user, api_key)`.
+Принимает **JWT** (`Authorization: Bearer <access_token>` из `POST /api/auth/login`/`register`) или
+**API-ключ** — заголовок `X-API-Key: plm_...` либо `Authorization: Bearer plm_...` (ключ
+отличается от JWT префиксом `plm_`, см. [`packages/api_keys`](../../packages/api_keys/AGENTS.md)).
+Нет ни того ни другого, невалидный/просроченный токен, неизвестный/отозванный/истёкший ключ или
+несуществующий пользователь → 401 (`detail` называет причину). FastAPI кэширует зависимость в
+рамках запроса — ключ проверяется один раз.
+
+- `get_current_user` — пользователь (JWT или ключ), как и раньше во всех роутерах.
+- `get_current_api_key_id` — ключ запроса для учёта трат: передаётся в `create_task`,
+  `create_automation`/`bulk_create_automations` и direct-списание (`require_positive_balance`
+  проверяет и лимит ключа, `charge_direct_request(api_key_id=...)`).
+- `get_session_user` — **только JWT**, ключ → 403 `Not available with an API key`. На нём
+  управление ключами (`/api/api-keys`) и вся админка (`get_current_admin_user`): утёкший ключ не
+  может выпустить новый ключ, снять себе лимит или действовать как администратор.
+
+В Swagger UI (`/docs`) кнопка **Authorize** предлагает обе схемы (`HTTPBearer` и `APIKeyHeader`).
+
+## API-ключи
+
+`routers/api_keys/{endpoints,dependencies,schema}.py` (`/api/api-keys`, `Depends(get_session_user)`,
+доменная часть — [`packages/api_keys/AGENTS.md`](../../packages/api_keys/AGENTS.md)):
+
+- `GET /` — все ключи пользователя, новые сверху (`ApiKeyListResponse.items`, без пагинации).
+- `POST /` (`201`) — `CreateApiKeyRequest`: `name` (1..100), `credit_limit` (≥ 1 или `null`),
+  `expires_at` (в будущем или `null`; naive → UTC). Ответ `CreateApiKeyResponse` — ключ плюс
+  `key` (значение, **только здесь**). Прошлый срок → 422, больше 20 неотозванных ключей → 409.
+- `GET /{id}`, `PATCH /{id}` (`UpdateApiKeyRequest`: меняются только переданные поля, явный `null`
+  у `credit_limit`/`expires_at` снимает лимит/срок; отозванный ключ → 409),
+  `POST /{id}/revoke` (повторный отзыв не ошибка). Чужой/несуществующий ключ → 404.
+- `ApiKeyResponse`: `status` (`ACTIVE`/`EXPIRED`/`REVOKED`), `credit_limit`, `spent_credits` (по
+  журналу `credit_transactions.api_key_id`), `remaining_credits` (не меньше 0, `null` без лимита),
+  `expires_at`, `revoked_at`, `last_used_at`, `prefix`. Статус и остаток считает
+  `dependencies.py::build_api_key_response`.
+- Создание/изменение/отзыв пишутся в аудит (`record_api_key_audit`, значение ключа не пишется).
 
 Модуль `routers/auth/dependencies.py` добавлен в `container.wire(modules=[...])` в `src/server.py` —
 без этого `Depends(Provide[...])` внутри `get_current_user` не резолвится.

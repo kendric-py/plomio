@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
 
 from apps.api.src.container import DependencyContainer
-from apps.api.src.routers.auth.dependencies import get_current_user
+from apps.api.src.routers.auth.dependencies import get_current_api_key_id, get_current_user
 from apps.api.src.routers.dependencies import get_date_range
 from apps.api.src.routers.schema import DateRange, PaginationMeta
 from apps.api.src.routers.task.schema import (
@@ -39,6 +39,7 @@ XLSX_MEDIA_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.s
 async def create_task(
     body: CreateTaskRequest,
     current_user: UserEntity = Depends(get_current_user),
+    api_key_id: int | None = Depends(get_current_api_key_id),
     task_service: TaskService = Depends(
         Provide[DependencyContainer.task_service],
     ),
@@ -52,6 +53,7 @@ async def create_task(
             ttl=timedelta(seconds=body.ttl_seconds),
             user_id=current_user.id,
             result_limit=body.result_limit,
+            api_key_id=api_key_id,
         )
     except InsufficientCreditsError as error:
         raise HTTPException(

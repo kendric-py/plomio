@@ -106,6 +106,14 @@ class CreditTransaction(BaseSQLModel):
         ForeignKey('users.id', ondelete='SET NULL'),
         nullable=True,
     )
+    # API-ключ, через который создана тарифицированная работа (packages/api_keys) — по нему
+    # считается «потрачено по ключу». Ключи не удаляются (только отзываются), SET NULL — на случай
+    # удаления вместе с пользователем.
+    api_key_id: Mapped[int | None] = mapped_column(
+        ForeignKey('api_keys.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -6,6 +6,7 @@ from core.entities import TimeBucketCount
 from core.enums import BucketUnit, Marketplace
 from core.exceptions import ObjectNotFoundError
 from core.transaction_manager import AsyncTransactionManager
+from packages.api_keys.src.service import ApiKeyService
 from packages.billing.src.enums import PricingDimension, ReferenceType
 from packages.billing.src.service import BillingService
 from packages.notifications.src.service import NotificationService
@@ -29,12 +30,28 @@ class TaskService:
         transaction_manager: AsyncTransactionManager,
         billing_service: BillingService,
         notification_service: NotificationService,
+        api_key_service: ApiKeyService,
         frontend_base_url: str = '',
     ):
         self.transaction_manager = transaction_manager
         self.billing_service = billing_service
         self.notification_service = notification_service
+        self.api_key_service = api_key_service
         self.frontend_base_url = frontend_base_url
+
+    async def _ensure_can_spend(self, user_id: int, api_key_id: int | None) -> None:
+        """Guard новой траты: баланс и лимиты пользователя, а для задачи через API-ключ — ещё и
+        сам ключ (не отозван, не истёк, лимит ключа не исчерпан). Все ошибки — 402."""
+        await self.billing_service.ensure_can_spend(user_id=user_id)
+        if api_key_id is not None:
+            await self.api_key_service.ensure_can_spend(api_key_id=api_key_id)
+
+    async def _can_continue(self, task: TaskEntity) -> bool:
+        if not await self.billing_service.can_spend(user_id=task.user_id):
+            return False
+        if task.api_key_id is None:
+            return True
+        return await self.api_key_service.can_spend(api_key_id=task.api_key_id)
 
     async def create_task(
         self,
@@ -48,6 +65,7 @@ class TaskService:
         automation_id: UUID | None = None,
         pricing_dimension_code: str | None = None,
         pricing_dimension_value: int | None = None,
+        api_key_id: int | None = None,
     ) -> TaskEntity:
         # automation_id is None <=> a regular user-initiated task (not an automation's check task,
         # which packages.automation.src.service.AutomationService.dispatch_due_checks creates with
@@ -58,7 +76,7 @@ class TaskService:
             pricing_dimension_value = priority
 
         if automation_id is None:
-            await self.billing_service.ensure_can_spend(user_id=user_id)
+            await self._ensure_can_spend(user_id=user_id, api_key_id=api_key_id)
 
         async with self.transaction_manager(
             use_task_repository=True,
@@ -75,6 +93,7 @@ class TaskService:
                     automation_id=automation_id,
                     pricing_dimension_code=pricing_dimension_code,
                     pricing_dimension_value=pricing_dimension_value,
+                    api_key_id=api_key_id,
                 ),
             )
             for position, input_value in enumerate(inputs):
@@ -93,6 +112,7 @@ class TaskService:
                 action_code='task.create',
                 reference_type=ReferenceType.TASK,
                 reference_id=str(created_task.id),
+                api_key_id=api_key_id,
             )
         return created_task
 
@@ -182,7 +202,7 @@ class TaskService:
             # auto-paused this way in the first place, since dispatch_due_checks already gates on
             # balance before creating them.
             if task.automation_id is None:
-                await self.billing_service.ensure_can_spend(user_id=task.user_id)
+                await self._ensure_can_spend(user_id=task.user_id, api_key_id=task.api_key_id)
 
             # queue_expires_at is the deadline claim_next checks; the original one (from
             # create_task) is almost certainly already in the past by the time a task that has
@@ -229,7 +249,7 @@ class TaskService:
                 # before commit, so the item exclusion above rolls back too — the user has to
                 # retry the exclude once the balance is topped up, same as they'd retry resume.
                 if task.automation_id is None:
-                    await self.billing_service.ensure_can_spend(user_id=task.user_id)
+                    await self._ensure_can_spend(user_id=task.user_id, api_key_id=task.api_key_id)
                 new_status = TaskStatus.QUEUED
             else:
                 new_status = None
@@ -283,8 +303,9 @@ class TaskService:
             extra_metadata=(
                 {'automation_id': str(task.automation_id)} if task.automation_id else None
             ),
+            api_key_id=task.api_key_id,
         )
-        if not await self.billing_service.can_spend(user_id=task.user_id):
+        if not await self._can_continue(task=task):
             await self.pause_task_system(task_id=task.id)
 
     async def complete_item(
@@ -498,7 +519,7 @@ class TaskService:
             if task.status not in RESTARTABLE_STATUSES:
                 raise InvalidTaskTransitionError
             if task.automation_id is None:
-                await self.billing_service.ensure_can_spend(user_id=task.user_id)
+                await self._ensure_can_spend(user_id=task.user_id, api_key_id=task.api_key_id)
 
             await transaction.task_item_repository.reset_failed_items(task_id=task_id)
             restarted_task = await transaction.task_repository.reset_for_restart(

@@ -62,6 +62,7 @@ class BillingService:
         reference_type: ReferenceType | None = None,
         reference_id: str | None = None,
         extra_metadata: dict | None = None,
+        api_key_id: int | None = None,
     ) -> CreditTransactionEntity | None:
         """No-op (returns None, no transaction/row written) when the action isn't in the catalog,
         its `base_cost` is 0, `quantity` is 0, or rounding brings the charge to 0 — a still
@@ -111,6 +112,7 @@ class BillingService:
                     action_code=action_code,
                     reference_type=reference_type,
                     reference_id=reference_id,
+                    api_key_id=api_key_id,
                     transaction_metadata={
                         'quantity': quantity,
                         'unit_cost': str(unit_cost),
@@ -207,6 +209,16 @@ class BillingService:
         async with self.transaction_manager(use_credit_wallet_repository=True) as transaction:
             return await transaction.credit_wallet_repository.count_balances(
                 low_threshold=self.low_balance_threshold,
+            )
+
+    async def get_spent_by_api_keys(self, api_key_ids: list[int]) -> dict[int, int]:
+        """Потрачено по каждому API-ключу за всё время (`credit_transactions.api_key_id`); ключ без
+        списаний в ответ не попадает."""
+        if not api_key_ids:
+            return {}
+        async with self.transaction_manager(use_credit_transaction_repository=True) as transaction:
+            return await transaction.credit_transaction_repository.get_spent_by_api_keys(
+                api_key_ids=api_key_ids,
             )
 
     async def get_balance(self, user_id: int) -> int:

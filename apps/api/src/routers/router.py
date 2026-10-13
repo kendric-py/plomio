@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from apps.api.src.routers.api_keys.endpoints import router as api_keys_router
 from apps.api.src.routers.audit_log.endpoints import admin_router as audit_log_admin_router
 from apps.api.src.routers.auth.endpoints import router as auth_router
 from apps.api.src.routers.automation.endpoints import router as automation_router
@@ -38,3 +39,4 @@ api_router.include_router(router=proxy_router)
 api_router.include_router(router=proxy_admin_router)
 api_router.include_router(router=overview_admin_router)
 api_router.include_router(router=direct_admin_router)
+api_router.include_router(router=api_keys_router)

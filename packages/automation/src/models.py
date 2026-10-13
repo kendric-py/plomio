@@ -79,6 +79,12 @@ class Automation(BaseSQLModel):
     )
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_check_error: Mapped[str | None] = mapped_column(String, nullable=True)
+    # API-ключ, через который создана автоматизация (packages/api_keys): проверки списывают кредиты
+    # на него, а отзыв/истечение/исчерпание лимита ключа пропускает проверки.
+    api_key_id: Mapped[int | None] = mapped_column(
+        ForeignKey('api_keys.id', ondelete='SET NULL'),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

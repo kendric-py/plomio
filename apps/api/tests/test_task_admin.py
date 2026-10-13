@@ -100,6 +100,7 @@ def _service(rows) -> TaskService:
         transaction_manager=transaction_manager,
         billing_service=MagicMock(),
         notification_service=MagicMock(),
+        api_key_service=MagicMock(),
     )
 
 
@@ -137,6 +138,7 @@ async def test_restart_rejects_non_restartable_status():
         transaction_manager=MagicMock(return_value=context),
         billing_service=MagicMock(),
         notification_service=MagicMock(),
+        api_key_service=MagicMock(),
     )
     with pytest.raises(InvalidTaskTransitionError):
         await service.restart_task(task_id=task.id, ttl=timedelta(seconds=60))

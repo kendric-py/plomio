@@ -67,6 +67,12 @@ class Task(BaseSQLModel):
     # and packages/task/AGENTS.md).
     pricing_dimension_code: Mapped[str | None] = mapped_column(String, nullable=True)
     pricing_dimension_value: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # API-ключ, через который создана задача (packages/api_keys); у проверочной задачи — ключ её
+    # автоматизации. Списания по задаче несут этот ключ, а его лимит/отзыв останавливает задачу.
+    api_key_id: Mapped[int | None] = mapped_column(
+        ForeignKey('api_keys.id', ondelete='SET NULL'),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

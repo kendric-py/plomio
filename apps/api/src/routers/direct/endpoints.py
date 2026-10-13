@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Path, Query
 from pydantic import ValidationError
 
 from apps.api.src.container import DependencyContainer
-from apps.api.src.routers.auth.dependencies import get_current_user
+from apps.api.src.routers.auth.dependencies import get_current_api_key_id, get_current_user
 from apps.api.src.routers.direct.dependencies import (
     build_request,
     charge_direct_request,
@@ -53,6 +53,7 @@ async def get_product(
     billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
     direct_service: DirectService = Depends(Provide[DependencyContainer.direct_service]),
     current_user: UserEntity = Depends(get_current_user),
+    api_key_id: int | None = Depends(get_current_api_key_id),
 ) -> DirectProductResponse:
     request = build_request(DirectRequestType.PRODUCT_PAGE, marketplace, article, None)
     async with track_direct_request(direct_service, request, current_user.id) as call:
@@ -64,7 +65,14 @@ async def get_product(
             call.bad_reply = True
             raise unavailable_error() from error
         call.items_count = 1
-        await charge_direct_request(billing_service, current_user.id, request, quantity=1, call=call)
+        await charge_direct_request(
+            billing_service=billing_service,
+            user_id=current_user.id,
+            request=request,
+            quantity=1,
+            call=call,
+            api_key_id=api_key_id,
+        )
         return DirectProductResponse(request_id=reply.request_id, product=product)
 
 
@@ -78,13 +86,21 @@ async def get_product_reviews(
     billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
     direct_service: DirectService = Depends(Provide[DependencyContainer.direct_service]),
     current_user: UserEntity = Depends(get_current_user),
+    api_key_id: int | None = Depends(get_current_api_key_id),
 ) -> DirectReviewsResponse:
     cursor = decode_cursor(page_key, marketplace, article)
     request = build_request(DirectRequestType.REVIEWS, marketplace, article, cursor)
     async with track_direct_request(direct_service, request, current_user.id) as call:
         reply = await dispatch_request(bus, request, call)
         items = parse_reply_items(reply, ReviewPayload, call)
-        await charge_direct_request(billing_service, current_user.id, request, quantity=len(items), call=call)
+        await charge_direct_request(
+            billing_service=billing_service,
+            user_id=current_user.id,
+            request=request,
+            quantity=len(items),
+            call=call,
+            api_key_id=api_key_id,
+        )
         return DirectReviewsResponse(
             request_id=reply.request_id,
             items=items,
@@ -106,6 +122,7 @@ async def search_products(
     billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
     direct_service: DirectService = Depends(Provide[DependencyContainer.direct_service]),
     current_user: UserEntity = Depends(get_current_user),
+    api_key_id: int | None = Depends(get_current_api_key_id),
 ) -> DirectSearchResponse:
     subject = query.strip()
     if not subject:
@@ -115,7 +132,14 @@ async def search_products(
     async with track_direct_request(direct_service, request, current_user.id) as call:
         reply = await dispatch_request(bus, request, call)
         items = parse_reply_items(reply, ProductPayload, call)
-        await charge_direct_request(billing_service, current_user.id, request, quantity=len(items), call=call)
+        await charge_direct_request(
+            billing_service=billing_service,
+            user_id=current_user.id,
+            request=request,
+            quantity=len(items),
+            call=call,
+            api_key_id=api_key_id,
+        )
         return DirectSearchResponse(
             request_id=reply.request_id,
             items=items,
@@ -133,6 +157,7 @@ async def get_category_products(
     billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
     direct_service: DirectService = Depends(Provide[DependencyContainer.direct_service]),
     current_user: UserEntity = Depends(get_current_user),
+    api_key_id: int | None = Depends(get_current_api_key_id),
 ) -> DirectCategoryResponse:
     subject = url.strip()
     if not subject:
@@ -142,7 +167,14 @@ async def get_category_products(
     async with track_direct_request(direct_service, request, current_user.id) as call:
         reply = await dispatch_request(bus, request, call)
         items = parse_reply_items(reply, ProductPayload, call)
-        await charge_direct_request(billing_service, current_user.id, request, quantity=len(items), call=call)
+        await charge_direct_request(
+            billing_service=billing_service,
+            user_id=current_user.id,
+            request=request,
+            quantity=len(items),
+            call=call,
+            api_key_id=api_key_id,
+        )
         return DirectCategoryResponse(
             request_id=reply.request_id,
             items=items,
@@ -164,6 +196,7 @@ async def get_seller_products(
     billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
     direct_service: DirectService = Depends(Provide[DependencyContainer.direct_service]),
     current_user: UserEntity = Depends(get_current_user),
+    api_key_id: int | None = Depends(get_current_api_key_id),
 ) -> DirectSellerResponse:
     subject = seller.strip()
     if not subject:
@@ -173,7 +206,14 @@ async def get_seller_products(
     async with track_direct_request(direct_service, request, current_user.id) as call:
         reply = await dispatch_request(bus, request, call)
         items = parse_reply_items(reply, ProductPayload, call)
-        await charge_direct_request(billing_service, current_user.id, request, quantity=len(items), call=call)
+        await charge_direct_request(
+            billing_service=billing_service,
+            user_id=current_user.id,
+            request=request,
+            quantity=len(items),
+            call=call,
+            api_key_id=api_key_id,
+        )
         return DirectSellerResponse(
             request_id=reply.request_id,
             items=items,

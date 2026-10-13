@@ -11,7 +11,7 @@ from pydantic import BaseModel, ValidationError
 
 from apps.api.src.config import config
 from apps.api.src.container import DependencyContainer
-from apps.api.src.routers.auth.dependencies import get_current_user
+from apps.api.src.routers.auth.dependencies import get_current_api_key_id, get_current_user
 from apps.api.src.routers.direct.errors import (
     error_for_status,
     insufficient_credits_error,
@@ -20,6 +20,7 @@ from apps.api.src.routers.direct.errors import (
     unavailable_error,
 )
 from core.enums import Marketplace
+from packages.api_keys.src.service import ApiKeyService
 from packages.auth.src.security import auth_config
 from packages.billing.src.enums import ReferenceType
 from packages.billing.src.exceptions import InsufficientCreditsError
@@ -70,12 +71,16 @@ class DirectCall:
 @inject
 async def require_positive_balance(
     billing_service: BillingService = Depends(Provide[DependencyContainer.billing_service]),
+    api_key_service: ApiKeyService = Depends(Provide[DependencyContainer.api_key_service]),
     current_user: UserEntity = Depends(get_current_user),
+    api_key_id: int | None = Depends(get_current_api_key_id),
 ) -> None:
-    """Проверка до обращения к воркеру: при балансе <= 0 или исчерпанном лимите расходов запрос
-    к маркетплейсу не уходит вовсе."""
+    """Проверка до обращения к воркеру: при балансе <= 0, исчерпанном лимите расходов или лимите
+    API-ключа запрос к маркетплейсу не уходит вовсе."""
     try:
         await billing_service.ensure_can_spend(user_id=current_user.id)
+        if api_key_id is not None:
+            await api_key_service.ensure_can_spend(api_key_id=api_key_id)
     except InsufficientCreditsError as error:
         raise insufficient_credits_error(detail=error.detail) from error
     except Exception as error:
@@ -89,6 +94,7 @@ async def charge_direct_request(
     request: DirectRequest,
     quantity: int,
     call: DirectCall | None = None,
+    api_key_id: int | None = None,
 ) -> None:
     """Списание только за успешный ответ (вызывается после разбора `reply`). Сбой списания →
     503: данные клиенту не отдаются, чтобы не раздавать их бесплатно."""
@@ -99,6 +105,7 @@ async def charge_direct_request(
             quantity=quantity,
             reference_type=ReferenceType.DIRECT,
             reference_id=request.request_id,
+            api_key_id=api_key_id,
         )
     except Exception as error:
         logger.exception(

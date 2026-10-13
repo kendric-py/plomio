@@ -4,6 +4,7 @@ from dependency_injector.containers import DeclarativeContainer
 from apps.api.src.config import config
 from core.database import get_database_connection
 from core.transaction_manager import AsyncTransactionManager
+from packages.api_keys.src.service import ApiKeyService
 from packages.audit_log.src.service import AuditLogService
 from packages.auth.src.service import AuthService
 from packages.automation.src.service import AutomationService
@@ -69,6 +70,12 @@ class DependencyContainer(DeclarativeContainer):
         low_balance_threshold=config.BILLING.LOW_BALANCE_THRESHOLD,
     )
 
+    api_key_service = providers.Factory(
+        ApiKeyService,
+        transaction_manager=transaction_manager,
+        billing_service=billing_service,
+    )
+
     auth_service = providers.Factory(
         AuthService,
         transaction_manager=transaction_manager,
@@ -81,6 +88,7 @@ class DependencyContainer(DeclarativeContainer):
         transaction_manager=transaction_manager,
         billing_service=billing_service,
         notification_service=notification_service,
+        api_key_service=api_key_service,
         frontend_base_url=config.REST.FRONTEND_BASE_URL,
     )
 
@@ -121,6 +129,7 @@ class DependencyContainer(DeclarativeContainer):
         result_service=result_service,
         billing_service=billing_service,
         notification_service=notification_service,
+        api_key_service=api_key_service,
         frontend_base_url=config.REST.FRONTEND_BASE_URL,
     )
 

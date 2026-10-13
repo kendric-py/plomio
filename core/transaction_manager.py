@@ -4,6 +4,7 @@ from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from packages.api_keys.src.repository import ApiKeyRepository
 from packages.audit_log.src.repository import AuditLogRepository
 from packages.automation.src.repository import AutomationCheckLogRepository, AutomationRepository
 from packages.billing.src.repository import (
@@ -63,6 +64,7 @@ REPOSITORIES = {
         'session_generation_repository', SessionGenerationRepository,
     ),
     'use_direct_request_repository': ('direct_request_repository', DirectRequestRepository),
+    'use_api_key_repository': ('api_key_repository', ApiKeyRepository),
 }
 
 
@@ -87,6 +89,7 @@ class AsyncTransactionManager:
     proxy_repository: ProxyRepository
     session_generation_repository: SessionGenerationRepository
     direct_request_repository: DirectRequestRepository
+    api_key_repository: ApiKeyRepository
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]):
         self.session_factory = session_factory
@@ -111,6 +114,7 @@ class AsyncTransactionManager:
         self.use_proxy_repository = False
         self.use_session_generation_repository = False
         self.use_direct_request_repository = False
+        self.use_api_key_repository = False
 
     def __call__(
         self,
@@ -134,6 +138,7 @@ class AsyncTransactionManager:
         use_proxy_repository: bool = False,
         use_session_generation_repository: bool = False,
         use_direct_request_repository: bool = False,
+        use_api_key_repository: bool = False,
     ) -> 'AsyncTransactionManager':
         self.use_user_repository = use_user_repository
         self.use_audit_log_repository = use_audit_log_repository
@@ -155,6 +160,7 @@ class AsyncTransactionManager:
         self.use_proxy_repository = use_proxy_repository
         self.use_session_generation_repository = use_session_generation_repository
         self.use_direct_request_repository = use_direct_request_repository
+        self.use_api_key_repository = use_api_key_repository
         return self
 
     def _init_repositories(self, session: AsyncSession) -> None:

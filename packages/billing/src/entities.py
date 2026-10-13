@@ -88,6 +88,10 @@ class CreditTransactionEntity(BaseModel):
         default=None,
         description='Идентификатор администратора, выдавшего начисление вручную',
     )
+    api_key_id: Optional[int] = Field(
+        default=None,
+        description='API-ключ, через который создана тарифицированная работа; None — не через ключ',
+    )
     created_at: Optional[datetime] = Field(default=None, description='Время создания транзакции')
 
 
@@ -120,6 +124,9 @@ class TransactionFilters(BaseModel):
     reference_type: ReferenceType | None = Field(default=None, description='Тип источника')
     reference_id: str | None = Field(default=None, description='Идентификатор источника')
     kind: TransactionKind | None = Field(default=None, description='Списания или начисления')
+    api_key_id: int | None = Field(
+        default=None, description='Только траты через этот API-ключ (packages/api_keys)',
+    )
     date_from: datetime | None = Field(default=None, description='Начало периода, включительно')
     date_to: datetime | None = Field(default=None, description='Конец периода, включительно')
 

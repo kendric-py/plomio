@@ -63,6 +63,10 @@ class TaskEntity(BaseModel):
         description='Значение измерения billing-множителя на момент создания задачи (приоритет '
         'или частота проверки автоматизации)',
     )
+    api_key_id: Optional[int] = Field(
+        default=None,
+        description='API-ключ, через который создана задача (у проверки — ключ автоматизации)',
+    )
     created_at: Optional[datetime] = Field(default=None, description='Время создания задачи')
     updated_at: Optional[datetime] = Field(
         default=None,

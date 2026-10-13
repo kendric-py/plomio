@@ -192,6 +192,8 @@ class CreditTransactionRepository(BaseRepository[CreditTransaction, CreditTransa
             statement = statement.where(self.model.amount < 0)
         elif filters.kind == TransactionKind.GRANT:
             statement = statement.where(self.model.amount > 0)
+        if filters.api_key_id is not None:
+            statement = statement.where(self.model.api_key_id == filters.api_key_id)
         if filters.date_from is not None:
             statement = statement.where(self.model.created_at >= filters.date_from)
         if filters.date_to is not None:
@@ -327,6 +329,20 @@ class CreditTransactionRepository(BaseRepository[CreditTransaction, CreditTransa
             .subquery()
         )
         return await self.session.scalar(select(func.count()).select_from(groups))
+
+    async def get_spent_by_api_keys(self, api_key_ids: list[int]) -> dict[int, int]:
+        """`{api_key_id: потрачено}` (положительные числа) одним запросом; ключи без списаний в
+        ответ не попадают."""
+
+        if not api_key_ids:
+            return {}
+        statement = (
+            select(self.model.api_key_id, func.sum(-self.model.amount))
+            .where(self.model.api_key_id.in_(api_key_ids), self.model.amount < 0)
+            .group_by(self.model.api_key_id)
+        )
+        rows = await self.session.execute(statement)
+        return {api_key_id: int(spent) for api_key_id, spent in rows}
 
     async def get_spent_since(self, user_id: int, since: datetime) -> int:
         """Сколько пользователь потратил с момента `since` (положительное число)."""

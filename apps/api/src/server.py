@@ -215,6 +215,7 @@ def configure_rest_server() -> FastAPI:
             'apps.api.src.routers.direct_admin.endpoints',
             'apps.api.src.routers.proxy.endpoints',
             'apps.api.src.routers.overview.endpoints',
+            'apps.api.src.routers.api_keys.endpoints',
         ],
     )
     app.add_middleware(

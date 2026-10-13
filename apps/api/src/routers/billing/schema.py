@@ -54,6 +54,9 @@ class CreditTransactionResponse(BaseModel):
     )
     reference_id: str | None = Field(description='Идентификатор сущности-источника')
     transaction_metadata: dict | None = Field(description='Расшифровка расчёта либо комментарий')
+    api_key_id: int | None = Field(
+        default=None, description='API-ключ, через который создана работа; null — не через ключ',
+    )
     created_at: datetime = Field(description='Время создания транзакции')
 
 

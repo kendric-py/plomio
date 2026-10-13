@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from apps.api.src.config import config
 from apps.api.src.container import DependencyContainer
-from apps.api.src.routers.auth.dependencies import get_current_user
+from apps.api.src.routers.auth.dependencies import get_current_api_key_id, get_current_user
 from apps.api.src.routers.automation.schema import (
     AutomationDetailResponse,
     AutomationHistoryListResponse,
@@ -32,6 +32,7 @@ from apps.api.src.routers.automation.dependencies import (
 )
 from apps.api.src.routers.schema import DateRange, PaginationMeta
 from core.exceptions import ObjectNotFoundError
+from packages.api_keys.src.exceptions import ApiKeyCreditLimitExceededError, ApiKeyInactiveError
 from packages.automation.src.entities import AutomationCreateData, AutomationListFilters
 from packages.automation.src.exceptions import DuplicateAutomationError, InvalidCheckFrequencyError
 from packages.automation.src.service import AutomationService
@@ -45,6 +46,8 @@ BULK_ERROR_CODES = {
     DuplicateAutomationError: BulkAutomationErrorCode.DUPLICATE,
     InsufficientCreditsError: BulkAutomationErrorCode.INSUFFICIENT_CREDITS,
     SpendingLimitExceededError: BulkAutomationErrorCode.SPENDING_LIMIT,
+    ApiKeyCreditLimitExceededError: BulkAutomationErrorCode.API_KEY_CREDIT_LIMIT,
+    ApiKeyInactiveError: BulkAutomationErrorCode.API_KEY_INACTIVE,
 }
 
 
@@ -53,6 +56,7 @@ BULK_ERROR_CODES = {
 async def create_automation(
     body: CreateAutomationRequest,
     current_user: UserEntity = Depends(get_current_user),
+    api_key_id: int | None = Depends(get_current_api_key_id),
     automation_service: AutomationService = Depends(
         Provide[DependencyContainer.automation_service],
     ),
@@ -66,6 +70,7 @@ async def create_automation(
             check_frequency_minutes=body.check_frequency_minutes,
             history_retention_days=body.history_retention_days,
             min_check_frequency_minutes=config.AUTOMATION.MIN_CHECK_FREQUENCY_MINUTES,
+            api_key_id=api_key_id,
         )
     except InvalidCheckFrequencyError as error:
         raise HTTPException(
@@ -93,6 +98,7 @@ async def create_automation(
 async def bulk_create_automations(
     body: BulkCreateAutomationsRequest,
     current_user: UserEntity = Depends(get_current_user),
+    api_key_id: int | None = Depends(get_current_api_key_id),
     automation_service: AutomationService = Depends(
         Provide[DependencyContainer.automation_service],
     ),
@@ -105,6 +111,7 @@ async def bulk_create_automations(
             AutomationCreateData.model_validate(obj=item.model_dump()) for item in body.items
         ],
         min_check_frequency_minutes=config.AUTOMATION.MIN_CHECK_FREQUENCY_MINUTES,
+        api_key_id=api_key_id,
     )
     results = [
         BulkAutomationResult(

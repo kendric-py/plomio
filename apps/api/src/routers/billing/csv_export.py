@@ -16,6 +16,7 @@ HEADER = [
     'Цена за единицу',
     'Множитель',
     'Комментарий',
+    'API-ключ',
 ]
 
 # BOM — чтобы Excel открыл файл в UTF-8, а не в системной кодировке.
@@ -43,6 +44,7 @@ def _row(transaction: CreditTransactionEntity) -> list:
         metadata.get('unit_cost', ''),
         metadata.get('multiplier', ''),
         metadata.get('comment', ''),
+        transaction.api_key_id if transaction.api_key_id is not None else '',
     ]
 
 

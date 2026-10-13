@@ -5,6 +5,7 @@ from core.enums import Marketplace
 from core.exceptions import DuplicatedObjectError, ObjectNotFoundError
 from core.marketplace_article import extract_article, normalize_product_input
 from core.transaction_manager import AsyncTransactionManager
+from packages.api_keys.src.service import ApiKeyService
 from packages.automation.src.entities import (
     AdminAutomationFilters,
     AutomationCheckLogEntity,
@@ -152,6 +153,7 @@ class AutomationService:
         result_service: ResultService,
         billing_service: BillingService,
         notification_service: NotificationService,
+        api_key_service: ApiKeyService,
         frontend_base_url: str = '',
     ):
         self.transaction_manager = transaction_manager
@@ -159,7 +161,13 @@ class AutomationService:
         self.result_service = result_service
         self.billing_service = billing_service
         self.notification_service = notification_service
+        self.api_key_service = api_key_service
         self.frontend_base_url = frontend_base_url
+
+    async def _ensure_can_spend(self, user_id: int, api_key_id: int | None) -> None:
+        await self.billing_service.ensure_can_spend(user_id=user_id)
+        if api_key_id is not None:
+            await self.api_key_service.ensure_can_spend(api_key_id=api_key_id)
 
     async def create_automation(
         self,
@@ -170,11 +178,12 @@ class AutomationService:
         check_frequency_minutes: int,
         history_retention_days: int,
         min_check_frequency_minutes: int,
+        api_key_id: int | None = None,
     ) -> AutomationEntity:
         if check_frequency_minutes < min_check_frequency_minutes:
             raise InvalidCheckFrequencyError
 
-        await self.billing_service.ensure_can_spend(user_id=user_id)
+        await self._ensure_can_spend(user_id=user_id, api_key_id=api_key_id)
 
         article = extract_article(marketplace=marketplace, input_value=input_value)
         input_value = normalize_product_input(marketplace, input_value)
@@ -197,6 +206,7 @@ class AutomationService:
                         check_frequency_minutes=check_frequency_minutes,
                         history_retention_days=history_retention_days,
                         next_check_at=datetime.now(tz=timezone.utc),
+                        api_key_id=api_key_id,
                     ),
                 )
             except DuplicatedObjectError as error:
@@ -211,6 +221,7 @@ class AutomationService:
             action_code='automation.create',
             reference_type=ReferenceType.AUTOMATION,
             reference_id=str(created_automation.id),
+            api_key_id=api_key_id,
         )
         return created_automation
 
@@ -219,6 +230,7 @@ class AutomationService:
         user_id: int,
         items: list[AutomationCreateData],
         min_check_frequency_minutes: int,
+        api_key_id: int | None = None,
     ) -> list[BulkCreateResult]:
         """Batch counterpart of `create_automation`: one duplicate lookup and one multi-row INSERT
         for the whole batch instead of a query per item. Result is index-aligned with `items`;
@@ -233,7 +245,7 @@ class AutomationService:
         candidates: list[tuple[int, AutomationEntity]] = []
         spend_block: type[InsufficientCreditsError] | None = None
         try:
-            await self.billing_service.ensure_can_spend(user_id=user_id)
+            await self._ensure_can_spend(user_id=user_id, api_key_id=api_key_id)
         except InsufficientCreditsError as error:
             spend_block = type(error)
         now = datetime.now(tz=timezone.utc)
@@ -262,6 +274,7 @@ class AutomationService:
                 check_frequency_minutes=item.check_frequency_minutes,
                 history_retention_days=item.history_retention_days,
                 next_check_at=now,
+                api_key_id=api_key_id,
             )))
 
         if candidates:
@@ -292,6 +305,7 @@ class AutomationService:
                     action_code='automation.create',
                     reference_type=ReferenceType.AUTOMATION,
                     reference_id=str(automation.id),
+                    api_key_id=api_key_id,
                 )
 
         return [result for result in results if result is not None]
@@ -599,6 +613,13 @@ class AutomationService:
         blocked_reasons = await self.billing_service.get_blocked_user_ids(
             user_ids=list({automation.user_id for automation in claimed_automations}),
         )
+        # Автоматизации, созданные через API-ключ, ещё и под лимитом/сроком своего ключа.
+        blocked_api_keys = await self.api_key_service.get_blocked_api_key_ids(
+            api_key_ids=[
+                automation.api_key_id for automation in claimed_automations
+                if automation.api_key_id is not None
+            ],
+        )
 
         dispatched_count = 0
         for automation in claimed_automations:
@@ -606,12 +627,15 @@ class AutomationService:
             # this guard — an automation skipped here for insufficient credits simply sits out
             # this cycle and is reconsidered at its next (already-advanced) next_check_at, not
             # retried immediately; see packages/billing/AGENTS.md.
-            if automation.user_id in blocked_reasons:
+            block_reason = blocked_reasons.get(automation.user_id)
+            if block_reason is None and automation.api_key_id in blocked_api_keys:
+                block_reason = blocked_api_keys[automation.api_key_id].value
+            if block_reason is not None:
                 async with self.transaction_manager(use_automation_repository=True) as transaction:
                     await transaction.automation_repository.finalize_check(
                         automation_id=automation.id,
                         last_checked_at=datetime.now(tz=timezone.utc),
-                        last_check_error=blocked_reasons[automation.user_id],
+                        last_check_error=block_reason,
                         baseline_updates={},
                     )
                     await self.transaction_manager.commit()
@@ -628,6 +652,7 @@ class AutomationService:
                 automation_id=automation.id,
                 pricing_dimension_code=PricingDimension.AUTOMATION_CHECK_FREQUENCY.value,
                 pricing_dimension_value=automation.check_frequency_minutes,
+                api_key_id=automation.api_key_id,
             )
             async with self.transaction_manager(use_automation_repository=True) as transaction:
                 await transaction.automation_repository.set_pending_task(

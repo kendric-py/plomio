@@ -398,6 +398,18 @@ checked_at DESC)`, `WHERE rn <= 5`), а не по отдельному запр�
 - Квоты на количество активных автоматизаций по маркетплейсу — не реализованы в этой итерации
   (тарификация сейчас покрывает только кредиты, см. "Тарификация — `packages/billing`" ниже).
 
+## API-ключи — `packages/api_keys`
+
+`Automation.api_key_id` (FK `SET NULL`) — ключ, через который создана автоматизация (одиночно или
+пакетом: `create_automation`/`bulk_create_automations(api_key_id=...)`). Создание проверяет ключ
+вместе с балансом (`_ensure_can_spend`; в пакете ошибка ключа отказывает всем элементам, коды
+`API_KEY_CREDIT_LIMIT`/`API_KEY_INACTIVE`), `automation.create` списывается с ключом.
+`dispatch_due_checks` проверяет ключи батчем (`ApiKeyService.get_blocked_api_key_ids`) после
+блокировок пользователя: проверка автоматизации с отозванным/истёкшим/исчерпанным ключом
+пропускается (`last_check_error = 'api_key_inactive' | 'api_key_credit_limit'`), иначе проверочная
+задача создаётся с `api_key_id` автоматизации — её результаты списываются на ключ. Подробнее —
+[`packages/api_keys/AGENTS.md`](../api_keys/AGENTS.md).
+
 ## Тарификация — `packages/billing`
 
 `AutomationService` инжектит `BillingService` (см. [`packages/billing/AGENTS.md`](../billing/AGENTS.md)

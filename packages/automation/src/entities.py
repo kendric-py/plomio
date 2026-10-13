@@ -82,6 +82,10 @@ class AutomationEntity(BaseModel):
         default=None,
         description='Причина провала последней проверки (проверка, не автоматизация в целом)',
     )
+    api_key_id: Optional[int] = Field(
+        default=None,
+        description='API-ключ, через который создана автоматизация; на него идут траты её проверок',
+    )
     created_at: Optional[datetime] = Field(default=None, description='Время создания автоматизации')
     updated_at: Optional[datetime] = Field(
         default=None,

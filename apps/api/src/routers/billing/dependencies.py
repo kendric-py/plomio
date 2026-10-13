@@ -1,6 +1,6 @@
 from fastapi import Depends, HTTPException, Query, status
 
-from apps.api.src.routers.auth.dependencies import get_current_user
+from apps.api.src.routers.auth.dependencies import get_session_user
 from apps.api.src.routers.dependencies import get_date_range
 from apps.api.src.routers.schema import DateRange
 from packages.billing.src.entities import TransactionFilters
@@ -10,8 +10,9 @@ from packages.user.src.enums import UserRole
 
 
 async def get_current_admin_user(
-    current_user: UserEntity = Depends(get_current_user),
+    current_user: UserEntity = Depends(get_session_user),
 ) -> UserEntity:
+    """Админка — только по JWT: API-ключ администратора не даёт админских прав."""
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Admin access required')
     return current_user
@@ -25,6 +26,9 @@ def get_transaction_filters(
     kind: TransactionKind | None = Query(
         default=None, description='spend — только списания, grant — только начисления',
     ),
+    api_key_id: int | None = Query(
+        default=None, description='Только траты через этот API-ключ (id из /api/api-keys)',
+    ),
     date_range: DateRange = Depends(get_date_range),
 ) -> TransactionFilters:
     """Общие фильтры журнала транзакций пользователя (AND) для списка, группировки и экспорта."""
@@ -32,6 +36,7 @@ def get_transaction_filters(
         reference_type=reference_type,
         reference_id=reference_id,
         kind=kind,
+        api_key_id=api_key_id,
         date_from=date_range.date_from,
         date_to=date_range.date_to,
     )
