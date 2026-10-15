@@ -25,6 +25,7 @@ class ResultItem(BaseSQLModel):
         PGUUID(as_uuid=True),
         ForeignKey('task_items.id', ondelete='CASCADE'),
         nullable=False,
+        index=True,
     )
     marketplace: Mapped[Marketplace] = mapped_column(SqlEnum(Marketplace), nullable=False)
     parse_type: Mapped[ParseType] = mapped_column(SqlEnum(ParseType), nullable=False)

@@ -59,6 +59,7 @@ class Task(BaseSQLModel):
         PGUUID(as_uuid=True),
         ForeignKey('automations.id', ondelete='SET NULL'),
         nullable=True,
+        index=True,
     )
     # Set once at creation, never changed afterwards — snapshot of which billing dimension prices
     # this task's results (packages/billing) and its value at that moment. Denormalized here so

@@ -76,6 +76,7 @@ class Automation(BaseSQLModel):
         PGUUID(as_uuid=True),
         ForeignKey('tasks.id', ondelete='SET NULL'),
         nullable=True,
+        index=True,
     )
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_check_error: Mapped[str | None] = mapped_column(String, nullable=True)

@@ -186,6 +186,10 @@ TTL: задача, не взятая в работу (`claim_next`) до ист�
 - При удалении автоматизации её проверочные задачи удаляются вместе с ней
   (`AutomationService.delete_automation` → `TaskRepository.delete_by_automation_id`, `task_items` и
   `result_items` — каскадом), иначе FK `SET NULL` превращал бы их в «обычные» задачи пользователя.
+  Каскад держится на индексах ссылающейся стороны FK — `result_items.task_item_id`,
+  `tasks.automation_id`, `automations.pending_task_id`: без них Postgres сканирует таблицу целиком
+  на каждую удаляемую строку (удаление автоматизации с ~1400 проверками — ~130 с против ~1 с).
+  Новый FK, по которому идёт каскад или поиск, заводить сразу с индексом.
   Задачи, осиротевшие до этого изменения (`automation_id IS NULL` при `pricing_dimension_code =
   'automation_check_frequency'`), остаются — их надо чистить отдельно. Аудит админских действий не пишется:
   `audit_logs.target_id` — `int`, а `Task.id` — `UUID`.
